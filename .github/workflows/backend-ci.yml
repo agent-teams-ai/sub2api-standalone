@@ -61,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: '9.15.9'
       - name: Setup Node.js
@@ -141,7 +141,7 @@ jobs:
           - 127.0.0.1:6379:6379
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -155,17 +155,17 @@ jobs:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          run_app() { # name volume database image
+          run_app() { # name volume database image redis-db
             docker run -d --name "$1" --network host -v "$2:/app/data" \
               -e AUTO_SETUP=true -e TZ=UTC -e SERVER_HOST=127.0.0.1 -e SERVER_PORT=8080 -e SERVER_MODE=release \
               -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 -e DATABASE_USER=sub2api \
               -e DATABASE_PASSWORD=sub2api-ci-only -e DATABASE_DBNAME="$3" -e DATABASE_SSLMODE=disable \
-              -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+              -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 -e REDIS_DB="$5" \
               -e ADMIN_EMAIL=ci-admin@example.com -e ADMIN_PASSWORD=ci-only-Passw0rd-1 "$4" >/dev/null
           }
           wait_ready() { # name
             for _ in $(seq 1 120); do
-              if curl -fsS http://127.0.0.1:8080/health | grep -q '"ok"'; then return 0; fi
+              if curl -fsS --max-time 10 http://127.0.0.1:8080/health | grep -q '"ok"'; then return 0; fi
               if [ "$(docker inspect -f '{{.State.Running}}' "$1")" != true ]; then break; fi
               sleep 2
             done
@@ -174,9 +174,9 @@ jobs:
           }
           stop_app() { docker stop -t 30 "$1" >/dev/null; docker logs "$1" > "$RUNNER_TEMP/$1.log" 2>&1; docker rm "$1" >/dev/null; }
           check_app() { # name database
-            index="$(curl -fsS http://127.0.0.1:8080/)"
+            index="$(curl -fsS --max-time 30 http://127.0.0.1:8080/)"
             printf '%s' "$index" | grep -q '<div id="app"'
-            login="$(curl -fsS -X POST http://127.0.0.1:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+            login="$(curl -fsS --max-time 30 -X POST http://127.0.0.1:8080/api/v1/auth/login -H 'Content-Type: application/json' \
               -d '{"email":"ci-admin@example.com","password":"ci-only-Passw0rd-1"}')"
             printf '%s' "$login" | grep -Eq '"access_token":"[^"]+"'
             missing=0
@@ -197,13 +197,21 @@ jobs:
 
           echo '== fresh install of the exact commit'
           docker volume create sub2api-fresh >/dev/null
-          run_app fresh sub2api-fresh sub2api_fresh sub2api:head
+          run_app fresh sub2api-fresh sub2api_fresh sub2api:head 0
           wait_ready fresh
           check_app fresh sub2api_fresh
           stop_app fresh
           clean_log fresh
 
-          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ] || [ "$BASE_SHA" = "$GITHUB_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && ! git cat-file -e "${BASE_SHA:-missing}^{commit}"; then
+            echo "::error::pull request base ${BASE_SHA:-<empty>} is not available for the upgrade smoke"
+            exit 1
+          fi
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            # Feature branch pushes upgrade from main, never from their own previous push.
+            BASE_SHA="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "$GITHUB_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}"; then
             echo 'No distinct base commit for this event; upgrade smoke skipped.'
             exit 0
           fi
@@ -213,10 +221,10 @@ jobs:
             --build-arg COMMIT="$BASE_SHA" -t sub2api:base "$RUNNER_TEMP/base"
           docker exec "$PG_CONTAINER" createdb -U sub2api sub2api_upgrade
           docker volume create sub2api-upgrade >/dev/null
-          run_app base sub2api-upgrade sub2api_upgrade sub2api:base
+          run_app base sub2api-upgrade sub2api_upgrade sub2api:base 1
           wait_ready base
           stop_app base
-          run_app upgraded sub2api-upgrade sub2api_upgrade sub2api:head
+          run_app upgraded sub2api-upgrade sub2api_upgrade sub2api:head 1
           wait_ready upgraded
           check_app upgraded sub2api_upgrade
           stop_app upgraded
