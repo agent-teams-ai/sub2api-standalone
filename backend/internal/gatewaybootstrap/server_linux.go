@@ -239,12 +239,26 @@ func Run(ctx context.Context, options Options) error {
 			return ErrDenied
 		}
 	}
+	if oauth.cleanup == nil {
+		if authority, ok := oauth.owners.(NativeOAuthCleanupAuthority); ok {
+			oauth.cleanup = authority.AuthorizeNativeOAuthCleanup
+		}
+	}
 	a.compose(&tcfg)
-	transport, err := gatewaytransport.New(ctx, tcfg)
+	prepared, err := gatewaytransport.Prepare(ctx, tcfg)
 	if err != nil || ctx.Err() != nil {
 		return ErrDenied
 	}
-	handler := privateHandler(c.Profile, adminSvc, gateway, custody, transport, auth, oauth)
+	oauth.connections, err = composePrivateConnectionBindings(c, prepared.QualifiedProfiles(), prepared.Enrollment(), oauth, custody, auth)
+	if err != nil {
+		return ErrDenied
+	}
+	catalog, err := privateCatalogOnly(privateAccountCapabilitiesForProfiles(prepared.QualifiedProfiles(), oauth), oauth.connections.capabilities, auth)
+	if err != nil {
+		return ErrDenied
+	}
+	handler := &privateStartupHandler{}
+	handler.install(catalog)
 	listener, err := net.Listen("tcp", c.ListenAddress)
 	if err != nil {
 		return ErrDenied
@@ -262,6 +276,11 @@ func Run(ctx context.Context, options Options) error {
 		}
 	}
 	defer closeServers()
+	go func() { served <- server.Serve(&boundedListener{Listener: listener, slots: make(chan struct{}, 128)}) }()
+	transport, err := prepared.Start(ctx)
+	if err != nil || ctx.Err() != nil {
+		return ErrDenied
+	}
 	if c.PublicListenAddress != "" {
 		publicListener, listenErr := net.Listen("tcp", c.PublicListenAddress)
 		if listenErr != nil {
@@ -273,7 +292,7 @@ func Run(ctx context.Context, options Options) error {
 			served <- publicServer.Serve(&boundedListener{Listener: publicListener, slots: make(chan struct{}, publicSocketBudget(c.PublicMaxActive))})
 		}()
 	}
-	go func() { served <- server.Serve(&boundedListener{Listener: listener, slots: make(chan struct{}, 128)}) }()
+	handler.install(privateHandler(c.Profile, adminSvc, gateway, custody, transport, auth, oauth))
 	if ctx.Err() != nil {
 		closeServers()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -348,6 +367,15 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 		c.Header("Cache-Control", "private, no-store")
 		c.JSON(http.StatusOK, capabilities)
 	})
+	if oauth != nil && oauth.connections != nil {
+		router.GET("/private/native/v2/account-capabilities", authorizeCandidate, func(c *gin.Context) {
+			c.Header("Cache-Control", "private, no-store")
+			c.JSON(http.StatusOK, oauth.connections.capabilities)
+		})
+		router.POST("/private/native/v2/connections/:action", func(c *gin.Context) {
+			oauth.connections.ServeHTTP(c.Writer, c.Request)
+		})
+	}
 	secondary, hasOpenRouter := transport.OpenRouterProfile()
 	var second []admin.GatewayNativeProfile
 	if hasOpenRouter {
@@ -604,6 +632,27 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 			return
 		}
 		switch {
+		case oauth != nil && oauth.connections != nil && strings.HasPrefix(r.URL.Path, privateConnectionPrefix):
+			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+				http.Error(w, "private native bootstrap denied", http.StatusBadRequest)
+				return
+			}
+			controller := http.NewResponseController(w)
+			if controller.SetReadDeadline(time.Now().Add(5*time.Second)) != nil || controller.SetWriteDeadline(time.Now().Add(15*time.Second)) != nil {
+				http.Error(w, "private native bootstrap denied", http.StatusServiceUnavailable)
+				return
+			}
+			if r.URL.Path == privateConnectionPrefix+"cleanup" {
+				cleanup.ServeHTTP(w, r)
+			} else {
+				management.ServeHTTP(w, r)
+			}
+		case oauth != nil && oauth.connections != nil && r.URL.Path == "/private/native/v2/account-capabilities":
+			if r.Method != http.MethodGet {
+				http.Error(w, "private native bootstrap denied", http.StatusBadRequest)
+				return
+			}
+			management.ServeHTTP(w, r)
 		case r.URL.Path == "/private/native/v1/account-capabilities" || oauth != nil && (oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh-capabilities" || oauth.limits != nil && r.URL.Path == "/private/native/v1/account-limits/capabilities" || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/capabilities"):
 			if r.Method != http.MethodGet {
 				http.Error(w, "private native bootstrap denied", 400)
@@ -820,6 +869,7 @@ type privateOAuth struct {
 	grok          *service.GatewayNativeGrokOAuth
 	limitsV2      *service.GatewayAccountLimitsReaderV2
 	info          *service.GatewayAccountInfoReader
+	connections   *privateConnections
 }
 
 func composePrivateOAuth(repo service.AccountRepository, db *sql.DB, custody *service.GatewayNativeCredentialCustody, cfg *OAuthConfig, owners NativeOAuthOwnerAuthority) (*privateOAuth, error) {

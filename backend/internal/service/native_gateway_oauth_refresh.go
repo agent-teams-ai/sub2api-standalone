@@ -19,21 +19,28 @@ import (
 // Engine credential version is independent of immutable birth generation and
 // owner authorizationEpoch. This component has no inference/activation route.
 type GatewayNativeOAuthRefreshIntent struct {
-	Scope            GatewayNativeCredentialScope
-	AccountID        int64
-	CreatedAt        time.Time
-	ExpectedVersion  int64
-	Operation        string
-	Intent           string
-	ConnectOperation string
-	info             *gatewayOAuthRefreshInfo
+	NativePublication *GatewayConnectionPublication
+	Scope             GatewayNativeCredentialScope
+	AccountID         int64
+	CreatedAt         time.Time
+	ExpectedVersion   int64
+	Operation         string
+	Intent            string
+	ConnectOperation  string
+	info              *gatewayOAuthRefreshInfo
+	nativeInfo        []GatewayAccountInfoObservation
 }
 
 func (in GatewayNativeOAuthRefreshIntent) Authorized(ctx context.Context) bool {
-	return GatewayNativeOAuthScopeAuthorized(ctx, in.Scope) && in.AccountID > 0 &&
+	return GatewayNativeOAuthScopeAuthorized(ctx, in.Scope) &&
+		(in.NativePublication == nil || GatewayConnectionPublicationValid(*in.NativePublication) && GatewayConnectionSelectionAuthorized(ctx, &in.NativePublication.Connection)) && in.AccountID > 0 &&
 		!in.CreatedAt.IsZero() && in.CreatedAt.Nanosecond()%1000 == 0 &&
 		in.ExpectedVersion >= 1 && in.ExpectedVersion < math.MaxInt64 &&
 		GatewayNativeCredentialRefValid(in.Operation) && GatewayNativeCredentialRefValid(in.Intent)
+}
+
+func (in GatewayNativeOAuthRefreshIntent) NativeAccountInfoObservations() []GatewayAccountInfoObservation {
+	return append([]GatewayAccountInfoObservation(nil), in.nativeInfo...)
 }
 
 // Only safe operation metadata leaves Refresh. Fence/envelope/principal are

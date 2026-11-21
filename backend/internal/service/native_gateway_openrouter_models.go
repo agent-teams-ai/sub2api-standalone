@@ -146,7 +146,14 @@ func (s *OpenAIGatewayService) QualifyGatewayOpenRouterModel(ctx context.Context
 	if s == nil || !scope.valid() || !GatewayOpenRouterModelValid(model) {
 		return ErrGatewayNativeIdentity
 	}
-	result := s.gatewayOpenRouterModels.read(ctx, gatewayOpenRouterModelsPrincipal(scope, envelope), true)
+	return s.qualifyGatewayOpenRouterCatalog(ctx, gatewayOpenRouterModelsPrincipal(scope, envelope), model)
+}
+
+func (s *OpenAIGatewayService) qualifyGatewayOpenRouterCatalog(ctx context.Context, principal, model string) error {
+	if s == nil || !GatewayOpenRouterModelValid(model) || principal == "" {
+		return ErrGatewayNativeIdentity
+	}
+	result := s.gatewayOpenRouterModels.read(ctx, principal, true)
 	if result.Status != "snapshot" || result.Models == nil {
 		return ErrGatewayNativeIdentity
 	}

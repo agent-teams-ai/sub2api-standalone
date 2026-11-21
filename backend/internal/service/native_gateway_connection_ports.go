@@ -85,7 +85,7 @@ type GatewayNativeConnectionAdapter struct {
 // credential lifecycle is actually connected. Inventory membership is not
 // sufficient to advertise the method, and nil operations are never successes.
 func (a GatewayNativeConnectionAdapter) Supports(method GatewayConnectionMethodDefinition) bool {
-	if a.ProfileID == "" || a.Purpose == "" || a.DispatchFamily == "" || a.AuthFamily == "" ||
+	if a.ProfileID == "" || a.Purpose == "" || a.DispatchFamily == "" ||
 		a.Begin == nil || a.Read == nil || a.Submit == nil || a.Describe == nil || a.Refresh == nil || a.Custody == nil || a.Cleanup == nil {
 		return false
 	}

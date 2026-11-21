@@ -209,6 +209,21 @@ func (r *accountRepository) gatewayRefreshTx(ctx context.Context, in service.Gat
 		}
 		return nil, service.ErrGatewayNativeIdentity
 	}
+	var publication []byte
+	if tx.QueryRowContext(ctx, `SELECT COALESCE(credentials->'connection_publication','null'::jsonb)::text FROM accounts WHERE id=$1`, id).Scan(&publication) != nil {
+		_ = tx.Rollback()
+		return nil, service.ErrGatewayNativeIdentity
+	}
+	if string(publication) != "null" {
+		actual, decodeErr := service.DecodeGatewayConnectionPublication(publication)
+		if decodeErr != nil || in.NativePublication == nil || actual != *in.NativePublication {
+			_ = tx.Rollback()
+			return nil, service.ErrGatewayNativeIdentity
+		}
+	} else if in.NativePublication != nil {
+		_ = tx.Rollback()
+		return nil, service.ErrGatewayNativeIdentity
+	}
 	return tx, nil
 }
 func gatewayRefreshRead(ctx context.Context, tx *sql.Tx, in service.GatewayNativeOAuthRefreshIntent) (service.GatewayNativeOAuthRefreshPrepared, bool, error) {
@@ -292,12 +307,20 @@ func (r *accountRepository) PrepareGatewayNativeOAuthRefresh(ctx context.Context
 	}
 	out.Claimed = claimed
 	if claimed {
-		err = tx.QueryRowContext(ctx, `SELECT a.credentials->>'oauth_bundle',r.issuer,r.subject
+		if in.NativePublication != nil {
+			physical, nativeErr := nativeConnectionPhysicalTx(ctx, tx, in.Scope, in.ConnectOperation, false)
+			if nativeErr != nil || physical.Account.ID != in.AccountID || !physical.Account.CreatedAt.Equal(in.CreatedAt) || physical.CredentialVersion != in.ExpectedVersion || physical.Native.Publication != *in.NativePublication {
+				return empty, service.ErrGatewayNativeIdentity
+			}
+			out.Envelope, out.Issuer, out.Subject = physical.Account.GetCredential(service.GatewayConnectionBundleCredentialKey), "native:"+physical.Native.Publication.AuthFamily, in.Scope.Account
+		} else {
+			err = tx.QueryRowContext(ctx, `SELECT a.credentials->>'oauth_bundle',r.issuer,r.subject
    FROM accounts a JOIN gateway_oauth_identity_reservations r ON r.account_id=a.id
    WHERE a.id=$1 AND a.created_at=$2 AND gateway_oauth_credential_version(a.credentials)=$3`, in.AccountID, in.CreatedAt, in.ExpectedVersion).
-			Scan(&out.Envelope, &out.Issuer, &out.Subject)
-		if err != nil {
-			return empty, service.ErrGatewayNativeIdentity
+				Scan(&out.Envelope, &out.Issuer, &out.Subject)
+			if err != nil {
+				return empty, service.ErrGatewayNativeIdentity
+			}
 		}
 	}
 	if tx.Commit() != nil {
@@ -367,14 +390,33 @@ func (r *accountRepository) CompleteGatewayNativeOAuthRefresh(ctx context.Contex
 		return empty, service.ErrGatewayOAuthConflict
 	}
 	credentials, _ := json.Marshal(map[string]string{"oauth_bundle": envelope, "credential_version": strconv.FormatInt(in.ExpectedVersion+1, 10)})
+	versionFunction := "gateway_oauth_credential_version"
+	if in.NativePublication != nil {
+		publication, pubErr := service.GatewayConnectionPublicationCredentials(*in.NativePublication)
+		if pubErr != nil {
+			return empty, pubErr
+		}
+		credentials, _ = json.Marshal(map[string]any{service.GatewayConnectionBundleCredentialKey: envelope,
+			service.GatewayConnectionPublicationCredentialKey: publication, service.GatewayConnectionRevisionCredentialKey: strconv.FormatInt(in.ExpectedVersion+1, 10)})
+		versionFunction = "gateway_native_connection_credential_version"
+	}
 	result, err = tx.ExecContext(ctx, `UPDATE accounts SET credentials=$1::jsonb,updated_at=clock_timestamp()
-  WHERE id=$2 AND created_at=$3 AND gateway_oauth_credential_version(credentials)=$4`, string(credentials), in.AccountID, in.CreatedAt, in.ExpectedVersion)
+  WHERE id=$2 AND created_at=$3 AND `+versionFunction+`(credentials)=$4`, string(credentials), in.AccountID, in.CreatedAt, in.ExpectedVersion)
 	if err != nil {
 		return empty, service.ErrGatewayNativeIdentity
 	}
 	n, err = result.RowsAffected()
 	if err != nil || n != 1 {
 		return empty, service.ErrGatewayOAuthConflict
+	}
+	if in.NativePublication != nil {
+		physical, nativeErr := nativeConnectionPhysicalTx(ctx, tx, in.Scope, in.ConnectOperation, false)
+		if nativeErr != nil || physical.CredentialVersion != in.ExpectedVersion+1 || physical.Native.Publication != *in.NativePublication {
+			return empty, service.ErrGatewayNativeIdentity
+		}
+		if err := storeGatewayRefreshAccountInfoTx(ctx, tx, service.GatewayNativeConnectionInfoPhysical(physical), in.NativeAccountInfoObservations()); err != nil {
+			return empty, err
+		}
 	}
 	if observations := in.AccountInfoObservations(); len(observations) > 0 {
 		// Qualification may not exist yet. Its later native account check will
@@ -584,9 +626,13 @@ func (r *accountRepository) CleanupGatewayNativeOAuth(ctx context.Context, in se
 		return deny()
 	}
 	var id int64
-	err = tx.QueryRowContext(bounded, `SELECT COALESCE(account_id,0) FROM gateway_oauth_identity_reservations WHERE consumer=$1 AND operation_ref=$2`, in.Scope.Consumer, intent.EnrollmentOperation).Scan(&id)
-	if err != nil && err != sql.ErrNoRows {
-		return deny()
+	if service.GatewayNativeConnectionIntent(intent) {
+		id = intent.Outcome.AccountID
+	} else {
+		err = tx.QueryRowContext(bounded, `SELECT COALESCE(account_id,0) FROM gateway_oauth_identity_reservations WHERE consumer=$1 AND operation_ref=$2`, in.Scope.Consumer, intent.EnrollmentOperation).Scan(&id)
+		if err != nil && err != sql.ErrNoRows {
+			return deny()
+		}
 	}
 	// Account first, then connect and attempts, matching dispatch/refresh. Each
 	// statement observes facts committed by the preceding lock holder.
@@ -602,40 +648,49 @@ func (r *accountRepository) CleanupGatewayNativeOAuth(ctx context.Context, in se
 	}
 	out = service.GatewayNativeOAuthCleanupResult{Operation: in.Operation, Account: in.Scope.Account, Closure: "pending"}
 	if id > 0 {
-		var route service.GatewayNativeRoute
-		var erased bool
-		// Independent identity read: no decryption, qualification or provider call.
-		err = tx.QueryRowContext(bounded, `SELECT a.id,a.created_at,r.generation,a.deleted_at IS NOT NULL AND a.credentials='{}'::jsonb
+		if service.GatewayNativeConnectionIntent(intent) {
+			physical, readErr := nativeConnectionPhysicalTx(bounded, tx, in.Scope, in.Operation, true)
+			if readErr != nil || physical.Native.AccountID != id {
+				return deny()
+			}
+			route := physical.Native.GatewayNativeRoute
+			out.Native, out.CredentialsErased = &route, physical.Account.GetCredential(service.GatewayConnectionBundleCredentialKey) == ""
+		} else {
+			var route service.GatewayNativeRoute
+			var erased bool
+			// Independent identity read: no decryption, qualification or provider call.
+			err = tx.QueryRowContext(bounded, `SELECT a.id,a.created_at,r.generation,a.deleted_at IS NOT NULL AND a.credentials='{}'::jsonb
  FROM accounts a JOIN gateway_oauth_identity_reservations r ON r.account_id=a.id
  WHERE a.id=$1 AND r.consumer=$2 AND r.owner_ref=$3 AND r.account_ref=$4 AND r.generation=$5 AND r.operation_ref=$6 AND r.intent_mac=$7
  AND a.extra->>'gateway_generation_v1'=r.generation AND a.extra->>'gateway_profile_v1'='openai-oidc-oauth-staging-v1'
  AND a.extra->'gateway_credential_scope_v1'=jsonb_build_object('consumer',r.consumer,'owner',r.owner_ref,'account',r.account_ref,'generation',r.generation,'purpose',$8::text)
  AND a.platform='openai' AND a.type='oauth' AND a.status='disabled' AND NOT a.schedulable
  AND a.proxy_id IS NULL AND a.parent_account_id IS NULL AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id)`,
-			id, in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, intent.EnrollmentOperation, intent.EnrollmentMAC, in.Scope.Purpose).
-			Scan(&route.AccountID, &route.CreatedAt, &route.Generation, &erased)
-		if err != nil || intent.EnrollmentMAC == "" || (intent.State == "completed" && (intent.Outcome.AccountID != id || intent.Outcome.Operation != intent.EnrollmentOperation || intent.Outcome.Generation != route.Generation || intent.Outcome.State != "staged")) {
-			return deny()
-		}
-		route.Profile, route.BaseURL, route.Model = service.GatewayCodexOAuthResponsesProfile, service.GatewayCodexOAuthBaseURL, service.GatewayCodexOAuthModel
-		// Cleanup alone preserves an immutable historical qualification model.
-		// Current enrollment, qualification and dispatch still use the fixed model.
-		var savedModel string
-		var exactQualification bool
-		err = tx.QueryRowContext(bounded, `SELECT q.model,
+				id, in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, intent.EnrollmentOperation, intent.EnrollmentMAC, in.Scope.Purpose).
+				Scan(&route.AccountID, &route.CreatedAt, &route.Generation, &erased)
+			if err != nil || intent.EnrollmentMAC == "" || (intent.State == "completed" && (intent.Outcome.AccountID != id || intent.Outcome.Operation != intent.EnrollmentOperation || intent.Outcome.Generation != route.Generation || intent.Outcome.State != "staged")) {
+				return deny()
+			}
+			route.Profile, route.BaseURL, route.Model = service.GatewayCodexOAuthResponsesProfile, service.GatewayCodexOAuthBaseURL, service.GatewayCodexOAuthModel
+			// Cleanup alone preserves an immutable historical qualification model.
+			// Current enrollment, qualification and dispatch still use the fixed model.
+			var savedModel string
+			var exactQualification bool
+			err = tx.QueryRowContext(bounded, `SELECT q.model,
  q.native_created_at=$2 AND q.consumer=$3 AND q.owner_ref=$4 AND q.account_ref=$5 AND q.generation=$6 AND q.operation_ref=$7
  AND q.profile=$8 AND q.base_url=$9 AND q.qualification=$10
  AND EXISTS(SELECT 1 FROM gateway_oauth_identity_reservations r WHERE r.account_id=q.account_id AND r.issuer=q.issuer AND r.subject=q.subject)
  FROM gateway_oauth_profile_qualifications q WHERE q.account_id=$1`, id, route.CreatedAt,
-			in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, in.Operation,
-			service.GatewayCodexOAuthResponsesProfile, service.GatewayCodexOAuthBaseURL, service.GatewayCodexOAuthQualification).Scan(&savedModel, &exactQualification)
-		if err != nil && err != sql.ErrNoRows || err == nil && (!exactQualification || savedModel != "gpt-6.1-sol" && savedModel != service.GatewayCodexOAuthModel) {
-			return deny()
+				in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, in.Operation,
+				service.GatewayCodexOAuthResponsesProfile, service.GatewayCodexOAuthBaseURL, service.GatewayCodexOAuthQualification).Scan(&savedModel, &exactQualification)
+			if err != nil && err != sql.ErrNoRows || err == nil && (!exactQualification || savedModel != "gpt-6.1-sol" && savedModel != service.GatewayCodexOAuthModel) {
+				return deny()
+			}
+			if err == nil {
+				route.Model = savedModel
+			}
+			out.Native, out.CredentialsErased = &route, erased
 		}
-		if err == nil {
-			route.Model = savedModel
-		}
-		out.Native, out.CredentialsErased = &route, erased
 	}
 	// Lock all attempts before reauthorizing. Never rewrite completed/unknown.
 	rows, err := tx.QueryContext(bounded, `SELECT state,consumer=$2 AND owner_ref=$3 AND account_ref=$4 AND generation=$5 AND native_created_at=$6
@@ -699,7 +754,11 @@ func (r *accountRepository) CleanupGatewayNativeOAuth(ctx context.Context, in se
 			if n > 0 {
 				ambiguous = true
 			}
-			result, updateErr = tx.ExecContext(mutationCtx, `UPDATE accounts SET credentials='{}'::jsonb,deleted_at=COALESCE(deleted_at,clock_timestamp()),updated_at=clock_timestamp() WHERE id=$1 AND $2>clock_timestamp()`, id, deadline)
+			credentialErasure := `'{}'::jsonb`
+			if service.GatewayNativeConnectionIntent(intent) {
+				credentialErasure = `credentials-'connection_bundle'`
+			}
+			result, updateErr = tx.ExecContext(mutationCtx, `UPDATE accounts SET credentials=`+credentialErasure+`,deleted_at=COALESCE(deleted_at,clock_timestamp()),updated_at=clock_timestamp() WHERE id=$1 AND $2>clock_timestamp()`, id, deadline)
 			if updateErr != nil {
 				return deny()
 			}
@@ -748,7 +807,11 @@ func (r *accountRepository) CleanupGatewayNativeOAuth(ctx context.Context, in se
 		// An expired exact prepared row is positive no-entry evidence under the
 		// writer lock. Absence alone is never an effect/closure receipt.
 		var noEntry bool
-		if tx.QueryRowContext(bounded, `SELECT entered_at IS NULL AND NOT EXISTS(SELECT 1 FROM gateway_oauth_identity_reservations r WHERE r.consumer=$1 AND r.operation_ref=$7) FROM gateway_oauth_connect_intents`+where,
+		noBirth := `NOT EXISTS(SELECT 1 FROM gateway_oauth_identity_reservations r WHERE r.consumer=$1 AND r.operation_ref=$7)`
+		if service.GatewayNativeConnectionIntent(intent) {
+			noBirth = `NOT EXISTS(SELECT 1 FROM accounts a WHERE a.extra->'gateway_native_connection_v1'='true'::jsonb AND a.extra->'gateway_credential_scope_v1'->>'consumer'=$1 AND a.extra->>'gateway_connection_operation_v1'=$2 AND $7<>$2)`
+		}
+		if tx.QueryRowContext(bounded, `SELECT entered_at IS NULL AND `+noBirth+` FROM gateway_oauth_connect_intents`+where,
 			append(args, intent.EnrollmentOperation)...).Scan(&noEntry) != nil || !noEntry {
 			return deny()
 		}

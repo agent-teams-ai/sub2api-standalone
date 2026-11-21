@@ -42,7 +42,7 @@ func GatewayNativeAccountCapability(profile, anchor string, info, imports bool) 
 	out := GatewayAccountCapability{
 		ProfileID: profile, Provider: definition.Provider, Product: definition.Product,
 		Region: definition.Region, Protocol: definition.Protocol,
-		Models:  []GatewayAccountModel{{ModelID: anchor, Tools: GatewayAccountModelChoices{Allowed: []string{"function"}, Default: "function"}}},
+		Models:  GatewayNativeConnectionModels(profile, anchor),
 		Methods: []GatewayAccountConnectionMethod{}, AccountInfo: info,
 		LimitsContract: definition.LimitsContract, Availability: "enabled",
 	}
@@ -58,18 +58,28 @@ func GatewayNativeAccountCapability(profile, anchor string, info, imports bool) 
 	if len(out.Methods) == 0 {
 		return GatewayAccountCapability{}, false
 	}
+	return out, true
+}
+
+// Both ABI projections use the same native-qualified model anchors. Mutable
+// entitlement is resolved separately by the account-scoped model reader.
+func GatewayNativeConnectionModels(profile, anchor string) []GatewayAccountModel {
+	if _, ok := LookupGatewayConnectionProfile(profile); !ok || !GatewayAccountModelIDValid(anchor) {
+		return nil
+	}
+	models := []GatewayAccountModel{{ModelID: anchor, Tools: GatewayAccountModelChoices{Allowed: []string{"function"}, Default: "function"}}}
 	switch profile {
 	case GatewayCodexOAuthResponsesProfile:
-		out.Models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"minimal", "low", "medium", "high", "xhigh"}, Default: "high"}
-		out.Models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
+		models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"minimal", "low", "medium", "high", "xhigh"}, Default: "high"}
+		models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
 	case GatewayClaudeOAuthMessagesProfile:
-		out.Models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"low", "medium", "high"}, Default: "medium"}
-		out.Models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
+		models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"low", "medium", "high"}, Default: "medium"}
+		models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
 	}
 	if GatewayModelCatalogProfile(profile) {
-		out.Models = gatewayCatalogAccountModels(profile, anchor, nil)
+		models = gatewayCatalogAccountModels(profile, anchor, nil)
 	}
-	return out, true
+	return models
 }
 
 // Old ingress is an exact semantic alias, never the first similar form. Only

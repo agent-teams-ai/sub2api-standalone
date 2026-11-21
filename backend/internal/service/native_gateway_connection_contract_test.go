@@ -58,6 +58,14 @@ func TestGatewayConnectionLegacyAliasesCannotGrantNewCredentialPolicies(t *testi
 	legacy, ok := gatewayLegacyConnectionMethod(refresh, true)
 	require.True(t, ok)
 	require.Equal(t, "refresh_token", legacy.Method)
+	selection := GatewayConnectionSelection{ProfileID: profile.ProfileID, MethodID: refresh.MethodID, MethodRevision: refresh.Revision, ConfigurationGeneration: "alias-v1"}
+	alias, ok := refresh.LegacyAlias(selection)
+	require.True(t, ok)
+	require.Equal(t, "refresh_token", alias.InputFieldID)
+	requiresContext := refresh
+	requiresContext.Interaction.InputFields = append(append([]GatewayConnectionField(nil), refresh.Interaction.InputFields...), gatewayConnectionField("project", "Project", "text", true, 128))
+	_, ok = requiresContext.LegacyAlias(selection)
+	require.False(t, ok, "legacy projection cannot silently lose required native context")
 	refresh.AllowedCredentialPolicies = []string{"delegated_identity"}
 	_, ok = gatewayLegacyConnectionMethod(refresh, true)
 	require.False(t, ok)

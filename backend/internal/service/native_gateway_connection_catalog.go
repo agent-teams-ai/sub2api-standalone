@@ -19,6 +19,7 @@ type GatewayConnectionMethodDefinition struct {
 type GatewayConnectionProfileDefinition struct {
 	ProfileID           string
 	Platform            string
+	AccountMode         string
 	Provider            GatewayAccountCapabilityLabel
 	Product             GatewayAccountCapabilityLabel
 	Region              GatewayAccountCapabilityLabel
@@ -247,7 +248,13 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 				gatewayConnectionField("organization", "Organization (optional)", "text", false, 128),
 				gatewayConnectionField("project", "Project (optional)", "text", false, 128))
 		}
-		profiles = append(profiles, gatewayConnectionProfile(spec.id, spec.platform, spec.provider, spec.label, spec.product, spec.productLabel, "provider_"+string(p.Routing), method))
+		routing := p.Routing
+		if routing == "" {
+			routing = ProviderRoutingByInbound
+		}
+		profile := gatewayConnectionProfile(spec.id, spec.platform, spec.provider, spec.label, spec.product, spec.productLabel, "provider_"+string(routing), method)
+		profile.AccountMode = spec.mode
+		profiles = append(profiles, profile)
 	}
 	profiles = append(profiles,
 		gatewayConnectionProfile("typesafe-systemone-apikey-v1", PlatformTypeSafe, "typesafe", "TypeSafe / Jev", "pay_as_you_go", "TypeSafe API", "typesafe_systemone", key),

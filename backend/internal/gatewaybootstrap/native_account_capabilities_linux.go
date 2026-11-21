@@ -8,6 +8,10 @@ import (
 )
 
 func privateAccountCapabilities(profile ProfileConfig, transport *gatewaytransport.Handler, oauth *privateOAuth) service.GatewayAccountCapabilities {
+	return privateAccountCapabilitiesForProfiles(transport.QualifiedProfiles(), oauth)
+}
+
+func privateAccountCapabilitiesForProfiles(profiles []gatewaytransport.QualifiedProfile, oauth *privateOAuth) service.GatewayAccountCapabilities {
 	out := service.GatewayAccountCapabilities{Contract: "native-account-capabilities/v1", Profiles: []service.GatewayAccountCapability{}}
 	info := oauth != nil && oauth.info != nil
 	imports := oauth != nil && oauth.connect != nil && oauth.dispatch != nil
@@ -16,29 +20,8 @@ func privateAccountCapabilities(profile ProfileConfig, transport *gatewaytranspo
 			out.Profiles = append(out.Profiles, p)
 		}
 	}
-	add(service.GatewayMiMoResponsesProfile, profile.Model)
-	if p, ok := transport.OpenRouterProfile(); ok {
+	for _, p := range profiles {
 		add(p.Profile, p.Model)
-	}
-	if p, ok := transport.NVIDIAProfile(); ok {
-		add(p.Profile, p.Model)
-	}
-	for _, p := range transport.CodingPlanProfiles() {
-		add(p.Profile, p.Model)
-	}
-	for _, p := range transport.OfficialAPIProfiles() {
-		add(p.Profile, p.Model)
-	}
-	if oauth != nil {
-		if oauth.connect != nil && oauth.dispatch != nil {
-			add(service.GatewayCodexOAuthResponsesProfile, service.GatewayCodexOAuthModel)
-		}
-		if oauth.claude != nil {
-			add(service.GatewayClaudeOAuthMessagesProfile, service.GatewayClaudeOAuthModel)
-		}
-		if oauth.grok != nil {
-			add(service.GatewayGrokOAuthResponsesProfile, service.GatewayGrokOAuthModel)
-		}
 	}
 	return out
 }

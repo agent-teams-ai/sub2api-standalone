@@ -68,6 +68,10 @@ func DecodeGatewayConnectionSelection(raw []byte) (*GatewayConnectionSelection, 
 	if len(raw) > 1024 {
 		return nil, ErrGatewayNativeIdentity
 	}
+	fields, err := gatewayOAuthJSON(raw)
+	if err != nil || len(fields) != 4 || fields["profileId"] == nil || fields["methodId"] == nil || fields["methodRevision"] == nil || fields["configurationGeneration"] == nil {
+		return nil, ErrGatewayNativeIdentity
+	}
 	var selection GatewayConnectionSelection
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()

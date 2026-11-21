@@ -200,7 +200,22 @@ type Handler struct {
 const privateExecutionHandlers = 32
 const privateControlHandlers = 8
 
+// Prepared contains a validated, frozen deployment snapshot and no execution
+// state. Bootstrap may publish its protected catalog before enrollment so the
+// enrolling authority can consume that exact native snapshot.
+type Prepared struct {
+	cfg Config
+}
+
 func New(ctx context.Context, cfg Config) (*Handler, error) {
+	prepared, err := Prepare(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Start(ctx)
+}
+
+func Prepare(ctx context.Context, cfg Config) (*Prepared, error) {
 	// Existing private I/O policy is the backward-compatible trusted default.
 	if cfg.ProviderReadIdle == 0 {
 		cfg.ProviderReadIdle = cfg.IOTimeout
@@ -305,6 +320,16 @@ func New(ctx context.Context, cfg Config) (*Handler, error) {
 		}
 		cfg.Grok = &grok
 	}
+	return &Prepared{cfg: cfg}, nil
+}
+
+// Start performs the original authority handshake before allocating an active
+// transport. A failed enrollment never exposes inference or credential ports.
+func (p *Prepared) Start(ctx context.Context) (*Handler, error) {
+	if p == nil || ctx == nil || ctx.Err() != nil {
+		return nil, errDenied
+	}
+	cfg := p.cfg
 	enrollmentCtx, stop := context.WithTimeout(ctx, cfg.CallbackTimeout)
 	defer stop()
 	if cfg.VerifyEnrollment(enrollmentCtx, cfg.Enrollment) != nil || enrollmentCtx.Err() != nil {
@@ -316,6 +341,21 @@ func New(ctx context.Context, cfg Config) (*Handler, error) {
 		executions: make(chan struct{}, privateExecutionHandlers), controls: make(chan struct{}, privateControlHandlers), terminalCallbacks: make(chan struct{}, 4), preclaimCallbacks: make(chan struct{}, 4), terminalBuffers: &publicTerminalBudget{maximum: 64 << 20}, callback: &http.Client{Transport: transport, Timeout: cfg.CallbackTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
+
+func qualifiedProfiles(cfg Config) []QualifiedProfile {
+	profiles := []QualifiedProfile{cfg.Profile}
+	for _, p := range []*QualifiedProfile{cfg.OpenRouter, cfg.NVIDIA, cfg.Codex, cfg.Claude, cfg.Grok} {
+		if p != nil {
+			profiles = append(profiles, *p)
+		}
+	}
+	profiles = append(profiles, cfg.CodingPlans...)
+	return append(profiles, cfg.OfficialAPIs...)
+}
+
+func (p *Prepared) QualifiedProfiles() []QualifiedProfile { return qualifiedProfiles(p.cfg) }
+func (h *Handler) QualifiedProfiles() []QualifiedProfile  { return qualifiedProfiles(h.cfg) }
+func (p *Prepared) Enrollment() Enrollment                { return p.cfg.Enrollment }
 
 func (h *Handler) profile(id string) (QualifiedProfile, bool) {
 	if id == h.cfg.Profile.Profile {

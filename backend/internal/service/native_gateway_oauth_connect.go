@@ -110,27 +110,32 @@ func gatewayOAuthReportFailure(err error, in GatewayNativeOAuthConnectIntent) {
 // Server-private persisted intent. Never marshal this as a response or log it.
 // No authorization code or token response is persisted here.
 type GatewayNativeOAuthConnectIntent struct {
-	Connection          *GatewayConnectionSelection  `json:"-"`
-	Scope               GatewayNativeCredentialScope `json:"-"`
-	Operation           string                       `json:"-"`
-	ClientID            string                       `json:"-"`
-	Redirect            string                       `json:"-"`
-	Deadline            time.Time                    `json:"-"`
-	StateHash           string                       `json:"-"`
-	Envelope            string                       `json:"-"`
-	State               string                       `json:"-"`
-	Outcome             GatewayNativeOAuthOutcome    `json:"-"`
-	EnrollmentOperation string                       `json:"-"`
-	EnrollmentMAC       string                       `json:"-"`
-	RecoveryDenied      bool                         `json:"-"`
-	Method              string                       `json:"-"`
-	DevicePhase         string                       `json:"-"`
-	DeviceRevision      int64                        `json:"-"`
-	DevicePollAfter     time.Time                    `json:"-"`
-	DeviceDeadline      time.Time                    `json:"-"`
-	ImportInputMAC      string                       `json:"-"`
-	ImportClaimMAC      string                       `json:"-"`
-	ImportKeyCommitment string                       `json:"-"`
+	Connection           *GatewayConnectionSelection   `json:"-"`
+	NativeMount          *GatewayConnectionMount       `json:"-"`
+	NativeDispatchFamily string                        `json:"-"`
+	NativePlatform       string                        `json:"-"`
+	NativeAccountType    string                        `json:"-"`
+	NativePublication    *GatewayConnectionPublication `json:"-"`
+	Scope                GatewayNativeCredentialScope  `json:"-"`
+	Operation            string                        `json:"-"`
+	ClientID             string                        `json:"-"`
+	Redirect             string                        `json:"-"`
+	Deadline             time.Time                     `json:"-"`
+	StateHash            string                        `json:"-"`
+	Envelope             string                        `json:"-"`
+	State                string                        `json:"-"`
+	Outcome              GatewayNativeOAuthOutcome     `json:"-"`
+	EnrollmentOperation  string                        `json:"-"`
+	EnrollmentMAC        string                        `json:"-"`
+	RecoveryDenied       bool                          `json:"-"`
+	Method               string                        `json:"-"`
+	DevicePhase          string                        `json:"-"`
+	DeviceRevision       int64                         `json:"-"`
+	DevicePollAfter      time.Time                     `json:"-"`
+	DeviceDeadline       time.Time                     `json:"-"`
+	ImportInputMAC       string                        `json:"-"`
+	ImportClaimMAC       string                        `json:"-"`
+	ImportKeyCommitment  string                        `json:"-"`
 }
 
 // One durable CAS owns token entry; no in-memory lock is replay authority.
@@ -206,14 +211,15 @@ func GatewayNativeOAuthConnectIntentValid(in GatewayNativeOAuthConnectIntent) bo
 	return GatewayNativeOAuthScopeValid(in.Scope) && GatewayNativeCredentialRefValid(in.Operation) &&
 		idErr == nil && enrollmentID != uuid.Nil && in.EnrollmentOperation == "connect-"+enrollmentID.String() && in.EnrollmentOperation != in.Operation &&
 		(in.EnrollmentMAC == "" || (macErr == nil && len(mac) == 32 && hex.EncodeToString(mac) == in.EnrollmentMAC)) &&
-		in.ClientID == openai.ClientID && gatewayConnectMethodShapeValid(in) &&
-		(in.Connection == nil || GatewayConnectionSelectionValid(*in.Connection) && in.Connection.ProfileID == GatewayCodexOAuthResponsesProfile && in.Connection.MethodID == connectMethod(in)) &&
+		gatewayConnectionIntentShapeValid(in) &&
+		(GatewayNativeConnectionIntent(in) || in.ClientID == openai.ClientID && gatewayConnectMethodShapeValid(in) &&
+			(in.Connection == nil || GatewayConnectionSelectionValid(*in.Connection) && in.Connection.ProfileID == GatewayCodexOAuthResponsesProfile && in.Connection.MethodID == connectMethod(in))) &&
 		!in.Deadline.IsZero() && in.Deadline.Equal(in.Deadline.Truncate(time.Microsecond)) &&
 		err == nil && len(hash) == 32 && hex.EncodeToString(hash) == in.StateHash
 }
 
 func SameGatewayNativeOAuthConnectIntent(a, b GatewayNativeOAuthConnectIntent) bool {
-	return SameGatewayConnectionSelection(a.Connection, b.Connection) && a.Scope == b.Scope && a.Operation == b.Operation && a.ClientID == b.ClientID && a.Redirect == b.Redirect && connectMethod(a) == connectMethod(b) && a.ImportInputMAC == b.ImportInputMAC && a.ImportClaimMAC == b.ImportClaimMAC && a.ImportKeyCommitment == b.ImportKeyCommitment
+	return SameGatewayConnectionSelection(a.Connection, b.Connection) && sameGatewayConnectionIntentConfig(a, b) && a.Scope == b.Scope && a.Operation == b.Operation && a.ClientID == b.ClientID && a.Redirect == b.Redirect && connectMethod(a) == connectMethod(b) && a.ImportInputMAC == b.ImportInputMAC && a.ImportClaimMAC == b.ImportClaimMAC && a.ImportKeyCommitment == b.ImportKeyCommitment
 }
 
 func connectAAD(in GatewayNativeOAuthConnectIntent) []byte {

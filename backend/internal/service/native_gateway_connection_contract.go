@@ -108,8 +108,16 @@ type GatewayConnectionCapability struct {
 }
 
 type GatewayAccountCapabilitiesV2 struct {
-	Contract string                        `json:"contract"`
-	Profiles []GatewayConnectionCapability `json:"profiles"`
+	Contract   string                        `json:"contract"`
+	Enrollment GatewayConnectionEnrollment   `json:"enrollment"`
+	Profiles   []GatewayConnectionCapability `json:"profiles"`
+}
+
+// Private startup provenance is stripped by the public capabilities projection.
+type GatewayConnectionEnrollment struct {
+	OriginRef         string `json:"originRef"`
+	EngineIncarnation string `json:"engineIncarnation"`
+	QualificationRef  string `json:"qualificationRef"`
 }
 
 var gatewayConnectionSemanticID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,127}$`)
