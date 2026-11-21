@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -82,14 +83,27 @@ func TestClient_RetrieveUserQuotaSummaryFromURL_Errors(t *testing.T) {
 }
 
 func TestClient_RetrieveUserQuotaSummaryFromURL_RejectsRedirectToUntrustedHost(t *testing.T) {
+	var untrustedHits atomic.Int32
+	untrusted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		untrustedHits.Add(1)
+	}))
+	defer untrusted.Close()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", "https://attacker.invalid/collect")
+		w.Header().Set("Location", untrusted.URL+"/collect")
 		w.WriteHeader(http.StatusFound)
 	}))
 	defer server.Close()
 	client := mustNewClient(t, "")
 	_, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), server.URL, "secret", "proj")
-	if err == nil || !strings.Contains(err.Error(), "redirect to unsupported host") {
+	if err == nil || !strings.Contains(err.Error(), "HTTP 302") {
+		t.Fatalf("a pinned quota probe must surface the redirect instead of following it, got %v", err)
+	}
+	if hits := untrustedHits.Load(); hits != 0 {
+		t.Fatalf("pinned quota probe followed a redirect %d times; the token must not leave the pinned endpoint", hits)
+	}
+	// The shared fallback client still refuses redirects to hosts outside the allowlist.
+	redirect := httptest.NewRequest(http.MethodPost, "https://attacker.invalid/collect", nil)
+	if err := checkFetchAvailableModelsRedirect(redirect, nil); err == nil || !strings.Contains(err.Error(), "redirect to unsupported host") {
 		t.Fatalf("expected redirect host protection, got %v", err)
 	}
 }
@@ -114,15 +128,15 @@ func TestClient_RetrieveUserQuotaSummaryFromURL_DoesNotFollowTrustedHostRedirect
 		if calls == 1 {
 			return &http.Response{
 				StatusCode: http.StatusFound,
-				Header: http.Header{"Location": []string{BaseURLs[0] + "/redirected"}},
-				Body: io.NopCloser(strings.NewReader("redirect")),
-				Request: req,
+				Header:     http.Header{"Location": []string{BaseURLs[0] + "/redirected"}},
+				Body:       io.NopCloser(strings.NewReader("redirect")),
+				Request:    req,
 			}, nil
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Body: io.NopCloser(strings.NewReader(quotaSummaryBody)),
-			Request: req,
+			Body:       io.NopCloser(strings.NewReader(quotaSummaryBody)),
+			Request:    req,
 		}, nil
 	})}}
 	_, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), BaseURLs[0], "sensitive-token", "proj")

@@ -214,7 +214,9 @@ func TestAsyncImageHandlerSubmitRejectsWhenBodyCannotBeRetained(t *testing.T) {
 				ctx, release := pkghttputil.WithRequestBodyMemoryBudget(c.Request.Context(), budget)
 				defer release()
 				c.Request = c.Request.WithContext(ctx)
-				c.Request.Body = pkghttputil.NewPrereadBody([]byte(requestBody))
+				// Ingress charges the whole backing allocation it hands over, and the
+				// task retains cap(body); keep the fixture's charge equal to it.
+				c.Request.Body = pkghttputil.NewPrereadBody(append(make([]byte, 0, len(requestBody)), requestBody...))
 				if tt.chargeRequest {
 					require.NoError(t, pkghttputil.ReserveRequestBodyMemory(ctx, int64(len(requestBody))))
 				} else {

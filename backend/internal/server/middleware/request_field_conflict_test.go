@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -101,7 +102,12 @@ func TestRejectConflictingRequestFieldsErrorFormats(t *testing.T) {
 	body := `{"model":"a","contents":[],"model":"b"}`
 
 	openai := doJSON(t, router, http.MethodPost, "/v1/responses", body)
-	if !strings.Contains(openai.Body.String(), `"error":{"message"`) || strings.Contains(openai.Body.String(), "model_not_found") {
+	var openaiErr struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(openai.Body.Bytes(), &openaiErr); err != nil || openaiErr.Error.Message == "" || strings.Contains(openai.Body.String(), "model_not_found") {
 		t.Fatalf("unexpected OpenAI error format: %s", openai.Body.String())
 	}
 	anthropic := doJSON(t, router, http.MethodPost, "/v1/messages", body)
