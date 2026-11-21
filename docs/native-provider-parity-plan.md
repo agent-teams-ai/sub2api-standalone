@@ -1,6 +1,6 @@
 # Полное подключение провайдеров через Sub2API: план и границы
 
-Статус: проект плана, версия 3 после двух кругов критики; реализация не начата. Дата: 2026-11-21.
+Статус: план версии 4 после трёх кругов критики; готов к рассмотрению и реализации. Реализация не начата. Дата: 2026-11-21.
 Владелец реализации провайдеров: `agent-teams-ai/sub2api-standalone`.
 Потребители: `agent-teams-ai/account-gateway`, `777genius/review-router-ai`.
 
@@ -501,7 +501,8 @@ G3 и native adapters G4/G5 можно вести параллельно пос�
 Последовательность зависимых merge: native → Gateway → RR с квалифицированным
 packed SDK. Для реализации создаются/обновляются применимые deployment records;
 этот план не разрешает production cutover или ручной public release.
-После первого v3 acceptance допустимый rollback ограничен квалифицированным
+После первой записи нового operation/custody/metadata encoding допустимый
+rollback ограничен квалифицированным
 image, который читает уже принятые operation/custody/metadata encodings и
 сохраняет recovery. Minimum rollback image/compatibility floor фиксируется в
 существующем release evidence. Миграции additive: destructive downgrade или
@@ -661,8 +662,17 @@ consumer evolution/UX и credentials/metadata/E2E. Затем выполнен �
   unsupported, поэтому старый UI не делает ложного обещания Private при rollback.
   В бюджет внесена только необходимая metadata-version дельта.
 
-Третий круг проверяет окончательную полноту критериев, ясность scope и отсутствие
-лишних механизмов после этих уточнений.
+Третий круг проверил прослеживаемость цели до scope/этапов/tests, сложные
+сценарии совместимости, отсутствие новых лишних подсистем и арифметику бюджета.
+Native и consumer reviewers не нашли оставшихся материальных противоречий.
+Security reviewer потребовал одну точную правку: rollback floor действует с
+первой записи любого нового operation/custody/metadata encoding, а не только
+после первого connection v3 acceptance. Эта правка включена в версию 4.
+
+Итог трёх кругов — план готов к реализации по перечисленным критериям.
+Это не runtime PASS: G0 уточняет machine-readable матрицу и спорные adapters,
+G1–G6 должны отдельно доказать поведение, совместимость и E2E. Архитектурные
+решения не подменяются количеством согласившихся reviewers.
 
 Уже отклонённые варианты:
 
