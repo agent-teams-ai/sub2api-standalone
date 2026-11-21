@@ -60,9 +60,10 @@ func connectionConfigurationGeneration(c Config, profile gatewaytransport.Qualif
 		}
 	case "gemini-google-one-responses-oauth-v1", "gemini-code-assist-responses-oauth-v1", "gemini-ai-studio-responses-oauth-v1":
 		kind := "google_one"
-		if profile.Profile == "gemini-code-assist-responses-oauth-v1" {
+		switch profile.Profile {
+		case "gemini-code-assist-responses-oauth-v1":
 			kind = "code_assist"
-		} else if profile.Profile == "gemini-ai-studio-responses-oauth-v1" {
+		case "gemini-ai-studio-responses-oauth-v1":
 			kind = "ai_studio"
 		}
 		input := geminicli.OAuthConfig{}

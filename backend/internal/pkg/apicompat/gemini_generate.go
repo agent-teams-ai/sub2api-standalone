@@ -94,7 +94,7 @@ func restoreGeminiNativeParts(chat *ChatCompletionsRequest, parts []GeminiGenera
 	var text, actualText strings.Builder
 	var calls []ChatToolCall
 	for _, index := range order {
-		text.WriteString(chatMessageContentText(chat.Messages[index].Content))
+		_, _ = text.WriteString(chatMessageContentText(chat.Messages[index].Content))
 		calls = append(calls, chat.Messages[index].ToolCalls...)
 	}
 	callIndex := 0
@@ -104,7 +104,7 @@ func restoreGeminiNativeParts(chat *ChatCompletionsRequest, parts []GeminiGenera
 			return ErrGeminiContinuation
 		}
 		if part.Text != nil && !part.Thought {
-			actualText.WriteString(*part.Text)
+			_, _ = actualText.WriteString(*part.Text)
 		}
 		if call := part.FunctionCall; call != nil {
 			if callIndex >= len(calls) || call.Name != calls[callIndex].Function.Name || !geminiGenerateJSONEqual(call.Args, []byte(calls[callIndex].Function.Arguments)) {

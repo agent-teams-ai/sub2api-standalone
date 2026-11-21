@@ -269,9 +269,9 @@ func (r *gatewayGeminiGenerateBody) Read(p []byte) (int, error) {
 		if line != "" {
 			if strings.HasPrefix(line, "data:") {
 				if r.data.Len() > 0 {
-					r.data.WriteByte('\n')
+					_ = r.data.WriteByte('\n')
 				}
-				r.data.WriteString(strings.TrimPrefix(line[5:], " "))
+				_, _ = r.data.WriteString(strings.TrimPrefix(line[5:], " "))
 			}
 			continue
 		}

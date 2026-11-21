@@ -251,7 +251,7 @@ func gatewayGrokImportDecode(raw json.RawMessage, selection GatewayConnectionSel
 	var credential gatewayGrokImportCredential
 	if _, err := gatewayOAuthJSON(raw); err != nil || json.Unmarshal(raw, &credential) != nil || !SameGatewayConnectionSelection(credential.Connection, &selection) || credential.Kind != "grok-oauth/v1" ||
 		credential.ClientID != qualification.ClientID || credential.RedirectURI != qualification.RedirectURI || credential.Revision < 1 || !grokToken(credential.AccessToken) || !grokToken(credential.RefreshToken) ||
-		!grokPrincipal(credential.Subject) || !(credential.Team == "personal:"+credential.Subject || strings.HasPrefix(credential.Team, "team:") && grokPrincipal(strings.TrimPrefix(credential.Team, "team:"))) ||
+		!grokPrincipal(credential.Subject) || credential.Team != "personal:"+credential.Subject && (!strings.HasPrefix(credential.Team, "team:") || !grokPrincipal(strings.TrimPrefix(credential.Team, "team:"))) ||
 		credential.ObservedAt.IsZero() || !credential.ExpiresAt.After(credential.ObservedAt) {
 		return credential, ErrGatewayNativeIdentity
 	}
@@ -268,13 +268,29 @@ type gatewayGrokSSOImportClient struct {
 }
 
 func (s *gatewayGrokSSOImportClient) Do(request *http.Request) (*http.Response, error) {
-	if request == nil || request.URL == nil || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Port() != "" || request.URL.Fragment != "" ||
+	if s == nil || s.client == nil || request == nil || request.URL == nil || request.URL.Scheme != "https" || request.URL.User != nil || request.URL.Port() != "" || request.URL.Fragment != "" ||
+		request.URL.Opaque != "" || request.URL.RawPath != "" || request.RequestURI != "" || request.Host != "" && request.Host != request.URL.Host ||
 		(request.URL.Host != "accounts.x.ai" && request.URL.Host != "auth.x.ai") || (request.Method != http.MethodGet && request.Method != http.MethodPost) {
 		return nil, ErrGatewayNativeIdentity
 	}
+	if request.URL.Host == "accounts.x.ai" && (request.Method != http.MethodGet || request.URL.Path != "/" || request.URL.RawQuery != "") {
+		return nil, ErrGatewayNativeIdentity
+	}
+	if request.Method == http.MethodPost {
+		switch request.URL.String() {
+		case xai.SSODeviceURL, xai.SSOVerifyURL, xai.SSOApproveURL, xai.SSOTokenURL:
+		default:
+			return nil, ErrGatewayNativeIdentity
+		}
+	}
+	// Native follows only explicit, bounded device/consent redirects. Disable
+	// automatic following on a private client copy so each hop must re-enter
+	// the exact HTTPS-authority and method checks above; Host cannot override it.
+	client := *s.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	request.GetBody = nil
 	observed := time.Now().UTC()
-	response, err := s.client.Do(request)
+	response, err := client.Do(request) // #nosec G704 -- Exact HTTPS hosts, no alternate authority, fixed POST endpoints, and every redirect is checked above.
 	if err != nil || response == nil || response.Body == nil {
 		return nil, ErrGatewayNativeIdentity
 	}
