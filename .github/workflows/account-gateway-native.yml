@@ -44,6 +44,9 @@ jobs:
         options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.4'
@@ -290,3 +293,118 @@ jobs:
           for critical in TestEmittedBindingPreservesKernelIdentity TestClosedDiagnosticPipeReturnsBootstrapFailure TestActualRetirementCLI; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/account-gateway-entry.log")" -eq 1
           done
+
+  rollback_reader:
+    name: Immutable native rollback reader and new journal states
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      ROLLBACK_READER_REVISION: a59da2e24adec39b8b21a512bc6721bf7fa2a4c1
+      ROLLBACK_BASE_IMAGE: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: backend/go.sum
+      - name: Compile current writer and the exact compatible production reader
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          test -z "$(git status --porcelain)"
+          probe_root="$RUNNER_TEMP/native-rollback"
+          reader_root="$RUNNER_TEMP/native-rollback-source"
+          mkdir -p "$probe_root/image" "$probe_root/output"
+          echo "NATIVE_ROLLBACK_ROOT=$probe_root" >> "$GITHUB_ENV"
+          git fetch --no-tags origin "$ROLLBACK_READER_REVISION"
+          git worktree add --detach "$reader_root" "$ROLLBACK_READER_REVISION"
+          test "$(git -C "$reader_root" rev-parse HEAD)" = "$ROLLBACK_READER_REVISION"
+          test -z "$(git -C "$reader_root" status --porcelain)"
+          probe='backend/internal/repository/native_gateway_connection_rollback_probe_test.go'
+          test ! -e "$reader_root/$probe"
+          cp "$probe" "$reader_root/$probe"
+          cmp "$probe" "$reader_root/$probe"
+          test "$(git -C "$reader_root" ls-files --others --exclude-standard)" = "$probe"
+          git -C "$reader_root" diff --exit-code
+          (cd backend && go test -tags gatewaycustody -c -o "$probe_root/current-writer.test" ./internal/repository)
+          (cd "$reader_root/backend" && go test -tags gatewaycustody -c -o "$probe_root/image/reader.test" ./internal/repository)
+          git -C "$reader_root" diff --exit-code
+          test -z "$(git status --porcelain)"
+          cp backend/scripts/native-connection-rollback.sh "$probe_root/image/start.sh"
+          chmod 555 "$probe_root/image/start.sh" "$probe_root/image/reader.test" "$probe_root/current-writer.test"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'native-rollback'
+          probe = pathlib.Path('backend/internal/repository/native_gateway_connection_rollback_probe_test.go')
+          digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+          record = {
+            'contract': 'native-connection-rollback-build/v1',
+            'writerSource': os.environ['EXPECTED_REVISION'],
+            'readerSource': os.environ['ROLLBACK_READER_REVISION'],
+            'baseImage': os.environ['ROLLBACK_BASE_IMAGE'],
+            'testOnlyOverlay': str(probe),
+            'testOnlyOverlaySHA256': digest(probe),
+            'writerSHA256': digest(root / 'current-writer.test'),
+            'readerSHA256': digest(root / 'image/reader.test'),
+            'qualificationImageOnly': True,
+            'preParityRollbackQualified': False,
+          }
+          (root / 'output/build.json').write_text(json.dumps(record, indent=2) + '\n')
+          (root / 'image/Dockerfile').write_text(
+            'FROM ' + record['baseImage'] + '\n'
+            'LABEL org.opencontainers.image.revision="' + record['readerSource'] + '"\n'
+            'COPY reader.test /probe/reader.test\n'
+            'COPY start.sh /probe/start.sh\n'
+            'USER postgres\n'
+            'ENTRYPOINT ["/probe/start.sh"]\n'
+          )
+          PY
+      - name: Read new prepared, entered and unknown rows in the offline reader image
+        run: |
+          set -euo pipefail
+          docker build --network none --tag native-rollback-reader:qualification "$NATIVE_ROLLBACK_ROOT/image"
+          image_id="$(docker image inspect native-rollback-reader:qualification --format '{{.Id}}')"
+          test "$(docker image inspect "$image_id" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$ROLLBACK_READER_REVISION"
+          reader_uid="$(docker run --rm --network none --entrypoint id "$image_id" -u postgres)"
+          reader_gid="$(docker run --rm --network none --entrypoint id "$image_id" -g postgres)"
+          sudo chown -R "$reader_uid:$reader_gid" "$NATIVE_ROLLBACK_ROOT/output"
+          chmod 700 "$NATIVE_ROLLBACK_ROOT/output"
+          restore_owner() { sudo chown -R "$(id -u):$(id -g)" "$NATIVE_ROLLBACK_ROOT/output"; }
+          trap restore_owner EXIT
+          reader_sha="$(sha256sum "$NATIVE_ROLLBACK_ROOT/image/reader.test" | cut -d ' ' -f 1)"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --memory 1536m --cpus 2 --pids-limit 256 --tmpfs /tmp:rw,exec,mode=1777,size=512m \
+            --mount "type=bind,src=$NATIVE_ROLLBACK_ROOT/current-writer.test,dst=/probe/current-writer.test,readonly" \
+            --mount "type=bind,src=$NATIVE_ROLLBACK_ROOT/output,dst=/probe/output" \
+            -e "GATEWAY_NATIVE_ROLLBACK_READER_SOURCE=$ROLLBACK_READER_REVISION" \
+            -e "GATEWAY_NATIVE_ROLLBACK_READER_SHA256=$reader_sha" "$image_id"
+          restore_owner
+          NATIVE_ROLLBACK_IMAGE_ID="$image_id" python3 - <<'PY'
+          import json, os, pathlib, re
+          root = pathlib.Path(os.environ['NATIVE_ROLLBACK_ROOT']) / 'output'
+          build = json.loads((root / 'build.json').read_text())
+          receipt = json.loads((root / 'native-rollback-reader.json').read_text())
+          image = os.environ['NATIVE_ROLLBACK_IMAGE_ID']
+          assert re.fullmatch(r'sha256:[a-f0-9]{64}', image)
+          assert receipt['readerSource'] == build['readerSource']
+          assert receipt['readerSHA256'] == build['readerSHA256']
+          assert receipt['states'] == ['prepared', 'entered', 'unknown']
+          assert all(receipt[key] is True for key in ['readOnly', 'noEntry', 'rowsUnchanged', 'materialPolicyPreserved'])
+          build['readerImageID'] = image
+          build['qualified'] = True
+          (root / 'build.json').write_text(json.dumps(build, indent=2) + '\n')
+          PY
+      - name: Preserve safe rollback provenance and receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-rollback-reader-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/native-rollback/output
+          if-no-files-found: error
+          retention-days: 14

@@ -292,5 +292,5 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 			p.UnavailableFallback = "qualified_anchor"
 		}
 	}
-	return profiles
+	return append(profiles, gatewayNativeConnectionExtensionInventory()...)
 }

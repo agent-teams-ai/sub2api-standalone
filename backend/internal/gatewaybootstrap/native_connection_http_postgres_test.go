@@ -4,6 +4,7 @@ package gatewaybootstrap
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -41,6 +42,9 @@ import (
 
 //go:embed testdata/native_connection_g0_rows.json
 var nativeConnectionJoinedG0 []byte
+
+//go:embed testdata/native_connection_extension_rows.json
+var nativeConnectionJoinedExtensionOracle []byte
 
 // The proxy connects only to the real Gateway authority after discovery has
 // completed. No test owner grants replace the callback authorization protocol.
@@ -158,13 +162,17 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	if batch == "" {
 		batch = "standard"
 	}
-	require.Contains(t, []string{"standard", "express"}, batch)
+	require.Contains(t, []string{"standard", "express", "extensibility"}, batch)
 	families := []nativeConnectionJoinedFamily{}
 	if batch == "standard" {
 		families = append(families, newNativeConnectionJoinedAPIKeyFamily(t, &cfg), newNativeConnectionJoinedCloudFamily(t, &cfg),
 			newNativeConnectionJoinedCodexFamily(t, &cfg), newNativeConnectionJoinedSubscriptionFamily(t, &cfg))
 	}
-	families = append(families, newNativeConnectionJoinedGeminiFamily(t, &cfg, batch == "express"))
+	if batch == "extensibility" {
+		families = append(families, newNativeConnectionJoinedExtensionFamily(t, &cfg))
+	} else {
+		families = append(families, newNativeConnectionJoinedGeminiFamily(t, &cfg, batch == "express"))
+	}
 	profiles, profileIDs, rows := []gatewaytransport.QualifiedProfile{}, []string{}, []nativeConnectionJoinedRow{}
 	peersByID, protocols, hosts, private := map[string]*nativeConnectionJoinedPeer{}, map[string]*nativeConnectionJoinedProtocol{}, map[string]bool{}, map[string]string{}
 	for _, family := range families {
@@ -201,11 +209,30 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	require.NoError(t, json.Unmarshal(nativeConnectionJoinedG0, &inventory))
 	require.Len(t, inventory.Rows, 53)
 	expected := map[string]bool{}
-	for _, row := range inventory.Rows {
-		if (row.Variant == "express_projectless") != (batch == "express") {
-			continue
+	if batch == "extensibility" {
+		var extension struct {
+			Contract string                                                           `json:"contract"`
+			Rows     []struct{ ProfileID, MethodID, Variant, Provider, Model string } `json:"rows"`
 		}
-		expected[nativeConnectionJoinedRowID(row.ProfileID, row.MethodID, row.Variant)] = true
+		require.NoError(t, json.Unmarshal(nativeConnectionJoinedExtensionOracle, &extension))
+		require.Equal(t, "native-provider-extension-oracle/v1", extension.Contract)
+		require.Len(t, extension.Rows, 1)
+		require.Len(t, rows, 1)
+		for _, row := range extension.Rows {
+			expected[nativeConnectionJoinedRowID(row.ProfileID, row.MethodID, row.Variant)] = true
+			require.Equal(t, row.Provider, rows[0].Provider)
+			require.Equal(t, row.Model, rows[0].Model)
+		}
+		for _, row := range inventory.Rows {
+			require.False(t, expected[nativeConnectionJoinedRowID(row.ProfileID, row.MethodID, row.Variant)], "synthetic extension must not replace a G0 variant")
+		}
+	} else {
+		for _, row := range inventory.Rows {
+			if (row.Variant == "express_projectless") != (batch == "express") {
+				continue
+			}
+			expected[nativeConnectionJoinedRowID(row.ProfileID, row.MethodID, row.Variant)] = true
+		}
 	}
 	require.Len(t, rows, len(expected), "all G0 variants must be represented, including typed blockers")
 	for _, row := range rows {
@@ -247,7 +274,7 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 		return (&net.Dialer{Timeout: time.Second}).DialContext(ctx, network, provider.Listener.Addr().String())
 	}
 	defer tlsTransport.CloseIdleConnections()
-	upstream, err := service.NewGatewayNativeLifetimeUpstream(&nativeConnectionJoinedUpstream{&http.Client{Transport: tlsTransport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
+	upstream, err := service.NewGatewayNativeLifetimeUpstream(&nativeConnectionJoinedUpstream{&http.Client{Transport: nativeConnectionJoinedExtensionTransport(batch, tlsTransport), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
 	require.NoError(t, err)
 	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, &config.Config{}, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, gateway.SetGatewayOpenRouterModels(service.NewGatewayOpenRouterModels(tlsTransport)))
@@ -282,8 +309,9 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 			return nil
 		}
 	}
-	native, err := service.NewGatewayNativeConnections(service.GatewayNativeConnectionsDependencies{Journal: journal, Repository: physical, Custody: custody, MaterialKey: materialKey, Methods: methods,
-		Connect: authorizeEntry(false), Refresh: authorizeEntry(true), Cleanup: owners.AuthorizeNativeOAuthCleanup, Dispatchers: dispatchers, Gateway: gateway, Codex: oauth.dispatch})
+	nativeDependencies := service.GatewayNativeConnectionsDependencies{Journal: journal, Repository: physical, Custody: custody, MaterialKey: materialKey, Methods: methods,
+		Connect: authorizeEntry(false), Refresh: authorizeEntry(true), Cleanup: owners.AuthorizeNativeOAuthCleanup, Dispatchers: dispatchers, Gateway: gateway, Codex: oauth.dispatch}
+	native, err := service.NewGatewayNativeConnections(nativeDependencies)
 	require.NoError(t, err)
 	oauth.nativeConnections = native
 	require.NoError(t, composePrivateModels(oauth, owners, gateway))
@@ -304,6 +332,9 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	fixture := map[string]any{"nativeOrigin": server.URL, "consumerId": consumer, "managementCredential": control, "executionCredential": execution, "cleanupCredential": cleanupToken,
 		"callbackCredential": callback, "originRef": enrollment.OriginRef, "engineIncarnation": enrollment.EngineIncarnation, "qualificationRef": enrollment.QualificationRef,
 		"profiles": profileIDs, "rows": rows, "exchangePath": exchangePath, "private": private, "batch": batch, "expectedInventoryRows": 53}
+	if batch == "extensibility" {
+		fixture["expectedExtensionRows"] = 1
+	}
 	raw, err := json.Marshal(fixture)
 	require.NoError(t, err)
 	fixturePath := filepath.Join(artifacts, "private-fixture.json")
@@ -368,6 +399,23 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	handler.install(privateHandler(cfg.Profile, adminSvc, gateway, custody, transport, peers, oauth))
 	require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "continue"}))
 	var terminal struct{ Phase, Contract, RowID string }
+	var nativeServiceRecompositions int
+	var withdrawnCapabilities *service.GatewayAccountCapabilitiesV2
+	var nativeSecretScans int
+	checkNativeSentinels := func() {
+		if batch != "extensibility" {
+			return
+		}
+		for _, table := range []string{"accounts", "gateway_oauth_connect_intents", "gateway_oauth_refresh_attempts"} {
+			var encoded string
+			require.NoError(t, db.QueryRowContext(ctx, "SELECT COALESCE(jsonb_agg(to_jsonb(r)),'[]'::jsonb)::text FROM "+table+" r").Scan(&encoded))
+			for _, name := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
+				require.NotEmpty(t, private[name])
+				require.False(t, strings.Contains(encoded, private[name]), "provider credential must remain absent from native durable plaintext")
+			}
+		}
+		nativeSecretScans++
+	}
 	for scanner.Scan() {
 		require.NoError(t, json.Unmarshal(scanner.Bytes(), &terminal))
 		switch terminal.Phase {
@@ -401,6 +449,58 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(exchangePath, completion, 0600))
 			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "authorization-ready", "rowId": terminal.RowID}))
+		case "pending-recovery":
+			require.Equal(t, "extensibility", batch)
+			require.Zero(t, nativeServiceRecompositions)
+			require.NotNil(t, active.Load())
+			require.Equal(t, active.Load().Row.ID, terminal.RowID)
+			// Reconstruct the native service, private routes and protected
+			// transport from the same real PG journal and custody key. The
+			// pending receipt remains authoritative after creation discovery
+			// is withdrawn; no adapter state or transient PKCE is copied.
+			nextOAuth := *oauth
+			replacementDependencies := nativeDependencies
+			replacementDependencies.Methods = nil
+			replacementDependencies.Dispatchers = map[string]service.GatewayNativeConnectionDispatchAdapter{}
+			replacementBuild := build
+			replacementBuild.OAuth = &nextOAuth
+			for _, family := range families {
+				freshMethods, freshDispatchers, composeErr := family.Compose(replacementBuild)
+				require.NoError(t, composeErr)
+				replacementDependencies.Methods = append(replacementDependencies.Methods, freshMethods...)
+				for familyID, adapter := range freshDispatchers {
+					replacementDependencies.Dispatchers[familyID] = adapter
+				}
+			}
+			native, err = service.NewGatewayNativeConnections(replacementDependencies)
+			require.NoError(t, err)
+			nextOAuth.nativeConnections = native
+			require.NoError(t, composePrivateModels(&nextOAuth, owners, gateway))
+			require.NoError(t, composePrivateLimitsV2(&nextOAuth, db, owners))
+			require.NoError(t, composePrivateAccountInfo(&nextOAuth, db, owners))
+			nextOAuth.connections, err = composePrivateConnectionBindings(cfg, profiles, enrollment, &nextOAuth, custody, peers, privateNativeConnectionRecoveryAdapters(native, dispatchers)...)
+			require.NoError(t, err)
+			originalCapabilities := nextOAuth.connections.capabilities
+			withdrawnCapabilities = &originalCapabilities
+			nextOAuth.connections.capabilities.Profiles = []service.GatewayConnectionCapability{}
+			require.NoError(t, transport.Stop(ctx))
+			tcfg.Connections = native
+			transport, err = gatewaytransport.New(ctx, tcfg)
+			require.NoError(t, err)
+			oauth = &nextOAuth
+			handler.install(privateHandler(cfg.Profile, adminSvc, gateway, custody, transport, peers, oauth))
+			nativeServiceRecompositions++
+			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "pending-recovery-ready", "rowId": terminal.RowID}))
+		case "pending-recovery-complete":
+			require.Equal(t, "extensibility", batch)
+			require.Equal(t, 1, nativeServiceRecompositions)
+			require.NotNil(t, withdrawnCapabilities)
+			require.Empty(t, oauth.connections.capabilities.Profiles)
+			require.Equal(t, active.Load().Row.ID, terminal.RowID)
+			checkNativeSentinels()
+			oauth.connections.capabilities = *withdrawnCapabilities
+			withdrawnCapabilities = nil
+			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "pending-recovery-restored", "rowId": terminal.RowID}))
 		}
 	}
 	require.NoError(t, scanner.Err())
@@ -415,13 +515,51 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 		}
 		receipts[row.ID] = counts
 	}
-	receipt, marshalErr := json.Marshal(map[string]any{"contract": "native-connections-joined-source/v1", "batch": batch, "expectedInventoryRows": 53, "batchRows": len(rows),
-		"childExitCode": cmd.ProcessState.ExitCode(), "nativeVersion": version, "runnerSHA256": hex.EncodeToString(runnerDigest[:]), "providerRequests": providerCalls.Load(), "unexpectedRequests": unexpected.Load(), "rows": receipts})
+	sourceContract, terminalContract := "native-connections-joined-source/v1", "native-connections-gateway-sdk-rr-joined/v1"
+	if batch == "extensibility" {
+		sourceContract, terminalContract = "native-provider-extension-source/v1", "native-provider-extension-gateway-sdk-rr/v1"
+	}
+	receiptFields := map[string]any{"contract": sourceContract, "batch": batch, "expectedInventoryRows": 53, "batchRows": len(rows),
+		"childExitCode": cmd.ProcessState.ExitCode(), "nativeVersion": version, "runnerSHA256": hex.EncodeToString(runnerDigest[:]), "providerRequests": providerCalls.Load(), "unexpectedRequests": unexpected.Load(), "rows": receipts}
+	if batch == "extensibility" {
+		receiptFields["expectedExtensionRows"] = 1
+		receiptFields["nativeServiceRecompositions"] = nativeServiceRecompositions
+		receiptFields["creationCatalogRestored"] = nativeServiceRecompositions == 1 && withdrawnCapabilities == nil
+		checkNativeSentinels()
+		exportedFiles := 0
+		for _, name := range []string{"gateway-diagnostics.log", "joined-transcript.jsonl", "gateway-rr-receipt.json", "native-joined.log"} {
+			path := filepath.Join(artifacts, name)
+			info, statErr := os.Stat(path)
+			if os.IsNotExist(statErr) && name == "native-joined.log" {
+				continue
+			}
+			require.NoError(t, statErr)
+			require.LessOrEqual(t, info.Size(), int64(32<<20))
+			data, readErr := os.ReadFile(path)
+			require.NoError(t, readErr)
+			for _, key := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
+				require.False(t, bytes.Contains(data, []byte(private[key])), "provider credential must not appear in exported fixture output")
+			}
+			exportedFiles++
+		}
+		receiptFields["credentialSecrecy"] = map[string]any{"nativeDurableChecks": nativeSecretScans, "exportedFiles": exportedFiles + 1, "sentinels": 2, "passed": true}
+	}
+	receipt, marshalErr := json.Marshal(receiptFields)
 	require.NoError(t, marshalErr)
+	if batch == "extensibility" {
+		for _, name := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
+			require.False(t, bytes.Contains(receipt, []byte(private[name])), "source receipt must not contain credentials")
+		}
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(artifacts, "native-receipt.json"), receipt, 0600))
 	require.NoError(t, err, "joined runner failed; sanitized row/source receipt saved")
 	require.Equal(t, "completed", terminal.Phase)
-	require.Equal(t, "native-connections-gateway-sdk-rr-joined/v1", terminal.Contract)
+	require.Equal(t, terminalContract, terminal.Contract)
+	if batch == "extensibility" {
+		require.Equal(t, 1, nativeServiceRecompositions)
+		require.Nil(t, withdrawnCapabilities)
+		require.Equal(t, 2, nativeSecretScans)
+	}
 	require.Zero(t, unexpected.Load(), "no unqualified source endpoint, credential or protocol was accepted")
 	for _, row := range rows {
 		peer := peersByID[row.ID]
