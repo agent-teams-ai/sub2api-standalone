@@ -74,6 +74,17 @@ func NewGatewayLiveModels(transport http.RoundTripper) *GatewayLiveModels {
 	}
 }
 
+// SetGatewayLiveModels installs the native catalogue client during trusted
+// composition, before the gateway serves requests. Endpoint and source policy
+// remain in GatewayProviderQuotaCollector; consumers cannot supply a transport.
+func (s *OpenAIGatewayService) SetGatewayLiveModels(models *GatewayLiveModels) error {
+	if s == nil || models == nil || models.client == nil || s.gatewayLiveModels != nil {
+		return ErrGatewayNativeIdentity
+	}
+	s.gatewayLiveModels = models
+	return nil
+}
+
 // liveModels returns the store, creating the default one on first use.
 func (s *OpenAIGatewayService) liveModels() *GatewayLiveModels {
 	s.gatewayLiveModelsOnce.Do(func() {

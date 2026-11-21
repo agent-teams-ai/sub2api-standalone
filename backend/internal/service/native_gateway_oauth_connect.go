@@ -658,6 +658,10 @@ func (s *GatewayNativeOAuthConnect) SetEntryAuthorizer(authorize GatewayNativeOA
 type GatewayNativeOAuthCleanupRequest struct {
 	Scope                                       GatewayNativeCredentialScope
 	Operation, Action, CleanupRef, CleanupToken string
+	// Generic cleanup pins these from its stored intent after owner admission.
+	// They never come from an HTTP body or today's deployment configuration.
+	Connection  *GatewayConnectionSelection
+	NativeMount *GatewayConnectionMount
 }
 type GatewayNativeOAuthCleanupAuthority struct {
 	Owner          string
@@ -677,7 +681,9 @@ type GatewayNativeOAuthCleanupRepository interface {
 }
 
 func GatewayNativeOAuthCleanupRequestValid(in GatewayNativeOAuthCleanupRequest) bool {
-	return GatewayNativeOAuthScopeValid(in.Scope) && GatewayNativeCredentialRefValid(in.Operation) &&
+	return ((in.Connection == nil && in.NativeMount == nil) ||
+		(in.Connection != nil && in.NativeMount != nil && GatewayConnectionSelectionValid(*in.Connection) && GatewayConnectionMountValid(*in.NativeMount))) &&
+		GatewayNativeOAuthScopeValid(in.Scope) && GatewayNativeCredentialRefValid(in.Operation) &&
 		GatewayNativeCredentialRefValid(in.CleanupRef) && GatewayNativeCredentialRefValid(in.CleanupToken) && (in.Action == "read" || in.Action == "erase")
 }
 func (s *GatewayNativeOAuthConnect) Cleanup(ctx context.Context, in GatewayNativeOAuthCleanupRequest, authorize GatewayNativeOAuthCleanupAuthorizer) (GatewayNativeOAuthCleanupResult, error) {

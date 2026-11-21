@@ -17,6 +17,9 @@ import (
 type gatewayGeminiContinuationCodec struct {
 	custody *GatewayNativeCredentialCustody
 	binding []byte
+	// Empty preserves the original Gemini AAD. Other protected native codecs
+	// reuse this keyring engine with their own fixed domain, never credentials.
+	domain string
 }
 
 func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuationCodec, error) {
@@ -71,7 +74,11 @@ func gatewayNativeConnectionGeminiProfile(profile string) bool {
 }
 
 func (c *gatewayGeminiContinuationCodec) aad(id string) []byte {
-	return append([]byte("account-gateway/native/gemini-thoughts/v1/"+id+"\x00"), c.binding...)
+	domain := c.domain
+	if domain == "" {
+		domain = "gemini"
+	}
+	return append([]byte("account-gateway/native/"+domain+"-thoughts/v1/"+id+"\x00"), c.binding...)
 }
 
 func (c *gatewayGeminiContinuationCodec) Seal(raw []byte) (string, error) {

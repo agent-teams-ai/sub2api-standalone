@@ -55,7 +55,7 @@ func gatewayNativePrepareAnthropicAPI(body []byte) ([]byte, func([]apicompat.Res
 			converted.OutputConfig = nil
 		}
 	}
-	wire, err := json.Marshal(converted)
+	wire, err := gatewayNativeMarshalAnthropicRequest(converted, input.Tools)
 	if err != nil || len(wire) > 4<<20 {
 		return nil, nil, ErrGatewayNativeIdentity
 	}

@@ -91,9 +91,9 @@ jobs:
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_info_test_codex_ci
           go test -tags unit ./internal/pkg/apicompat ./internal/service -run 'TestGeminiContinuation|TestResponsesToAnthropic.*StructuredOutput|TestGatewayGeminiContinuation|TestGatewayAccountInfo|TestGatewayQuotaAndInfo|TestGatewayCodex(Info|RetainedInfo|Maintenance)|TestGatewayClaudeInfo|TestGatewayGrokInfo|TestGatewayOAuthInfo|TestGatewayAccountCapabilities|TestGatewayNativeGemini|TestGatewayNativeOfficial|TestGatewayNativeAnthropicSchema' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-unit.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-account-info-unit.log"; then exit 1; fi
-          go test -tags unit ./internal/gatewaybootstrap ./internal/handler/admin -run 'TestNativeAccountCapabilities|TestNativeOfficialAPIConfig|TestGatewayAccountLimitsAuthorityHTTP|TestGatewayAccountInfoPrivateHTTPContract|TestGatewayNativeOAuthConnectHTTPImportStrictIngress' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-http.log"
+          go test -tags unit ./internal/gatewaybootstrap ./internal/handler/admin -run 'TestNativeAccountCapabilities|TestNativeOfficialAPIConfig|TestNativeConnectionCleanupAuthorityStoredTuple|TestGatewayAccountLimitsAuthorityHTTP|TestGatewayAccountInfoPrivateHTTPContract|TestGatewayNativeOAuthConnectHTTPImportStrictIngress' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-http.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-account-info-http.log"; then exit 1; fi
-          for critical in TestNativeAccountCapabilitiesExposeImportsOnlyWithComposedCodex TestNativeOfficialAPIConfigUsesExistingClosedFD6Profiles TestGatewayAccountLimitsAuthorityHTTP TestGatewayAccountInfoPrivateHTTPContract TestGatewayNativeOAuthConnectHTTPImportStrictIngress; do
+          for critical in TestNativeAccountCapabilitiesExposeImportsOnlyWithComposedCodex TestNativeOfficialAPIConfigUsesExistingClosedFD6Profiles TestNativeConnectionCleanupAuthorityStoredTuple TestGatewayAccountLimitsAuthorityHTTP TestGatewayAccountInfoPrivateHTTPContract TestGatewayNativeOAuthConnectHTTPImportStrictIngress; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-account-info-http.log")" -eq 1
           done
           for critical in TestGatewayNativeOfficialGeminiActualTLSContinuationAndSchema TestGatewayNativeOfficialAnthropicActualTLSHeadersToolsAndSchema TestGatewayGeminiContinuationBindsEveryAuthorityAndNativeIdentity TestGatewayAccountInfoReaderUsesCurrentSnapshotAndFinalAuthority; do
@@ -167,6 +167,9 @@ jobs:
           set -o pipefail
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_claude_test_ci
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_claude_stream_test_ci
+          go test -tags unit ./internal/pkg/apicompat -run '^TestResponsesToAnthropicProtectedThinkingPreservesNativeStreamRoundtrip$' -count=1 -v | tee "$RUNNER_TEMP/native-claude-thinking-codec.log"
+          test "$(grep -c '^--- PASS: TestResponsesToAnthropicProtectedThinkingPreservesNativeStreamRoundtrip ' "$RUNNER_TEMP/native-claude-thinking-codec.log")" -eq 1
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-claude-thinking-codec.log"; then exit 1; fi
           go test -tags unit ./internal/service ./internal/gatewaytransport -run '^(TestGateway(Native)?Claude|TestClaudePrivateHTTP)' -count=1 -v | tee "$RUNNER_TEMP/native-claude-boundary.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-claude-boundary.log"; then exit 1; fi
           for critical in \
@@ -176,6 +179,9 @@ jobs:
             TestGatewayNativeClaudeResponsesDispatchLifecycle \
             TestGatewayNativeClaudeResponsesRejectsLossyInput \
             TestGatewayNativeClaudeOAuthAttributionPreservesCanonicalIntent \
+            TestGatewayNativeClaudeReviewPreservesToolsSchemaAndOriginalOutputConstraint \
+            TestGatewayClaudeContinuationBindsCurrentOwnerBirthMethodAndCredentialRevision \
+            TestGatewayClaudeThinkingCarrierSealsExactNativeOutputAndRejectsTampering \
             TestClaudePrivateHTTPRejectsLossyPayloadBeforeAdmission; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-claude-boundary.log")" -eq 1
           done

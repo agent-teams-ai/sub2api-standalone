@@ -80,10 +80,23 @@ func (s *OpenAIGatewayService) forwardGatewayNativeClaudeImport(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	wire, headers, err := gatewayClaudePrepareResponses(body)
+	state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState)
+	if !ok || state == nil {
+		return nil, ErrGatewayNativeIdentity
+	}
+	thinking, err := gatewayClaudeContinuation(ctx, binding.service.custody, binding.in.Scope, route, &binding.native.Publication.Connection, &binding.native.Publication, state.physical.CredentialVersion)
+	if err != nil {
+		return nil, ErrGatewayNativeIdentity
+	}
+	restored, err := gatewayClaudeRestoreThinking(body, thinking)
+	if err != nil {
+		return nil, ErrGatewayNativeIdentity
+	}
+	wire, headers, mapping, validateFinal, err := gatewayClaudePrepareBoundedResponses(restored, binding.requestBytes)
 	if err != nil || int64(len(wire)) > binding.requestBytes {
 		return nil, ErrGatewayNativeIdentity
 	}
+	setGrokResponsesClientToolMapping(c, mapping)
 	upstreamCtx, cancel := context.WithCancel(WithHTTPUpstreamRedirectsDisabled(ctx))
 	defer cancel()
 	request, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, gatewayClaudeMessagesURL, bytes.NewReader(wire))
@@ -115,5 +128,5 @@ func (s *OpenAIGatewayService) forwardGatewayNativeClaudeImport(ctx context.Cont
 	if err != nil || response == nil || response.Body == nil {
 		return nil, ErrGatewayNativeEffectUnknown
 	}
-	return gatewayNativeAnthropicResponse(ctx, c, response, GatewayClaudeOAuthModel, start, cancel, &observation, nil)
+	return gatewayNativeAnthropicResponse(ctx, c, response, GatewayClaudeOAuthModel, start, cancel, &observation, validateFinal, thinking)
 }

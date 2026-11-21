@@ -878,6 +878,12 @@ type NativeOAuthCleanupAuthority interface {
 	AuthorizeNativeOAuthCleanup(context.Context, service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error)
 }
 
+// The early HTTP lane needs only owner/lease admission. The protected native
+// repository later obtains a full cleanup grant bound to the stored descriptor.
+type NativeOAuthCleanupOwnerAuthority interface {
+	AuthorizeNativeOAuthCleanupOwner(context.Context, service.GatewayNativeOAuthCleanupRequest) (string, error)
+}
+
 type privateOAuth struct {
 	connect           *service.GatewayNativeOAuthConnect
 	dispatch          *service.GatewayNativeOAuthDispatch

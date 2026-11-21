@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -40,6 +41,70 @@ type nativeSubscriptionWire struct {
 	grant, calls, quotas                          atomic.Int32
 	wrongPrincipal, loseReply, omitExpiry         atomic.Bool
 	second                                        atomic.Bool
+	signedThinking                                []apicompat.AnthropicContentBlock
+}
+
+func (f *nativeSubscriptionWire) claudeThinkingResponse(w http.ResponseWriter, raw []byte) {
+	t := f.t
+	var request struct {
+		Messages  []apicompat.AnthropicMessage `json:"messages"`
+		Thinking  apicompat.AnthropicThinking  `json:"thinking"`
+		MaxTokens int                          `json:"max_tokens"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &request))
+	require.Equal(t, "enabled", request.Thinking.Type)
+	require.Equal(t, 4096, request.Thinking.BudgetTokens)
+	require.Equal(t, 8192, request.MaxTokens)
+	var replay []apicompat.AnthropicContentBlock
+	for _, message := range request.Messages {
+		if message.Role != "assistant" {
+			continue
+		}
+		var blocks []apicompat.AnthropicContentBlock
+		require.NoError(t, json.Unmarshal(message.Content, &blocks))
+		for _, block := range blocks {
+			if block.Type == "thinking" || block.Type == "redacted_thinking" {
+				replay = append(replay, block)
+			}
+		}
+	}
+	require.Equal(t, f.signedThinking, replay, "the next native request must preserve every exact signed provider block")
+	block := apicompat.AnthropicContentBlock{Type: "thinking", Thinking: fmt.Sprintf("Read source before deciding, turn %d.", f.calls.Load()), Signature: fmt.Sprintf("source-signature-%s-%d-%d", f.method, f.grant.Load(), f.calls.Load())}
+	if f.calls.Load() == 2 {
+		block = apicompat.AnthropicContentBlock{Type: "redacted_thinking", Data: fmt.Sprintf("source-redacted-%s-%d-%d", f.method, f.grant.Load(), f.calls.Load())}
+	}
+	f.signedThinking = append(f.signedThinking, block)
+	w.Header().Set("Content-Type", "text/event-stream")
+	emit := func(kind string, data map[string]any) {
+		data["type"] = kind
+		encoded, err := json.Marshal(data)
+		require.NoError(t, err)
+		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", kind, encoded)
+		require.NoError(t, err)
+	}
+	emit("message_start", map[string]any{"message": map[string]any{"id": "msg_review", "type": "message", "role": "assistant", "model": service.GatewayClaudeOAuthModel, "content": []any{}, "usage": map[string]int{"input_tokens": 5, "output_tokens": 0}}})
+	start := block
+	if block.Type == "thinking" {
+		start.Thinking, start.Signature = "", ""
+	}
+	emit("content_block_start", map[string]any{"index": 0, "content_block": start})
+	if block.Type == "thinking" {
+		emit("content_block_delta", map[string]any{"index": 0, "delta": map[string]string{"type": "thinking_delta", "thinking": block.Thinking}})
+		emit("content_block_delta", map[string]any{"index": 0, "delta": map[string]string{"type": "signature_delta", "signature": block.Signature}})
+	}
+	emit("content_block_stop", map[string]any{"index": 0})
+	stop := "tool_use"
+	if !f.second.Load() {
+		emit("content_block_start", map[string]any{"index": 1, "content_block": map[string]any{"type": "tool_use", "id": "call_review", "name": "read_source", "input": map[string]any{}}})
+		emit("content_block_delta", map[string]any{"index": 1, "delta": map[string]string{"type": "input_json_delta", "partial_json": `{"path":"file.go"}`}})
+	} else {
+		stop = "end_turn"
+		emit("content_block_start", map[string]any{"index": 1, "content_block": map[string]string{"type": "text", "text": ""}})
+		emit("content_block_delta", map[string]any{"index": 1, "delta": map[string]string{"type": "text_delta", "text": `{"findings":[]}`}})
+	}
+	emit("content_block_stop", map[string]any{"index": 1})
+	emit("message_delta", map[string]any{"delta": map[string]string{"stop_reason": stop}, "usage": map[string]int{"output_tokens": 3}})
+	emit("message_stop", map[string]any{})
 }
 
 func (f *nativeSubscriptionWire) access() string {
@@ -235,6 +300,10 @@ func (f *nativeSubscriptionWire) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		if f.second.Load() {
 			assert.Contains(t, string(raw), "synthetic file contents")
 		}
+		if f.provider == "claude" {
+			f.claudeThinkingResponse(w, raw)
+			return
+		}
 		nativeConnectionWriteProtocol(t, w, row, f.second.Load())
 	}
 }
@@ -345,8 +414,14 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 			in := service.GatewayNativeConnectionScope{Scope: service.GatewayNativeCredentialScope{Consumer: "subscription-consumer", Owner: "subscription-owner", Account: uuid.NewString(), Generation: uuid.NewString(), Purpose: service.GatewayOAuthBundlePurpose}, Operation: "subscription-" + uuid.NewString(), Connection: method.Selection()}
 			created, err := native.Begin(ownerCtx, in, fields)
 			require.NoError(t, err)
+			wire, err := json.Marshal(created)
+			require.NoError(t, err)
+			var beginFields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(wire, &beginFields))
+			require.NotContains(t, beginFields, "method", "the actual V2 receipt contains only the immutable selected method inside connection")
 			if fixture.method == "setup_token_code" {
 				require.Equal(t, "prepared", created.State)
+				require.NotEmpty(t, beginFields["authorize_url"], "first V2 browser acknowledgement must preserve the real handoff")
 				authorize, err := url.Parse(created.AuthorizeURL)
 				require.NoError(t, err)
 				fixture.state = authorize.Query().Get("state")
@@ -432,6 +507,10 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 				require.Len(t, quota.Windows, 2)
 				require.EqualValues(t, 2, fixture.quotas.Load(), "one bounded weekly/monthly provider batch")
 			}
+			requestTokens := int64(512)
+			if fixture.provider == "claude" {
+				requestTokens = 8192
+			}
 			call := func(body []byte) (*httptest.ResponseRecorder, bool, error) {
 				callCtx, stop := context.WithTimeout(ownerCtx, 10*time.Second)
 				defer stop()
@@ -440,7 +519,7 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 				life.BindAccount(in.Scope.Consumer, in.Scope.Account, in.Scope.Generation)
 				require.True(t, life.Admit(time.Now().Add(5*time.Second)))
 				callCtx = service.WithGatewayNativeLifetime(service.WithGatewayNativeCustody(callCtx, custody), life)
-				bound, handled, err := native.BindRoute(callCtx, *route, in.Scope.Account, 1, 1<<20, 512)
+				bound, handled, err := native.BindRoute(callCtx, *route, in.Scope.Account, 1, 1<<20, requestTokens)
 				if err != nil {
 					life.NoForward()
 					return httptest.NewRecorder(), false, err
@@ -454,9 +533,16 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 				_, entered, callErr := gateway.ForwardGatewayRoute(bound, c, *route, body)
 				return recorder, entered, callErr
 			}
-			request := map[string]any{"model": model, "input": "Review file.go", "store": false, "stream": true, "service_tier": "default", "max_output_tokens": 512, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
+			request := map[string]any{"model": model, "input": "Review file.go", "store": false, "stream": true, "service_tier": "default", "max_output_tokens": requestTokens, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
+			if fixture.provider == "claude" {
+				request["reasoning"] = map[string]string{"effort": "medium"}
+				request["text"] = json.RawMessage(`{"format":{"type":"json_schema","name":"codex_output_schema","strict":true,"schema":{"type":"object","properties":{"findings":{"type":"array","items":{"type":"string"}}},"required":["findings"],"additionalProperties":false}}}`)
+			}
 			body, err := json.Marshal(request)
 			require.NoError(t, err)
+			if fixture.provider == "claude" {
+				require.NoError(t, service.ValidateGatewayNativeClaudeResponsesBounded(body, 1<<20), "fixture must use the actual pinned CLI request grammar")
+			}
 			first, entered, err := call(body)
 			require.NoError(t, err)
 			require.True(t, entered)
@@ -475,17 +561,41 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 				require.EqualValues(t, 2, fixture.quotas.Load(), "metadata read never repeats provider collection")
 			}
 			output := nativeConnectionCompletedOutput(t, first.Body.String())
+			if fixture.provider == "claude" {
+				require.Len(t, output, 2)
+				var reasoning apicompat.ResponsesOutput
+				require.NoError(t, json.Unmarshal(output[0], &reasoning))
+				require.Equal(t, "reasoning", reasoning.Type)
+				require.True(t, strings.HasPrefix(reasoning.EncryptedContent, "anthropic-thoughts-v1."))
+				require.NotContains(t, first.Body.String(), "source-signature-", "provider signatures leave native only as authenticated ciphertext")
+				require.NotContains(t, first.Body.String(), "anthropic-thinking-v1:")
+			}
 			toolResult, err := json.Marshal(map[string]string{"type": "function_call_output", "call_id": "call_review", "output": "synthetic file contents"})
 			require.NoError(t, err)
 			request["input"] = append(output, toolResult)
 			body, err = json.Marshal(request)
 			require.NoError(t, err)
+			if fixture.provider == "claude" {
+				tampered := bytes.Replace(body, []byte("Read source before deciding, turn 1."), []byte("Different source reasoning."), 1)
+				require.NotEqual(t, body, tampered)
+				_, entered, err = call(tampered)
+				require.Error(t, err)
+				require.False(t, entered)
+				require.EqualValues(t, 1, fixture.calls.Load(), "tampered summary cannot enter TLS")
+			}
 			fixture.second.Store(true)
 			second, entered, err := call(body)
 			require.NoError(t, err)
 			require.True(t, entered)
 			message := nativeConnectionCompletedOutput(t, second.Body.String())
 			require.NotEmpty(t, message)
+			if fixture.provider == "claude" {
+				require.Len(t, message, 2)
+				var redacted map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(message[0], &redacted))
+				require.JSONEq(t, `[]`, string(redacted["summary"]), "redacted thinking carries an actual empty array through the wire")
+				require.NotContains(t, second.Body.String(), "source-redacted-")
+			}
 			// Replay the native output unchanged, including id/status and the
 			// encoder's empty annotations/logprobs, through another actual TLS call.
 			history := append(append(append([]json.RawMessage{}, output...), toolResult), message...)
@@ -505,6 +615,18 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 			require.NotEmpty(t, nativeConnectionCompletedOutput(t, third.Body.String()))
 			require.EqualValues(t, 3, fixture.calls.Load())
 			if refreshPolicy == "native" {
+				if fixture.provider == "claude" {
+					// A real durable native refresh advances the encrypted credential
+					// revision. No direct SQL mutation or synthetic authorization is used.
+					fresh, err := native.Maintain(ownerCtx, in)
+					require.NoError(t, err)
+					require.Equal(t, "completed", fresh.State)
+					require.EqualValues(t, 3, fixture.grant.Load())
+					_, entered, err = call(body)
+					require.Error(t, err)
+					require.False(t, entered)
+					require.EqualValues(t, 3, fixture.calls.Load(), "old reasoning cannot cross a credential revision at actual dispatch")
+				}
 				fixture.wrongPrincipal.Store(true)
 				unknown, err := native.Maintain(ownerCtx, in)
 				require.NoError(t, err)

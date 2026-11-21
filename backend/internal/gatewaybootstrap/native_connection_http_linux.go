@@ -87,9 +87,13 @@ func (s *privateConnections) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			deny(http.StatusForbidden)
 			return
 		}
-		var grant service.GatewayNativeOAuthCleanupAuthority
-		grant, err = s.cleanup(bounded, cleanup)
-		owner = grant.Owner
+		if authority, ok := s.owners.(NativeOAuthCleanupOwnerAuthority); ok {
+			owner, err = authority.AuthorizeNativeOAuthCleanupOwner(bounded, cleanup)
+		} else {
+			var grant service.GatewayNativeOAuthCleanupAuthority
+			grant, err = s.cleanup(bounded, cleanup)
+			owner = grant.Owner
+		}
 	default:
 		owner, err = s.owners.AuthorizeNativeOAuthOwner(bounded, peer.ConsumerID, request.Operation, request.Account, request.Generation)
 	}

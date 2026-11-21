@@ -7,13 +7,16 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -39,16 +42,46 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.NoError(t, requireOAuthDispatchEmptyObjects(ctx, db))
-	require.NoError(t, ApplyMigrations(ctx, db))
+	// Upgrade the actual previous schema after it has stored a real observation.
+	// The new closed source policy must not rewrite history or alter a checksum.
+	baseline := fstest.MapFS{}
+	migrationFiles, err := fs.Glob(migrations.FS, "*.sql")
+	require.NoError(t, err)
+	for _, name := range migrationFiles {
+		if name == "265_gateway_account_info_source_policy.sql" {
+			continue
+		}
+		data, readErr := migrations.FS.ReadFile(name)
+		require.NoError(t, readErr)
+		baseline[name] = &fstest.MapFile{Data: data}
+	}
+	require.NoError(t, applyMigrationsFS(ctx, db, baseline))
 	var phase atomic.Int32
+	var accountChecks, subscriptions atomic.Int32
+	var issuedAccess atomic.Value
 	providerID := uuid.NewString()
-	_, transport, _ := oauthPGRefreshFixture(t, func(w http.ResponseWriter, r *http.Request, bundleFor func(string) service.GatewayNativeOAuthBundle) {
+	subscriptionExpiry := time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	_, transport, _ := oauthPGRefreshFixtureWithSubscription(t, func(w http.ResponseWriter, r *http.Request, bundleFor func(string) service.GatewayNativeOAuthBundle) {
 		require.NoError(t, r.ParseForm())
 		require.Equal(t, "refresh_token", r.Form.Get("grant_type"))
 		bundle := bundleFor("codex-info-owner")
+		issuedAccess.Store(bundle.AccessToken)
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": bundle.AccessToken, "refresh_token": bundle.RefreshToken, "id_token": bundle.IDToken, "token_type": "Bearer", "expires_in": 3600, "scope": openai.RefreshScopes})
 	}, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"accounts":{"selected":{"account":{"account_id":%q,"account_structure":"personal","plan_type":"plus","name":"Review account"}}}}`, providerID)
+		accountChecks.Add(1)
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Empty(t, r.URL.RawQuery)
+		require.True(t, r.Header.Get("Authorization") == "Bearer "+issuedAccess.Load().(string), "account selection must use the issued credential")
+		_, _ = fmt.Fprintf(w, `{"accounts":{"selected":{"account":{"account_id":%q,"account_structure":"personal","plan_type":"plus","name":"Review account"}}}}`, providerID)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		subscriptions.Add(1)
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "account_id="+providerID, r.URL.RawQuery)
+		require.True(t, r.Header.Get("Authorization") == "Bearer "+issuedAccess.Load().(string), "subscription lookup must use the selected account's issued credential")
+		require.Equal(t, "https://chatgpt.com", r.Header.Get("Origin"))
+		require.Equal(t, "https://chatgpt.com/", r.Header.Get("Referer"))
+		require.Equal(t, "application/json", r.Header.Get("Accept"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"account_id": providerID, "active_until": subscriptionExpiry})
 	}, func(claims map[string]any) {
 		claims["email"] = fmt.Sprintf("native%d@example.test", phase.Load())
 		claims["name"] = "Signed account"
@@ -76,11 +109,41 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	connected, err := connect.ImportConnect(owner, scope, operation, "refresh_token", "info-codex-refresh")
 	require.NoError(t, err)
 	require.Equal(t, "completed", connected.State)
+	// Seed a valid retained omission through the existing snapshot writer. F3
+	// import alone does not qualify account-check facts or publish a snapshot.
+	baselineRow, err := repo.(service.GatewayNativeOAuthDispatchRepository).ReadGatewayNativeOAuthDispatch(owner, scope, operation)
+	require.NoError(t, err)
+	_, baselinePhysical, releaseBaseline, err := repo.(service.GatewayNativeOAuthDispatchRepository).LockGatewayNativeOAuthDispatch(owner, scope, operation, baselineRow.AccountID)
+	require.NoError(t, err)
+	releaseBaseline()
+	baselinePhysical.CredentialRevision = 1
+	baselineTx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	require.NoError(t, storeGatewayAccountInfoTx(ctx, baselineTx, baselinePhysical, service.GatewayAccountInfoObservation{
+		Source: "verified_claims", CredentialRevision: 1, Fields: service.GatewayAccountInfoEmptyFields(service.GatewayCodexOAuthResponsesProfile),
+	}, true))
+	require.NoError(t, baselineTx.Commit())
+	var legacySources, legacyChecksum string
+	var legacyRevision int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT sources::text,revision FROM gateway_account_info_snapshots`).Scan(&legacySources, &legacyRevision))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE filename='260_gateway_account_info.sql'`).Scan(&legacyChecksum))
+	require.NoError(t, ApplyMigrations(ctx, db))
+	require.NoError(t, ApplyMigrations(ctx, db), "the forward migration is replay-safe through the real migration runner")
+	var upgradedSources, upgradedChecksum string
+	var upgradedRevision int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT sources::text,revision FROM gateway_account_info_snapshots`).Scan(&upgradedSources, &upgradedRevision))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE filename='260_gateway_account_info.sql'`).Scan(&upgradedChecksum))
+	require.True(t, legacySources == upgradedSources, "existing cached observations survive the upgrade byte-for-byte")
+	require.Equal(t, legacyRevision, upgradedRevision)
+	require.Equal(t, legacyChecksum, upgradedChecksum)
 	dispatch, err := service.NewGatewayNativeOAuthDispatch(repo.(service.GatewayNativeOAuthDispatchRepository), custody, verifier, counted)
 	require.NoError(t, err)
 	descriptor, err := dispatch.Descriptor(owner, scope, operation)
 	require.NoError(t, err)
 	require.NotNil(t, descriptor.Native)
+	require.EqualValues(t, 1, accountChecks.Load())
+	require.EqualValues(t, 1, subscriptions.Load(), "qualification may enrich the selected account's known plan")
+	qualifiedCalls := counted.calls.Load()
 	route := *descriptor.Native
 	info := NewGatewayAccountInfoRepository(db)
 	input := service.GatewayAccountLimitsInput{OwnerRef: scope.Owner, AccountRef: scope.Account, ProfileID: route.Profile}
@@ -88,6 +151,26 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "native0@example.test", *initial.Sources["verified_claims"].Fields.Email.Value)
 	require.Equal(t, "plus", initial.Sources["account_check"].Fields.Subscription.Value.Code)
+	require.Nil(t, initial.Sources["account_check"].Fields.Subscription.Value.EndsAt)
+	require.Len(t, initial.Sources, 4)
+	subscription := initial.Sources["subscription_status"].Fields.Subscription
+	require.Equal(t, "known", subscription.Status)
+	require.Equal(t, "provider_api", subscription.Source)
+	require.NotNil(t, subscription.Value)
+	require.Equal(t, "plus", subscription.Value.Code)
+	require.Equal(t, &service.GatewayAccountInfoDate{Kind: "instant", Value: subscriptionExpiry}, subscription.Value.EndsAt)
+	require.Equal(t, qualifiedCalls, counted.calls.Load(), "cached account-info reads perform no HTTP")
+	// Exercise the database vocabulary against this real snapshot separately
+	// from per-profile source admission, then roll back every probe.
+	sourceProbe, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	for _, source := range []string{"training_settings", "subscription_status", "user_declaration"} {
+		_, err = sourceProbe.ExecContext(ctx, `UPDATE gateway_account_info_snapshots SET sources=sources||jsonb_build_object($1::text,'{}'::jsonb) WHERE account_id=$2`, source, route.AccountID)
+		require.NoError(t, err, "known source %s must fit the closed database vocabulary", source)
+	}
+	_, err = sourceProbe.ExecContext(ctx, `UPDATE gateway_account_info_snapshots SET sources=sources||'{"unrecognized_source":{}}'::jsonb WHERE account_id=$1`, route.AccountID)
+	require.Error(t, err, "unknown metadata sources remain forbidden by PostgreSQL")
+	require.NoError(t, sourceProbe.Rollback())
 	originalObserved := initial.Sources["credential"].Fields.CredentialExpiresAt.ObservedAt
 	require.NotEmpty(t, originalObserved)
 	_, err = db.ExecContext(ctx, `DELETE FROM gateway_account_info_snapshots WHERE account_id=$1`, route.AccountID)
@@ -216,4 +299,6 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, unchanged.Revision, guarded.Revision)
 	require.Equal(t, unchanged.Sources, guarded.Sources, "stale expiry must not become a current-credential fact")
+	require.EqualValues(t, 1, accountChecks.Load(), "maintenance never repeats account qualification")
+	require.EqualValues(t, 1, subscriptions.Load(), "cached reads and retained hydration never fetch subscription metadata")
 }

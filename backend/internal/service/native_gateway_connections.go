@@ -272,7 +272,6 @@ func (s *GatewayNativeConnections) Begin(ctx context.Context, in GatewayNativeCo
 			return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
 		}
 		result.AuthorizeURL = prepared.AuthorizeURL
-		result.Method = "browser"
 	}
 	return result, nil
 }
@@ -415,9 +414,18 @@ func (s *GatewayNativeConnections) Cleanup(ctx context.Context, in GatewayNative
 	if err != nil || request.Scope != in.Scope || request.Operation != in.Operation {
 		return out, ErrGatewayNativeIdentity
 	}
-	if _, err = s.readIntent(ctx, in); err != nil {
+	saved, err := s.readIntent(ctx, in)
+	if err != nil {
 		return out, err
 	}
+	if saved.Connection == nil || saved.NativeMount == nil {
+		return out, ErrGatewayNativeIdentity
+	}
+	// The early HTTP callback admits only this logical cleanup owner. Before
+	// the repository obtains an erase grant, pin its full descriptor contract
+	// to the immutable source intent, including a method removed from discovery.
+	connection, mount := *saved.Connection, *saved.NativeMount
+	request.Connection, request.NativeMount = &connection, &mount
 	result, err := s.repository.CleanupGatewayNativeOAuth(ctx, request, s.cleanup)
 	if err != nil {
 		return out, err

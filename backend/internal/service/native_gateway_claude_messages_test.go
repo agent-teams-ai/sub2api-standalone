@@ -247,7 +247,7 @@ func TestGatewayNativeClaudeResponsesDispatchLifecycle(t *testing.T) {
 func TestGatewayNativeClaudeResponsesRejectsLossyInput(t *testing.T) {
 	require.NoError(t, ValidateGatewayNativeClaudeResponses([]byte(claudeResponsesFixtureBody)))
 	require.Error(t, ValidateGatewayNativeClaudeResponsesBounded([]byte(claudeResponsesFixtureBody), int64(len(claudeResponsesFixtureBody))))
-	for _, addition := range []string{`,"previous_response_id":"resp_old"`, `,"text":{"format":{"type":"json_schema"}}`, `,"tools":[{"type":"custom","name":"shell"}]`, `,"temperature":null`, `,"MODEL":"claude-sonnet-4-6"`} {
+	for _, addition := range []string{`,"previous_response_id":"resp_old"`, `,"text":{"format":{"type":"json_schema"}}`, `,"tools":[{"type":"web_search"}]`, `,"temperature":null`, `,"MODEL":"claude-sonnet-4-6"`} {
 		body := strings.TrimSuffix(claudeResponsesFixtureBody, "}") + addition + "}"
 		require.Error(t, ValidateGatewayNativeClaudeResponses([]byte(body)), body)
 	}
@@ -261,7 +261,7 @@ func TestGatewayNativeClaudeResponsesRejectsLossyInput(t *testing.T) {
 // explicit sampling choice, inject conversation turns or demote system text.
 func TestGatewayNativeClaudeOAuthAttributionPreservesCanonicalIntent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-6","instructions":"Preserve system priority.","input":"fixture tool input","store":false,"stream":true,"service_tier":"default","max_output_tokens":20000,"temperature":0.25,"top_p":0.9,"parallel_tool_calls":false,"tools":[{"type":"function","name":"read_fixture","description":"Read the fixture.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}],"tool_choice":{"type":"function","name":"read_fixture"}}`)
-	wire, _, err := gatewayClaudePrepareResponses(body)
+	wire, _, _, _, err := gatewayClaudePrepareBoundedResponses(body, 4<<20)
 	require.NoError(t, err)
 	var fields map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(wire, &fields))
@@ -276,7 +276,7 @@ func TestGatewayNativeClaudeOAuthAttributionPreservesCanonicalIntent(t *testing.
 	// before Enter instead of silently changing the caller's tool choice.
 	require.Error(t, ValidateGatewayNativeClaudeResponses(thinking))
 	thinking = bytes.ReplaceAll(thinking, []byte(`"tool_choice":{"type":"function","name":"read_fixture"}`), []byte(`"tool_choice":"auto"`))
-	wire, _, err = gatewayClaudePrepareResponses(thinking)
+	wire, _, _, _, err = gatewayClaudePrepareBoundedResponses(thinking, 4<<20)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(wire, &fields))
 	require.Equal(t, "1", string(fields["temperature"]))

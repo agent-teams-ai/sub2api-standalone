@@ -76,9 +76,14 @@ func newGatewayBoundOAuthAdapter(profile, dispatchFamily, authFamily string, met
 		if err != nil {
 			return GatewayNativeConnectionResult{}, err
 		}
-		if !SameGatewayConnectionSelection(out.Connection, &in.Connection) || out.Operation != in.Operation || out.Account != in.Scope.Account {
+		if !SameGatewayConnectionSelection(out.Connection, &in.Connection) || out.Operation != in.Operation || out.Account != in.Scope.Account ||
+			out.Method != "" && out.Method != in.Connection.MethodID {
 			return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
 		}
+		// V2's durable connection tuple is the method authority. The legacy
+		// top-level enum belongs only to V1 receipts and would invalidate the
+		// strict V2 acknowledgement, losing a one-time browser/device handoff.
+		out.Method = ""
 		result := GatewayNativeConnectionResult{GatewayNativeOAuthConnectResult: out}
 		if out.State == "completed" && out.Outcome == "staged" {
 			actual := credential

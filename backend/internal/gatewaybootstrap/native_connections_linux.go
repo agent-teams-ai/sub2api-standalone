@@ -209,22 +209,7 @@ func composePrivateNativeConnections(c Config, repo service.AccountRepository, d
 	if err != nil {
 		return nil, ErrDenied
 	}
-	adapters := []service.GatewayNativeConnectionAdapter{}
-	for _, definition := range service.GatewayNativeConnectionInventory() {
-		if _, bound := dispatchers[definition.DispatchFamily]; !bound {
-			continue
-		}
-		adapter := oauth.nativeConnections.RecoveryAdapter(definition.ProfileID)
-		switch definition.ProfileID {
-		case service.GatewayCodexOAuthResponsesProfile:
-			adapter.RecoveryMethodIDs = []string{"mobile_refresh_token", "codex_session", "agent_identity", "codex_pat"}
-		case service.GatewayClaudeOAuthMessagesProfile:
-			adapter.RecoveryMethodIDs = []string{"cookie_oauth", "setup_token_code", "setup_token_cookie"}
-		case service.GatewayGrokOAuthResponsesProfile:
-			adapter.RecoveryMethodIDs = []string{"refresh_token", "sso"}
-		}
-		adapters = append(adapters, adapter)
-	}
+	adapters := privateNativeConnectionRecoveryAdapters(oauth.nativeConnections, dispatchers)
 	// Retained legacy operations remain readable and erasable after their
 	// creation configuration is removed. These ports have no provider client,
 	// grant entry, refresh or dispatch authority.
@@ -262,4 +247,27 @@ func composePrivateNativeConnections(c Config, repo service.AccountRepository, d
 		adapters = append(adapters, adapter)
 	}
 	return adapters, nil
+}
+
+// The legacy OAuth ports own browser/device/refresh recovery for their original
+// methods. Generic recovery owns only the remaining imports for those profiles.
+// Both startup and the composed HTTP qualification fixture use this partition.
+func privateNativeConnectionRecoveryAdapters(native *service.GatewayNativeConnections, dispatchers map[string]service.GatewayNativeConnectionDispatchAdapter) []service.GatewayNativeConnectionAdapter {
+	adapters := []service.GatewayNativeConnectionAdapter{}
+	for _, definition := range service.GatewayNativeConnectionInventory() {
+		if _, bound := dispatchers[definition.DispatchFamily]; !bound {
+			continue
+		}
+		adapter := native.RecoveryAdapter(definition.ProfileID)
+		switch definition.ProfileID {
+		case service.GatewayCodexOAuthResponsesProfile:
+			adapter.RecoveryMethodIDs = []string{"mobile_refresh_token", "codex_session", "agent_identity", "codex_pat"}
+		case service.GatewayClaudeOAuthMessagesProfile:
+			adapter.RecoveryMethodIDs = []string{"cookie_oauth", "setup_token_code", "setup_token_cookie"}
+		case service.GatewayGrokOAuthResponsesProfile:
+			adapter.RecoveryMethodIDs = []string{"refresh_token", "sso"}
+		}
+		adapters = append(adapters, adapter)
+	}
+	return adapters
 }

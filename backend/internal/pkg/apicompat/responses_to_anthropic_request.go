@@ -21,12 +21,24 @@ var ErrResponsesOutputFormat = errors.New("invalid or unsupported structured out
 // enables Anthropic platform groups to accept OpenAI Responses API requests
 // by converting them to the native /v1/messages format before forwarding upstream.
 func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, error) {
+	return responsesToAnthropicRequest(req, false)
+}
+
+// ResponsesToAnthropicRequestPreservingThinking is used by the protected native
+// bridge after it authenticates its opaque, account-bound thinking carrier.
+// It preserves the provider's exact signed block on every Claude model rather
+// than restricting restoration to the ordinary bridge's adaptive-model policy.
+func ResponsesToAnthropicRequestPreservingThinking(req *ResponsesRequest) (*AnthropicRequest, error) {
+	return responsesToAnthropicRequest(req, true)
+}
+
+func responsesToAnthropicRequest(req *ResponsesRequest, preserveSignedThinking bool) (*AnthropicRequest, error) {
 	isOpus55 := claude.IsOpus55(req.Model)
 	isSonnet55 := claude.IsSonnet55(req.Model)
 	isHaiku55 := claude.IsHaiku55(req.Model)
 	isFableOrMythos52 := claude.IsFable52(req.Model) || claude.IsMythos52(req.Model)
 	isAdaptiveModel := isOpus55 || isSonnet55 || isHaiku55 || isFableOrMythos52
-	system, messages, err := convertResponsesInputToAnthropic(req.Instructions, req.Input, isAdaptiveModel)
+	system, messages, err := convertResponsesInputToAnthropic(req.Instructions, req.Input, preserveSignedThinking || isAdaptiveModel)
 	if err != nil {
 		return nil, err
 	}

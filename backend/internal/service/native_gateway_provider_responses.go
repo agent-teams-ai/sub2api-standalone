@@ -50,7 +50,7 @@ func gatewayNativeProviderProfile(profile string) bool {
 		return true
 	}
 	switch profile {
-	case GatewayKimiCodeResponsesProfile, GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile, GatewayGrokOAuthResponsesProfile, GatewayNVIDIABuildChatProfile:
+	case GatewayKimiCodeResponsesProfile, GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile, GatewayGrokOAuthResponsesProfile, GatewayNVIDIABuildChatProfile, GatewayClaudeOAuthMessagesProfile:
 		return true
 	}
 	// Inventory determines the native structural codec only. Actual admission
@@ -95,7 +95,7 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 			continue
 		}
 		null := bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
-		if name == "reasoning" && !null {
+		if name == "reasoning" && !null && profile != GatewayClaudeOAuthMessagesProfile {
 			return deny()
 		}
 		if null {
@@ -159,11 +159,15 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 		if model != GatewayGrokOAuthModel {
 			return deny()
 		}
+	case GatewayClaudeOAuthMessagesProfile:
+		if model != GatewayClaudeOAuthModel {
+			return deny()
+		}
 	}
 	if _, ok := gatewayOAuthSeconds(fields["max_output_tokens"]); !ok || !gatewayNativeProviderTextInput(profile, fields["input"]) {
 		return deny()
 	}
-	if GatewayNativeOfficialAPIProfileIDValid(profile) {
+	if GatewayNativeOfficialAPIProfileIDValid(profile) || profile == GatewayClaudeOAuthMessagesProfile {
 		tokens, _ := gatewayOAuthSeconds(fields["max_output_tokens"])
 		if tokens < 1 || tokens > 65536 {
 			return deny()

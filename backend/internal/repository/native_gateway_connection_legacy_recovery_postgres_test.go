@@ -37,6 +37,11 @@ func nativeLegacyRecoveryAssertions(t *testing.T, ctx context.Context, adapter s
 	require.Equal(t, &in.Connection, read.Connection)
 	require.Empty(t, read.AuthorizeURL)
 	require.Nil(t, read.DeviceAuthorization)
+	wire, err := json.Marshal(read)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(wire, &fields))
+	require.NotContains(t, fields, "method", "retained V2 readback must not reintroduce a legacy top-level method")
 	descriptor, err := adapter.Describe(ctx, in)
 	require.NoError(t, err)
 	if expected == nil {
