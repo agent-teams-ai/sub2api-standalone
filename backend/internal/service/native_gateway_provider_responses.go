@@ -585,15 +585,24 @@ func gatewayNativeProviderToolReferences(input, choice []byte, mapping apicompat
 		if !ok {
 			return false
 		}
-		if string(fields["type"]) == `"tool_search"` {
+		// The codec consumes decoded JSON strings. Match that discriminator
+		// semantics so an escaped type cannot bypass declaration or choice
+		// checks. Ordinary input messages may still omit type entirely.
+		var kind string
+		if rawType := fields["type"]; rawType != nil && (bytes.Equal(bytes.TrimSpace(rawType), []byte("null")) || json.Unmarshal(rawType, &kind) != nil) {
+			return false
+		}
+		switch kind {
+		case "tool_search":
 			// This is a choice, not a declaration. The codec replaces the
 			// complete object, so accepting any other key would silently drop
 			// its semantics (including a conflicting server execution mode).
 			_, exact := gatewayClaudeObject(raw, "type")
 			return exact && mapping.ToolSearch
-		}
-		if (string(fields["type"]) == `"tool_search_call"` || string(fields["type"]) == `"tool_search_output"`) && !mapping.ToolSearch {
-			return false
+		case "tool_search_call", "tool_search_output":
+			if !mapping.ToolSearch {
+				return false
+			}
 		}
 		if fields["namespace"] == nil {
 			return true

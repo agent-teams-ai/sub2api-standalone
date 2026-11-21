@@ -469,7 +469,9 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			if row.profile == service.GatewayOpenRouterResponsesProfile {
 				searchRequest := nativeConnectionCopyRequest(t, request)
 				searchRequest["input"] = "Find the source inspection tool"
-				searchRequest["tool_choice"] = map[string]string{"type": "tool_search"}
+				// A valid escaped discriminator has identical client semantics;
+				// only undeclared history or extra choice fields are rejected.
+				searchRequest["tool_choice"] = json.RawMessage(`{"type":"tool\u005fsearch"}`)
 				body, err = json.Marshal(searchRequest)
 				require.NoError(t, err)
 				row.phase.Store(4)
@@ -489,6 +491,13 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 				for name, modify := range map[string]func(map[string]any){
 					"server-search-choice": func(request map[string]any) {
 						request["tool_choice"] = map[string]string{"type": "tool_search", "execution": "server"}
+					},
+					"escaped-server-search-choice": func(request map[string]any) {
+						request["tool_choice"] = json.RawMessage(`{"type":"tool\u005fsearch","execution":"server"}`)
+					},
+					"escaped-undeclared-history": func(request map[string]any) {
+						request["tools"] = []any{request["tools"].([]any)[0]}
+						request["input"] = []any{json.RawMessage(`{"type":"tool\u005fsearch_call","id":"tsc_search","status":"completed","call_id":"call_search","execution":"client","arguments":{"query":"source","limit":2}}`)}
 					},
 					"unknown-search-choice": func(request map[string]any) {
 						request["tool_choice"] = map[string]string{"type": "tool_search", "name": "unbound-search"}
