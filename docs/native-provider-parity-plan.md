@@ -1,6 +1,6 @@
 # Полное подключение провайдеров через Sub2API: план и границы
 
-Статус: проект плана, версия 2 после первого круга критики; реализация не начата. Дата: 2026-11-21.
+Статус: проект плана, версия 3 после двух кругов критики; реализация не начата. Дата: 2026-11-21.
 Владелец реализации провайдеров: `agent-teams-ai/sub2api-standalone`.
 Потребители: `agent-teams-ai/account-gateway`, `777genius/review-router-ai`.
 
@@ -19,11 +19,14 @@ Gateway предоставляет безопасный версионирова
 review через наши компоненты с контролируемым upstream без платных подписок.
 
 Ключевой архитектурный критерий: новый native provider/product или method ID
-на уже поддержанных interaction/protocol primitives вводится в Sub2API,
+на уже поддержанных interaction/execution contracts и обязательных
+custody/security requirements вводится в Sub2API,
 квалифицируется и появляется в Gateway/RR без provider-specific правок их
 исходного кода. Настройка разрешённых профилей deployment/tenant при этом
-остаётся возможной. Новый interaction primitive или публичный execution
-protocol требует отдельного совместимого обновления контракта и общего UI.
+остаётся возможной, включая штатный config reload/restart с тем же build.
+Hot-plug работающего процесса без рестарта не является требованием этой волны.
+Новый interaction primitive, public execution protocol или security requirement
+требует отдельного совместимого обновления соответствующего общего контракта.
 
 ## 2. Зафиксированная исходная точка
 
@@ -86,6 +89,13 @@ access-token/session-token/password переключатели и неиспол
 native handler, create/reconnect support, credential lifecycle, target/product,
 execution profile, metadata sources, обязательная конфигурация, tests/evidence.
 `Not implemented` или пустой обработчик не закрывают строку матрицы.
+Для импортов дополнительно перечисляются credential variants видимого метода:
+refreshable, access-token-only, PAT и delegated identity с реальными
+refresh/expiry/identity guarantees. Codex session import в native принимает и
+одиночный raw access token/JSON `accessToken`; это не скрытый отдельный
+AT-переключатель и не должно потеряться из-за старого RT-only protected parser.
+Nonrefreshable вариант не получает выдуманный refresh; его expiry и проверка
+identity остаются явными условиями native lifecycle.
 
 ### Существенная граница endpoint configuration
 
@@ -225,15 +235,24 @@ Labels/brand assets не определяют backend, auth, модель или
 UX использует provider → product, если их несколько → method; ownership
 выбирается один раз через существующий personal/workspace flow. Технические
 profile IDs не становятся названиями кнопок. Reconnect сохраняет product,
-region/project и явно показывает смену цели. Native возвращает безопасные
+region/project/target и предлагает только совместимые native методы. Смена
+продукта или области authority не маскируется под замену ключа: в этой волне
+для неё создаётся отдельное подключение, без общей cross-profile migration.
+Native возвращает безопасные
 field-level error codes по field IDs, без submitted values и raw provider errors.
 Все введённые значения считаются sensitive по умолчанию, независимо от типа
 renderer; только явно разрешённый безопасный context попадает в safe DTO.
+Весь sensitive ingress envelope исключается из обычного logging/tracing;
+redaction не зависит от заранее известного имени нового provider field.
 
 ### 4.4 Совместимость и завершение текущих операций
 
 - Public v1/v2 остаются вычисляемыми проекциями того же snapshot. Выводятся
-  только методы, которые можно представить без изменения старой семантики.
+  только методы с представимой security семантикой и однозначным legacy ingress
+  alias: старый profile/operation kind → exact native method/revision.
+  Alias принадлежит native binding, а не второму редактируемому каталогу.
+  Совпадения формы недостаточно; первый похожий метод не выбирается автоматически.
+  Новый requirement нельзя обойти через старую версию API.
 - Fallback на старую версию разрешён только по явному version negotiation;
   auth error, invalid payload, timeout или 500 не трактуются как старый сервер.
 - Новая операция связывается с owner/profile/method и semantic input revision.
@@ -244,12 +263,21 @@ renderer; только явно разрешённый безопасный cont
   за тем же target ID не переинтерпретирует ранее принятые inputs/callback.
   Method revision меняется при input/target/security semantics, не при labels,
   порядке методов или model freshness. Глобальный config revision для этого не нужен.
+- Принятый account/credential также сохраняет этот native binding. Final
+  publication, refresh и dispatch проверяют его; смена target ID с A на B не
+  отправляет старый credential на B. Применяется прежний допустимый binding
+  либо существующий unavailable/reconnect outcome; новый config store не нужен.
 - Input/connect deadline запрещает новый entry, но не снимает уже принятый
   внешний эффект или unresolved claim. Старые decoders, захваченный binding
   и readback/reconciliation сохраняются по existing journal policy до штатного
   разрешения операции. Если конфигурация отозвана, эффект не воспроизводится
   под новой; остаётся безопасный unresolved/readback outcome. Restart разрешён
   только при доказанном отсутствии effect entry, не после entered/unknown.
+- Readback/recovery existing operation не требует свежего discovery. Оно
+  использует сохранённый method/binding и live owner/revoke fences. Catalog
+  timeout или скрытый метод не предлагают новый connect вместо unresolved
+  операции и не разрешают повтор effect. Legacy pending operation разрешается
+  по своей сохранённой версии, не по первому методу текущего каталога.
 - Не переименовываем существующие profile/account IDs и не пересоздаём аккаунты.
   Native legacy config adapter имеет native-владельца и удаляется после миграции
   deployment configs. Public v1/v2 projections принадлежат Gateway и остаются
@@ -257,6 +285,10 @@ renderer; только явно разрешённый безопасный cont
   окончания поддержки клиентов и разрешения старых operations, не только TTL.
 - Исчезновение метода из discovery не удаляет аккаунт. Независимые native
   authorization/revocation и execution admission продолжают действовать.
+- Metadata version независима от connection version: конечный AccountInfo v2
+  имеет собственные v1 projections и private proofs (раздел 6). Новый negotiation
+  service не создаётся; достаточно explicit supported contract/config и штатного
+  порядка обновления. Ошибки не используются как version detection.
 
 ### 4.5 Product policy без shadow provider catalog
 
@@ -280,17 +312,31 @@ native владельца этих правил. Общий provider label, `/mo
 
 ### 4.6 Все затронутые consumer seams, а не только Connections
 
-Общий переход охватывает SDK model discovery/source dispatch, RR provider setup
+Общий переход охватывает Gateway mount/admission, retained-custody/resume dispatch,
+SDK model discovery/source dispatch, RR provider setup
 и model picker, personal-operation recovery, account limits и usage attribution.
 В baseline это, в частности, `accountModelDiscoveryProfiles` в SDK и RR
 `setup-provider.ts`, `personal-account-composition.ts`,
 `account-limits-composition.ts`, `gateway-profile-provider.ts`.
+В Gateway затронуты `facade.ts`, `service-assembly.ts`, `account-management.ts`:
+static `oauthProfileDefinition`/`authKinds` не решают судьбу нового native profile,
+а неизвестный credential не считается `api_key` по умолчанию. Выбор lifecycle
+делается по квалифицированному binding; legacy authKind сохраняется в old ABI
+adapter, не превращаясь в fallback нового пути.
 Перечисления providers/profiles заменяются чтением применимой capability;
-существующие models/limits/usage contracts и правила авторизации сохраняются.
+семантика models/limits/usage и авторизация сохраняются; допустима нужная
+bounded additive эволюция безопасных DTO с legacy decoder.
 
-Usage классифицируется по native profile/product и существующему usage contract,
-не по бренду и не по отображаемому plan label. Добавление PAYG не должно менять
-учёт уже существующего coding-аккаунта того же Kimi/GLM/MiniMax. Это bounded
+Usage/limits получают native result с фактическим request/model/billing context,
+где он поддержан источником. Profile/product описывает подключение, но не всегда
+режим списания конкретного запроса: один Cline key имеет credits/pass/free
+области. RR не парсит model names для собственной billing классификации.
+Добавление PAYG не должно менять учёт coding-аккаунта того же Kimi/GLM/MiniMax.
+Безопасный profile/product/billing basis сохраняется для нового запуска в
+существующем immutable run authorization/usage evidence; это исторический факт
+операции, не shadow provider catalog. Удаление текущего профиля не переписывает
+историю. Mixed aggregate не получает общий subscription badge, unknown cost
+не становится нулём; legacy history читается без массового backfill. Это bounded
 исправление адаптеров, не новая billing system. Из крупного RR controls-файла
 извлекаются только затронутые формы/адаптеры с соблюдением repository line ceilings.
 
@@ -299,6 +345,13 @@ Usage классифицируется по native profile/product и сущес
 Сохраняем существующий durable operation engine, CAS/fences, same-secret claim
 там, где обмен одноразовый/rotating, ambiguous-result recovery и native custody.
 Новые методы реализуют его существующие ports; второй lifecycle store не нужен.
+
+Existing keyed input commitment связывает принятые method/input revision,
+credential fields, binding/config generation и значимый target/project/context.
+Тот же operation ID с изменённым принятым вводом получает conflict до второго
+provider effect. Идемпотентный readback не утверждает, что новая присланная
+credential применена, если операция ранее приняла другую. Используется текущий
+механизм commitment, без новой криптографической системы и plaintext persistence.
 
 Ввод может транзитно проходить browser → RR → SDK → Gateway → native через
 существующий sensitive ingress. Обещание «секрет никогда не бывает в RR/SDK»
@@ -326,10 +379,14 @@ Codex session/Agent Identity/RT принимаются в одиночном в�
 payload отклоняется до side effects. Не выбираем молча первую запись, не
 исполняем часть batch и не наследуем admin `update_existing` без owner-scoped
 authority. Это полнота способов подключения одного аккаунта, а не bulk UI parity.
+Повторно используется общий native parser/normalizer одиночной записи;
+административный batch runner с глобальным поиском/merge/update existing accounts
+не становится protected lifecycle adapter. При необходимости чистый parser
+извлекается из текущего admin handler, а не копируется в Gateway/RR.
 
 ## 6. Общие metadata sources вместо расхождения admin и protected
 
-Сохраняем текущий bounded AccountInfo и envelope состояний
+Сохраняем конечный набор AccountInfo facts и envelope состояний
 `known/unknown/unsupported/unavailable`, source/observedAt и freshness/stale.
 Не создаём произвольную facts schema, новый refresh scheduler или RR facts DB.
 
@@ -340,12 +397,29 @@ authority. Это полнота способов подключения одн�
 | Grok tier использует факты и эвристику по quota | Один resolver с происхождением; inferred не выдаётся за provider-confirmed |
 | Gemini tier fallback задаётся пользователем | Declared input не становится verified subscription fact |
 
-`privacyMode` сохраняется как совместимое wire-имя, но означает только
-подтверждённую настройку использования данных для обучения. Общий UI пишет
-«Использование данных для обучения: включено/отключено», не «полностью Private».
-Ошибка PATCH/Cloudflare — результат операции, не доказательство public.
-Старое raw `extra` без producer/time/identity evidence не повышается до known.
-Для провайдера с иной privacy semantics не придумываем эквивалентность.
+Уточнение privacy нельзя сделать одной сменой подписи: старый RR при rollback
+снова покажет `Private/Public`. Поэтому вводим небольшой конечный
+`account-info/v2`: вместо неоднозначного `privacyMode` он содержит
+`trainingUsage: Fact<enabled | disabled>`. Общий UI пишет
+«Использование данных для обучения: включено/отключено». Это не гарантия
+отсутствия retention или всеобщей приватности. Ошибка PATCH/Cloudflare — исход
+операции, не значение trainingUsage. Старое raw `extra` без producer/time/identity
+evidence не повышается до known; другая provider privacy semantics не приравнивается.
+
+Один canonical native snapshot/reader отдаёт две проекции: v2 с trainingUsage;
+v1 с прежними общими полями и `privacyMode: unsupported`. В strict v1 новые поля
+не подмешиваются. Минимальный публичный путь — `POST /v2/account-info/read`
+и `readAccountInfoV2()` в существующем SDK; private sibling
+`/private/native/v2/account-info/read` сохраняет proofs
+`{info, physicalGeneration, principalVersion}`. Отдельных collector/store/engine
+для версий не появляется. Metadata-version не зависит от connection v3.
+
+Native decoder распознаёт прежний stored observation shape, сохраняет общие facts,
+observedAt, source order и identity fences, а training нормализует в unsupported.
+Нет обнуления snapshots и массового provider HTTP. Новые записи имеют новый
+recognized shape. Gateway с явно выбранным старым native reader адаптирует v1
+тем же образом; network/parse error не запускает fallback. Old private/public
+privacy values не превращаются автоматически в training facts.
 
 Общие collectors сохраняют source ordering: order резервируется до HTTP,
 запись проверяет physical identity, selected principal, generation и credential
@@ -376,10 +450,10 @@ workspace, overview и выбранного аккаунта.
 
 | Тип upstream-изменения | Где меняется production code |
 | --- | --- |
-| Новый provider/product на известных primitives | Native registration/adapter и qualification; consumer code не меняется |
-| Новый method ID на известных fields/browser/device | Native method binding и tests; consumer code не меняется |
+| Новый provider/product на известных interaction/execution/custody contracts | Native registration/adapter и qualification; consumer code не меняется |
+| Новый method ID на известных fields/browser/device и security requirements | Native method binding и tests; consumer code не меняется |
 | Изменились endpoint/token refresh/metadata semantics | Native service и его tests |
-| Новый interaction primitive или execution protocol | Versioned shared contract и соответствующий общий renderer/adapter |
+| Новый interaction primitive, execution protocol или security requirement | Versioned shared contract и соответствующий общий renderer/adapter/policy check |
 | Изменился label/список допустимых вариантов | Native source и generated projection |
 | Метод удалён/изменил существенную семантику | Native compatibility/retirement с method revision и управляемым завершением операций |
 
@@ -413,7 +487,7 @@ Qualification ledger содержит evidence, не отдельные provider
 | G0: inventory и contract | Конкретная baseline матрица, wire v3 examples, input/recovery semantics; source trace Agent Identity/PAT, Antigravity, Google/cloud и TypeSafe; один bounded spike только для остающегося спорного пути | Все рисковые семейства представимы выбранными primitives; минимальный RR review contract определён; пересчитана оценка |
 | G1: native declarations/bindings | Канонические методы, две проекции, generic mounted list, совместимость старого config | Native projections и новый test-only binding проверены; все старые mounted профили проходят прежние gates |
 | G2: Gateway/SDK/RR foundation | v3, ingress, primitives, setup/models/limits/usage/recovery seams, product policy, compatibility | Реальный новый test-only native provider/method проходит UI, create/reconnect, model selection, review и usage на неизменном consumer build |
-| G3: metadata parity | Общие collectors/admin projection и исправленные privacy/expiry/Grok/Google facts | Значения и их происхождение согласованы; privacy/visibility/revoke tests проходят |
+| G3: metadata parity | Общие collectors/admin projection, конечный AccountInfo v2 и v1 compatibility, исправленные privacy/expiry/Grok/Google facts | Значения и происхождение согласованы; old/new SDK/stored shapes и visibility/revoke tests проходят |
 | G4: Anthropic/Gemini | Все перечисленные OAuth/import/cloud методы | Native method matrix и reviews соответствующих execution profiles проходят |
 | G5: остальной baseline | OpenAI/Grok/Antigravity и оставшиеся API-key products | Каждая baseline строка закрыта или явно отмечена как незавершённая; отсутствие реализации не считается готовностью |
 | G6: финальная интеграция | Удалены заменённые consumer allowlists/parsers, drift/upgrade checks, visual E2E, evidence | Полная выбранная матрица, compatibility и source-bound CI; review замечания устранены |
@@ -427,6 +501,12 @@ G3 и native adapters G4/G5 можно вести параллельно пос�
 Последовательность зависимых merge: native → Gateway → RR с квалифицированным
 packed SDK. Для реализации создаются/обновляются применимые deployment records;
 этот план не разрешает production cutover или ручной public release.
+После первого v3 acceptance допустимый rollback ограничен квалифицированным
+image, который читает уже принятые operation/custody/metadata encodings и
+сохраняет recovery. Minimum rollback image/compatibility floor фиксируется в
+существующем release evidence. Миграции additive: destructive downgrade или
+произвольный откат native на бинарь без новых decoders не допускаются. Возможны
+forward fix или совместимый rollback; новый rollout orchestrator не нужен.
 Legacy v1/v2 projection имеет владельца и критерий удаления; она не развивается
 как второй каталог. Не поднимаем временную совместимость до бессрочной архитектуры.
 
@@ -453,6 +533,11 @@ Legacy v1/v2 projection имеет владельца и критерий уда
 4. **Совместимость:** старые v1/v2 потребители, новые consumers со старым native,
    неизвестный provider с известным primitive, неизвестный required kind,
    исчезнувший метод и pending operation при независимом catalog update.
+   Один профиль одновременно содержит известный и неизвестный methods. Новый
+   custody requirement отклоняется UI, direct submit и legacy ingress до эффекта.
+   Declared rollback image читает prepared/entered/unknown записи новых форматов.
+   AccountInfo проверяет old SDK/new v1 projection, new SDK/v2, явно выбранный
+   old native/v1 adapter и stored v1 observations без потери source/fences.
 
 Node 26 выполняет полную semantic matrix; Node 24 — обязательные compatibility
 представители и существующие required lanes. Не дублируем каждую комбинацию
@@ -468,15 +553,22 @@ upstream timeout/429/refresh failure и restart. Sentinel credentials прове
 timeouts/retries ради зелёного CI.
 
 Проверка расширяемости: test-only native provider и новый метод на известных
-primitives появляются в настоящем RR setup, подключаются, выбираются для review,
+interaction/execution/security contracts появляются в настоящем RR setup, подключаются, выбираются для review,
 получают account models, выполняют review, корректно отражают usage/limits и
 восстанавливают pending operation без production правок consumer-кода.
-Consumer checkout/build должен быть тем же; одних
+Consumer checkout/build digest тот же; штатный config reload/restart допустим. Одних
 изменённых test fixtures или сериализации descriptor недостаточно.
 
 Регрессии native semantics включают отклонение запрещённой модели/tool,
-routing-by-model для соответствующих платформ, mixed PAYG+coding одного vendor
-и ClinePass wallet cooldown без скрытой смены выбранного платёжного режима.
+фактический endpoint/protocol routing-by-model, mixed PAYG+coding одного vendor
+и независимые ClinePass/credits/free области с сохранением выбранной review model.
+Существующий native выбор default модели административного connection test
+сохраняется, включая его допустимый fallback при cooldown; новая consumer
+policy списаний/переключения модели не вводится.
+Исторический usage не переклассифицируется после изменения каталога; mixed
+aggregate и unknown cost отображаются без выдуманного общего режима/нулевой цены.
+Concurrent same-operation submit с разными credentials/project даёт один
+принятый ввод и conflict для второго, без второго внешнего обмена.
 
 ### 9.3 Что означает PASS
 
@@ -498,17 +590,19 @@ Generated outputs, lockfiles, docs и релизная координация и
 | --- | ---: | ---: |
 | Native declarations, projections, mounted bindings | 900–1 600 | 600–1 000 |
 | Gateway/SDK/RR общая основа, все consumer seams и совместимость | 2 400–4 200 | 2 000–3 400 |
-| Общие metadata sources и полная baseline проекция | 900–1 700 | 1 200–2 400 |
+| Общие metadata sources, AccountInfo v2 и baseline проекция | 1 150–2 150 | 1 550–3 100 |
 | Anthropic/Gemini native adapters, Bedrock/Vertex | 2 200–3 700 | 2 500–4 200 |
 | Остальные baseline методы и execution adapters | 1 600–3 000 | 1 800–3 200 |
 | Узкое выравнивание admin choices и удаление заменённого кода | 250–650 | 250–450 |
 | Общая joined E2E/upgrade/drift оснастка, без provider fixtures выше | 0 | 800–1 400 |
-| **Итого** | **8 250–14 850** | **9 150–16 050** |
+| **Итого** | **8 500–15 300** | **9 500–16 750** |
 
 Предыдущие 4 100–6 800 production относились только к Anthropic/Gemini и не
 прибавляются к этой таблице. Прежние 350–700 строк privacy/expiry входят в
 metadata строку. Native/Gateway/RR разрезы — альтернативная группировка,
 а не дополнительные суммы. После G0 и первого joined slice оценка обновляется.
+AccountInfo v2 добавляет 250–450 production / 350–700 verification строк
+один раз внутри metadata-пакета; этот объём не повторяется в foundation.
 
 Правила учёта: native foundation считает Go declarations/export, admin alignment
 — только Vue method choices/cleanup. Metadata включает collectors и относящееся
@@ -548,7 +642,27 @@ consumer evolution/UX и credentials/metadata/E2E. Затем выполнен �
   снято ложное обещание выявлять любое semantic изменение одним inventory diff.
 - Из общего harness убран повторно посчитанный SDK compatibility бюджет.
 
-Второй круг проверяет эту версию на конкретных сценариях обновления и отказа.
+Второй круг проверил конкретные сценарии нового product/method, preflight,
+неизвестного kind/custody, mixed usage, Cline wallets, импортов и отката.
+В версии 3 исправлено:
+
+- Обещание native-only extension учитывает security requirements; same build
+  допускает config reload/restart и не обещает live hot-plug.
+- В consumer foundation явно включены mount/admission и retained-custody/resume;
+  legacy alias однозначно выбирает метод и не обходит новые требования.
+- Usage сохраняет фактический native request/model/billing context и историю;
+  не вводит собственный Cline wallet parser или новую billing policy.
+- В scope учтены AT-only и другие credential variants видимого Codex importer;
+  повторно используется чистый parser, а не глобальный admin merge runner.
+- Binding переживает публикацию account и проверяется при refresh/dispatch;
+  keyed commitment покрывает весь значимый ввод; discovery не блокирует readback.
+- Указаны minimum rollback image и additive stored-shape compatibility.
+- Privacy переведён в конечный AccountInfo v2 с trainingUsage; v1 сохраняет
+  unsupported, поэтому старый UI не делает ложного обещания Private при rollback.
+  В бюджет внесена только необходимая metadata-version дельта.
+
+Третий круг проверяет окончательную полноту критериев, ясность scope и отсутствие
+лишних механизмов после этих уточнений.
 
 Уже отклонённые варианты:
 
