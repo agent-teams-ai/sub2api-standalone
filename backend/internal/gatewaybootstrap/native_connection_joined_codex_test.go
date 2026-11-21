@@ -104,7 +104,7 @@ func newNativeConnectionJoinedCodexFamily(t *testing.T, cfg *Config) nativeConne
 		if entry.method == "browser" {
 			row.Completion = []nativeConnectionJoinedCompletion{{Action: "submit", FromAuthorizationURL: true}}
 		} else if entry.method == "device_code" {
-			row.Completion = []nativeConnectionJoinedCompletion{{Action: "poll"}}
+			row.Completion = []nativeConnectionJoinedCompletion{{Action: "poll"}, {Action: "poll"}}
 		}
 		row.ReconnectCompletion = row.Completion
 		peer := &nativeConnectionJoinedPeer{Row: row, Protocol: "responses", Handle: f.handle, InferenceAuth: f.inferenceAuth, Verify: f.verify, Counters: f.counters}
