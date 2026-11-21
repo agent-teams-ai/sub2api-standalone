@@ -18,6 +18,9 @@ func gatewayConnectionAPIKeyMountValid(definition GatewayConnectionProfileDefini
 		!gatewayConnectionIdentifier.MatchString(mount.QualificationRef) {
 		return false
 	}
+	if GatewayNativeAPIKeyProfileValid(definition.ProfileID, mount.BaseURL, mount.Model) {
+		return true
+	}
 	if native := LookupProviderProfile(definition.Platform); native != nil {
 		endpoints, exactMode := native.Modes[definition.AccountMode]
 		if !exactMode {
@@ -29,9 +32,6 @@ func gatewayConnectionAPIKeyMountValid(definition GatewayConnectionProfileDefini
 			}
 		}
 		return false
-	}
-	if GatewayNativeAPIKeyProfileValid(definition.ProfileID, mount.BaseURL, mount.Model) {
-		return true
 	}
 	account := &Account{Platform: definition.Platform, Type: AccountTypeAPIKey}
 	switch definition.DispatchFamily {
@@ -89,6 +89,16 @@ func NewGatewayNativeAPIKeyConnectionMethod(profileID, generation string, mount 
 			bases := make(map[string]string)
 			for protocol, base := range native.Modes[definition.AccountMode].BaseURLs {
 				bases[protocol] = base
+			}
+			if GatewayNativeCodingPlanProfileValid(profileID, mount.BaseURL, mount.Model) {
+				// Existing qualified legacy profiles keep their exact endpoint.
+				// Their public IDs must never move an existing key to a newer
+				// native default merely because the inventory was extended.
+				selected := APIProtocolResponses
+				if !native.SupportsProtocol(definition.AccountMode, APIProtocolResponses) {
+					selected = APIProtocolChatCompletions
+				}
+				bases[selected] = mount.BaseURL
 			}
 			document["api_base_urls"] = bases
 		} else {

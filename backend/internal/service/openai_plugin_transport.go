@@ -14,7 +14,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, err
 	}
 	defer release()
-	if request.Context().Value(gatewayNativeContextKey{}) != nil {
+	if request.Context().Value(gatewayNativeContextKey{}) != nil || GatewayNativeConnectionDispatchBound(request.Context()) {
 		return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 	}
 	if s.pluginManager != nil {

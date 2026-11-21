@@ -31,6 +31,7 @@ type GatewayNativeConnections struct {
 	refresh     GatewayNativeOAuthEntryAuthorizer
 	cleanup     GatewayNativeOAuthCleanupAuthorizer
 	dispatchers map[string]GatewayNativeConnectionDispatchAdapter
+	gateway     *OpenAIGatewayService
 }
 
 type GatewayNativeConnectionsDependencies struct {
@@ -43,6 +44,7 @@ type GatewayNativeConnectionsDependencies struct {
 	Refresh     GatewayNativeOAuthEntryAuthorizer
 	Cleanup     GatewayNativeOAuthCleanupAuthorizer
 	Dispatchers map[string]GatewayNativeConnectionDispatchAdapter
+	Gateway     *OpenAIGatewayService
 }
 
 func NewGatewayNativeConnections(d GatewayNativeConnectionsDependencies) (*GatewayNativeConnections, error) {
@@ -63,7 +65,7 @@ func NewGatewayNativeConnections(d GatewayNativeConnectionsDependencies) (*Gatew
 	derive := hmac.New(sha256.New, d.MaterialKey)
 	_, _ = derive.Write([]byte("account-gateway/native/oauth-import-mac-key/v1"))
 	s := &GatewayNativeConnections{journal: d.Journal, repository: d.Repository, custody: d.Custody, aead: aead, macKey: derive.Sum(nil),
-		methods: map[GatewayConnectionSelection]GatewayNativeConnectionMethodAdapter{}, connect: d.Connect, refresh: d.Refresh, cleanup: d.Cleanup, dispatchers: map[string]GatewayNativeConnectionDispatchAdapter{}}
+		methods: map[GatewayConnectionSelection]GatewayNativeConnectionMethodAdapter{}, connect: d.Connect, refresh: d.Refresh, cleanup: d.Cleanup, dispatchers: map[string]GatewayNativeConnectionDispatchAdapter{}, gateway: d.Gateway}
 	for family, dispatch := range d.Dispatchers {
 		if !gatewayConnectionSemanticID.MatchString(family) || dispatch.Forward == nil || dispatch.ValidateRequest == nil {
 			return nil, ErrGatewayNativeIdentity
@@ -230,7 +232,10 @@ func (s *GatewayNativeConnections) Begin(ctx context.Context, in GatewayNativeCo
 	} else if prepared.AuthFamily == "codex_oauth" {
 		intent.ImportClaimMAC = s.mac("account-gateway/native/oauth-import-claim/v1", []string{GatewayOAuthIssuer, openai.ClientID, string(prepared.EntryClaim)})
 	} else {
-		intent.ImportClaimMAC = s.mac("account-gateway/native/connection-claim/v1", []string{prepared.AuthFamily, string(prepared.EntryClaim)})
+		// Configuration, method and optional project/tier fields must not let
+		// unresolved rotating material enter again under a different selection.
+		// Those fields already belong to the independent operation input MAC.
+		intent.ImportClaimMAC = s.mac("account-gateway/native/connection-claim/v1", []any{prepared.AuthFamily, string(prepared.EntryClaim)})
 	}
 	intent.Envelope, err = s.sealMaterial(intent, prepared.Material)
 	if err != nil {
@@ -419,6 +424,12 @@ func (s *GatewayNativeConnections) RecoveryAdapter(profile string) GatewayNative
 		if selection.ProfileID == profile {
 			adapter.MethodIDs = append(adapter.MethodIDs, selection.MethodID)
 			adapter.DispatchFamily = method.DispatchFamily
+		}
+	}
+	if definition, found := LookupGatewayConnectionProfile(profile); found {
+		adapter.DispatchFamily = definition.DispatchFamily
+		for _, method := range definition.Methods {
+			adapter.RecoveryMethodIDs = append(adapter.RecoveryMethodIDs, method.MethodID)
 		}
 	}
 	return adapter

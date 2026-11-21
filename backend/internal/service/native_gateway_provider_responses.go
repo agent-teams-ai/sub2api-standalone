@@ -53,6 +53,15 @@ func gatewayNativeProviderProfile(profile string) bool {
 	case GatewayKimiCodeResponsesProfile, GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile, GatewayGrokOAuthResponsesProfile, GatewayNVIDIABuildChatProfile:
 		return true
 	}
+	// Inventory determines the native structural codec only. Actual admission
+	// still requires an exact qualified binding, stored credential publication
+	// and account-scoped model membership at the last HTTP fence.
+	if definition, found := LookupGatewayConnectionProfile(profile); found {
+		switch definition.DispatchFamily {
+		case "openai_responses", "grok_responses", "provider_by_inbound", "provider_by_model", "mimo_responses", "mimo_chat_bridge", "openrouter_responses", "bedrock_messages", "vertex_messages", "vertex_gemini", "gemini_oauth", "antigravity":
+			return true
+		}
+	}
 	return false
 }
 

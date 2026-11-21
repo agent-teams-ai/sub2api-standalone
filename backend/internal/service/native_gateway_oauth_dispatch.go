@@ -140,6 +140,15 @@ func NewGatewayNativeOAuthDispatch(r GatewayNativeOAuthDispatchRepository, c *Ga
 	if r == nil || !GatewayNativeCredentialCustodyReady(c) || v == nil || len(versions) > 1 {
 		return nil, ErrGatewayNativeIdentity
 	}
+	client, headers := newGatewayCodexAccountCheckClient(transport)
+	var modelVersions *GatewayCodexVersionResolver
+	if len(versions) == 1 {
+		modelVersions = versions[0]
+	}
+	return &GatewayNativeOAuthDispatch{modelVersions: modelVersions, repository: r, custody: c, verifier: v, accountCheckHeaders: headers, client: client}, nil
+}
+
+func newGatewayCodexAccountCheckClient(transport http.RoundTripper) (*http.Client, http.Header) {
 	var headers http.Header
 	if transport == nil {
 		// Match the maintained accounts/check Firefox transport without sharing its
@@ -159,12 +168,7 @@ func NewGatewayNativeOAuthDispatch(r GatewayNativeOAuthDispatchRepository, c *Ga
 		transport = bounded
 		headers = browser.Headers.Clone()
 	}
-	var modelVersions *GatewayCodexVersionResolver
-	if len(versions) == 1 {
-		modelVersions = versions[0]
-	}
-	return &GatewayNativeOAuthDispatch{modelVersions: modelVersions, repository: r, custody: c, verifier: v, accountCheckHeaders: headers, client: &http.Client{Transport: transport, Timeout: 5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return ErrGatewayNativeIdentity }}}, nil
+	return &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrGatewayNativeIdentity }}, headers
 }
 
 // F1 readback selects the exact scoped inert row; no latest/name/public DTO or

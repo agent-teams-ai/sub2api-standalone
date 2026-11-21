@@ -35,6 +35,7 @@ type Config struct {
 	OAuth                                      *service.GatewayNativeOAuthDispatch
 	ClaudeOAuth                                *service.GatewayNativeClaudeOAuth
 	GrokOAuth                                  *service.GatewayNativeGrokOAuth
+	Connections                                *service.GatewayNativeConnections
 	ProviderLimits                             service.GatewayAccountLimitsRepositoryV2
 	Authorize                                  func(*http.Request) (Peer, error)
 	Enrollment                                 Enrollment
@@ -47,6 +48,7 @@ type Config struct {
 	CodingPlans                                []QualifiedProfile
 	OfficialAPIs                               []QualifiedProfile
 	Grok                                       *QualifiedProfile
+	NativeProfiles                             []QualifiedProfile
 	CallbackOrigin, CallbackCredential         string
 	VerifyDispatch                             func(context.Context, string, Proof, time.Time) error
 	AuthorizeCleanup                           func(context.Context, string, Proof, CleanupLease) error
@@ -320,6 +322,23 @@ func Prepare(ctx context.Context, cfg Config) (*Prepared, error) {
 		}
 		cfg.Grok = &grok
 	}
+	if len(cfg.NativeProfiles) > 128 || len(cfg.NativeProfiles) > 0 && cfg.Connections == nil {
+		return nil, errDenied
+	}
+	nativeProfiles := append([]QualifiedProfile(nil), cfg.NativeProfiles...)
+	all := map[string]bool{}
+	for _, existing := range qualifiedProfiles(cfg) {
+		if all[existing.Profile] {
+			return nil, errDenied
+		}
+		all[existing.Profile] = true
+	}
+	for _, profile := range nativeProfiles {
+		if !identifier.MatchString(profile.Profile) || !service.GatewayConnectionMountValid(service.GatewayConnectionMount{BaseURL: profile.BaseURL, Model: profile.Model, QualificationRef: profile.QualificationRef}) || !providerProfileBoundsValid(profile) {
+			return nil, errDenied
+		}
+	}
+	cfg.NativeProfiles = nativeProfiles
 	return &Prepared{cfg: cfg}, nil
 }
 
@@ -350,14 +369,24 @@ func qualifiedProfiles(cfg Config) []QualifiedProfile {
 		}
 	}
 	profiles = append(profiles, cfg.CodingPlans...)
-	return append(profiles, cfg.OfficialAPIs...)
+	profiles = append(profiles, cfg.OfficialAPIs...)
+	return append(profiles, cfg.NativeProfiles...)
 }
 
 func (p *Prepared) QualifiedProfiles() []QualifiedProfile { return qualifiedProfiles(p.cfg) }
 func (h *Handler) QualifiedProfiles() []QualifiedProfile  { return qualifiedProfiles(h.cfg) }
-func (p *Prepared) Enrollment() Enrollment                { return p.cfg.Enrollment }
+
+// QualifiedProfiles returns detached mount values for constructing native
+// lifecycle bindings before startup enrollment invokes any authority callback.
+func (cfg Config) QualifiedProfiles() []QualifiedProfile { return qualifiedProfiles(cfg) }
+func (p *Prepared) Enrollment() Enrollment               { return p.cfg.Enrollment }
 
 func (h *Handler) profile(id string) (QualifiedProfile, bool) {
+	for _, profile := range h.cfg.NativeProfiles {
+		if profile.Profile == id {
+			return profile, true
+		}
+	}
 	if id == h.cfg.Profile.Profile {
 		return h.cfg.Profile, true
 	}

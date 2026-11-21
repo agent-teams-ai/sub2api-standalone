@@ -45,14 +45,21 @@ func (r *accountRepository) StageGatewayNativeConnection(ctx context.Context, en
 		return empty, service.ErrGatewayOAuthConflict
 	}
 	if saved.State == "completed" {
-		p, err := nativeConnectionPhysicalTx(ctx, tx, saved.Scope, saved.Operation, false)
-		if err != nil || p.Native.Publication != enrollment.Publication {
+		if saved.NativePublication == nil || *saved.NativePublication != enrollment.Publication {
 			return empty, service.ErrGatewayOAuthConflict
+		}
+		// Completion replay is an immutable receipt, not a fresh custody read.
+		// Do not take account after intent: refresh/cleanup lock in the opposite
+		// order. The birth cannot be deleted or changed by either path.
+		route := service.GatewayNativeRoute{Generation: saved.Scope.Generation, Profile: saved.Connection.ProfileID, BaseURL: saved.NativeMount.BaseURL, Model: saved.NativeMount.Model}
+		if tx.QueryRowContext(ctx, `SELECT id,created_at FROM accounts WHERE id=$1
+ AND extra->>'gateway_connection_operation_v1'=$2 AND extra->>'gateway_generation_v1'=$3`, saved.Outcome.AccountID, saved.Operation, saved.Scope.Generation).Scan(&route.AccountID, &route.CreatedAt) != nil {
+			return empty, service.ErrGatewayNativeIdentity
 		}
 		if tx.Commit() != nil {
 			return empty, service.ErrGatewayNativeIdentity
 		}
-		return p.Native, nil
+		return service.GatewayNativePublishedRoute{GatewayNativeRoute: route, Publication: *saved.NativePublication}, nil
 	}
 	if saved.State != "entered" && saved.State != "unknown" {
 		return empty, service.ErrGatewayNativeIdentity
@@ -180,6 +187,24 @@ func (r *accountRepository) LockGatewayNativeConnection(ctx context.Context, sco
 
 // The canonical resolver never accepts an owner from invocation input. It
 // resolves one immutable stored physical birth for the authenticated consumer.
+func (r *accountRepository) GatewayNativeConnectionRouteMarked(ctx context.Context, route service.GatewayNativeRoute) (bool, error) {
+	if _, err := service.GatewayNativeConsumer(ctx); err != nil || route.AccountID < 1 || route.CreatedAt.IsZero() || route.Generation == "" {
+		return false, service.ErrGatewayNativeIdentity
+	}
+	db, ok := r.sql.(interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	})
+	if !ok {
+		return false, service.ErrGatewayNativeIdentity
+	}
+	var marked bool
+	if db.QueryRowContext(ctx, `SELECT COALESCE(extra->'gateway_native_connection_v1'='true'::jsonb,false)
+ FROM accounts WHERE id=$1 AND created_at=$2 AND extra->>'gateway_generation_v1'=$3 AND deleted_at IS NULL`, route.AccountID, route.CreatedAt, route.Generation).Scan(&marked) != nil {
+		return false, service.ErrGatewayNativeIdentity
+	}
+	return marked, nil
+}
+
 func (r *accountRepository) ResolveGatewayNativeConnectionCanonical(ctx context.Context, route service.GatewayNativeRoute, account string) (service.GatewayNativeCredentialScope, string, service.GatewayConnectionPublication, error) {
 	var empty service.GatewayNativeCredentialScope
 	var noPublication service.GatewayConnectionPublication

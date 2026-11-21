@@ -200,6 +200,14 @@ func gatewayOAuthSeconds(raw json.RawMessage) (int64, bool) {
 }
 
 func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string) (GatewayNativeOAuthIdentity, error) {
+	return v.verifyAudience(ctx, encoded, gatewayOAuthAudience)
+}
+
+// Only native desktop/mobile client configurations may select a token audience.
+func (v *GatewayNativeOAuthVerifier) verifyAudience(ctx context.Context, encoded, audience string) (GatewayNativeOAuthIdentity, error) {
+	if audience != gatewayOAuthAudience && audience != gatewayCodexMobileClientID {
+		return GatewayNativeOAuthIdentity{}, ErrGatewayNativeIdentity
+	}
 	deny := func() (GatewayNativeOAuthIdentity, error) {
 		return GatewayNativeOAuthIdentity{}, ErrGatewayNativeIdentity
 	}
@@ -260,12 +268,12 @@ func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string)
 	} else if json.Unmarshal(claims["aud"], &audiences) != nil {
 		return deny()
 	}
-	if len(audiences) != 1 || audiences[0] != gatewayOAuthAudience {
+	if len(audiences) != 1 || audiences[0] != audience {
 		return deny()
 	}
 	if _, exists := claims["azp"]; exists {
 		azp, ok := gatewayOAuthString(claims, "azp")
-		if !ok || azp != gatewayOAuthAudience {
+		if !ok || azp != audience {
 			return deny()
 		}
 	}
@@ -291,7 +299,7 @@ func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string)
 	now = v.now()
 	token, err := jwt.Parse(encoded, func(*jwt.Token) (any, error) { return key, nil },
 		jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(GatewayOAuthIssuer),
-		jwt.WithAudience(gatewayOAuthAudience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
+		jwt.WithAudience(audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
 	if err != nil || !token.Valid {
 		return deny()
 	}

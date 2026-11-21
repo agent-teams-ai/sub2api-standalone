@@ -37,22 +37,23 @@ type Config struct {
 	ListenAddress string `json:"listenAddress"`
 	// Public inference has an independent listener and admission budget. The
 	// private control listener never accepts execution capabilities from clients.
-	PublicListenAddress string             `json:"publicListenAddress,omitempty"`
-	PublicMaxActive     int64              `json:"publicMaxActive,omitempty"`
-	PostgresDSN         string             `json:"postgresDSN"`
-	Authority           AuthorityConfig    `json:"authority"`
-	Custody             CustodyConfig      `json:"custody"`
-	Peers               []ControlPeer      `json:"peers"`
-	Profile             ProfileConfig      `json:"profile"`
-	MaxEntries          int64              `json:"maxEntries"`
-	OAuth               *OAuthConfig       `json:"oauth,omitempty"`
-	OpenRouter          *ProfileConfig     `json:"openRouter,omitempty"`
-	NVIDIA              *ProfileConfig     `json:"nvidia,omitempty"`
-	AnthropicAPI        *ProfileConfig     `json:"anthropicApi,omitempty"`
-	GeminiAPI           *ProfileConfig     `json:"geminiApi,omitempty"`
-	Claude              *ProfileConfig     `json:"claude,omitempty"`
-	CodingPlans         []CodingPlanConfig `json:"codingPlans,omitempty"`
-	Grok                *GrokConfig        `json:"grok,omitempty"`
+	PublicListenAddress string                `json:"publicListenAddress,omitempty"`
+	PublicMaxActive     int64                 `json:"publicMaxActive,omitempty"`
+	PostgresDSN         string                `json:"postgresDSN"`
+	Authority           AuthorityConfig       `json:"authority"`
+	Custody             CustodyConfig         `json:"custody"`
+	Peers               []ControlPeer         `json:"peers"`
+	Profile             ProfileConfig         `json:"profile"`
+	MaxEntries          int64                 `json:"maxEntries"`
+	OAuth               *OAuthConfig          `json:"oauth,omitempty"`
+	OpenRouter          *ProfileConfig        `json:"openRouter,omitempty"`
+	NVIDIA              *ProfileConfig        `json:"nvidia,omitempty"`
+	AnthropicAPI        *ProfileConfig        `json:"anthropicApi,omitempty"`
+	GeminiAPI           *ProfileConfig        `json:"geminiApi,omitempty"`
+	Claude              *ProfileConfig        `json:"claude,omitempty"`
+	CodingPlans         []CodingPlanConfig    `json:"codingPlans,omitempty"`
+	Grok                *GrokConfig           `json:"grok,omitempty"`
+	NativeProfiles      []NativeProfileConfig `json:"nativeProfiles,omitempty"`
 }
 
 // The optional OAuth key is separate from custody, inherited in protected FD6,
@@ -65,6 +66,10 @@ type OAuthConfig struct {
 
 // New profiles are explicit deployment qualifications, never enabled by defaults.
 type CodingPlanConfig struct {
+	ProfileID string        `json:"profileId"`
+	Profile   ProfileConfig `json:"profile"`
+}
+type NativeProfileConfig struct {
 	ProfileID string        `json:"profileId"`
 	Profile   ProfileConfig `json:"profile"`
 }
@@ -302,7 +307,27 @@ func (c Config) validate() (*service.GatewayNativeCredentialCustody, error) {
 			}
 		}
 	}
+	if len(c.NativeProfiles) > 128 {
+		return nil, ErrDenied
+	}
+	seenNative := map[string]bool{}
+	for _, candidate := range c.NativeProfiles {
+		if _, found := service.LookupGatewayConnectionProfile(candidate.ProfileID); !found || seenNative[candidate.ProfileID] || !candidate.Profile.valid() {
+			return nil, ErrDenied
+		}
+		seenNative[candidate.ProfileID] = true
+	}
 	return adapter, nil
+}
+
+func (c Config) nativeProfiles() []gatewaytransport.QualifiedProfile {
+	profiles := make([]gatewaytransport.QualifiedProfile, 0, len(c.NativeProfiles))
+	for _, candidate := range c.NativeProfiles {
+		profile := candidate.Profile.qualified()
+		profile.Profile = candidate.ProfileID
+		profiles = append(profiles, profile)
+	}
+	return profiles
 }
 
 func (p ProfileConfig) valid() bool {

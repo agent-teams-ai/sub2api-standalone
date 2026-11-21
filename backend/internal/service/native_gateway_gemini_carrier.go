@@ -23,6 +23,26 @@ func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuati
 	if c == nil || c.Request == nil {
 		return nil, nil
 	}
+	if connection, ok := c.Request.Context().Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && connection != nil {
+		if !gatewayNativeConnectionGeminiProfile(connection.binding.native.Profile) {
+			return nil, nil
+		}
+		if !GatewayNativeConnectionAccountAuthorized(c.Request.Context(), connection.account) || !GatewayAccountModelIDValid(connection.requestedModel) {
+			return nil, ErrGatewayNativeIdentity
+		}
+		native := connection.binding.native
+		native.CreatedAt = native.CreatedAt.UTC()
+		binding, err := json.Marshal(struct {
+			Scope   GatewayNativeCredentialScope `json:"scope"`
+			Native  GatewayNativePublishedRoute  `json:"native"`
+			Version int64                        `json:"version"`
+			Model   string                       `json:"model"`
+		}{connection.binding.in.Scope, native, connection.physical.CredentialVersion, connection.requestedModel})
+		if err != nil {
+			return nil, ErrGatewayNativeIdentity
+		}
+		return &gatewayGeminiContinuationCodec{custody: connection.binding.service.custody, binding: binding}, nil
+	}
 	state, _ := c.Request.Context().Value(gatewayNativeContextKey{}).(*gatewayNativeDispatch)
 	if state == nil || state.route.Profile != GatewayGeminiAPIKeyProfile {
 		return nil, nil
@@ -43,6 +63,11 @@ func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuati
 		return nil, ErrGatewayNativeIdentity
 	}
 	return &gatewayGeminiContinuationCodec{custody: state.custody, binding: binding}, nil
+}
+
+func gatewayNativeConnectionGeminiProfile(profile string) bool {
+	definition, found := LookupGatewayConnectionProfile(profile)
+	return found && (definition.DispatchFamily == "gemini_chat" || definition.DispatchFamily == "vertex_gemini" || definition.DispatchFamily == "gemini_oauth")
 }
 
 func (c *gatewayGeminiContinuationCodec) aad(id string) []byte {

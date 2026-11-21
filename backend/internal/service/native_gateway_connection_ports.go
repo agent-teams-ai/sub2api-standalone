@@ -66,19 +66,22 @@ type GatewayNativeConnectionCustodyResult struct {
 // arbitrary operation graph. Bootstrap supplies qualified method/configuration
 // bindings and the actual execution adapter independently of this inventory.
 type GatewayNativeConnectionAdapter struct {
-	ProfileID      string
-	Purpose        string
-	MethodIDs      []string
-	DispatchFamily string
-	AuthFamily     string
-	Begin          func(context.Context, GatewayNativeConnectionScope, map[string]string) (GatewayNativeConnectionResult, error)
-	Read           func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionResult, error)
-	Submit         func(context.Context, GatewayNativeConnectionScope, map[string]string) (GatewayNativeConnectionResult, error)
-	Poll           func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionResult, error)
-	Describe       func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionDescriptorResult, error)
-	Refresh        func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionMaintenanceResult, error)
-	Custody        func(context.Context, GatewayNativeConnectionScope, GatewayNativePublishedRoute) (GatewayNativeConnectionCustodyResult, error)
-	Cleanup        func(context.Context, GatewayNativeConnectionScope, GatewayNativeOAuthCleanupRequest) (GatewayNativeConnectionCleanupResult, error)
+	ProfileID string
+	Purpose   string
+	MethodIDs []string
+	// Recovery is independent from today's enabled creation methods. Saved
+	// operations keep their immutable receipts when a mount is removed.
+	RecoveryMethodIDs []string
+	DispatchFamily    string
+	AuthFamily        string
+	Begin             func(context.Context, GatewayNativeConnectionScope, map[string]string) (GatewayNativeConnectionResult, error)
+	Read              func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionResult, error)
+	Submit            func(context.Context, GatewayNativeConnectionScope, map[string]string) (GatewayNativeConnectionResult, error)
+	Poll              func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionResult, error)
+	Describe          func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionDescriptorResult, error)
+	Refresh           func(context.Context, GatewayNativeConnectionScope) (GatewayNativeConnectionMaintenanceResult, error)
+	Custody           func(context.Context, GatewayNativeConnectionScope, GatewayNativePublishedRoute) (GatewayNativeConnectionCustodyResult, error)
+	Cleanup           func(context.Context, GatewayNativeConnectionScope, GatewayNativeOAuthCleanupRequest) (GatewayNativeConnectionCleanupResult, error)
 }
 
 // Supports verifies that every operation needed by this primitive and retained

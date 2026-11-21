@@ -69,6 +69,10 @@ func GatewayNativeConnectionModels(profile, anchor string) []GatewayAccountModel
 	}
 	models := []GatewayAccountModel{{ModelID: anchor, Tools: GatewayAccountModelChoices{Allowed: []string{"function"}, Default: "function"}}}
 	switch profile {
+	case "typesafe-systemone-apikey-v1":
+		// Native SystemOne has a distinct non-streaming question/criteria protocol.
+		// Its inventory must not claim function tools or qualify a Responses route.
+		models[0].Tools = GatewayAccountModelChoices{Allowed: []string{"none"}, Default: "none"}
 	case GatewayCodexOAuthResponsesProfile:
 		models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"minimal", "low", "medium", "high", "xhigh"}, Default: "high"}
 		models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}

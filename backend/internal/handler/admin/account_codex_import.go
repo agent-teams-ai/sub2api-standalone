@@ -502,25 +502,16 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 	case string:
 		item.AccessToken = strings.TrimSpace(raw)
 	case map[string]any:
-		if agentIdentity, ok := firstCodexMap(raw, []string{"agent_identity"}, []string{"agentIdentity"}); ok || strings.EqualFold(firstCodexString(raw, []string{"auth_mode"}, []string{"authMode"}), service.OpenAIAuthModeAgentIdentity) {
-			if !ok {
-				agentIdentity = raw
-			}
+		parsed, parseErr := service.ParseCodexSessionCredentialInput(raw)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		item.AccessToken, item.RefreshToken, item.IDToken = parsed.AccessToken, parsed.RefreshToken, parsed.IDToken
+		if parsed.IsAgentIdentity {
 			item.IsAgentIdentity = true
-			item.AgentRuntimeID = firstCodexString(agentIdentity, []string{"agent_runtime_id"}, []string{"agentRuntimeId"})
-			item.AgentPrivateKey = firstCodexString(agentIdentity, []string{"agent_private_key"}, []string{"agentPrivateKey"})
-			item.AgentTaskID = firstCodexString(agentIdentity, []string{"task_id"}, []string{"taskId"})
-			item.AccountID = firstCodexString(agentIdentity, []string{"account_id"}, []string{"accountId"})
-			item.UserID = firstCodexString(agentIdentity, []string{"chatgpt_user_id"}, []string{"chatgptUserId"})
-			item.Email = firstCodexString(agentIdentity, []string{"email"})
-			item.PlanType = firstCodexString(agentIdentity, []string{"plan_type"}, []string{"planType"})
-			item.AgentFedRAMP = firstCodexBool(agentIdentity, []string{"chatgpt_account_is_fedramp"}, []string{"chatgptAccountIsFedramp"})
-			if item.AgentRuntimeID == "" || item.AgentPrivateKey == "" || item.AccountID == "" || item.UserID == "" {
-				return nil, errors.New("agent identity 缺少必要字段")
-			}
-			if err := service.ValidateOpenAIAgentIdentityPrivateKey(item.AgentPrivateKey); err != nil {
-				return nil, errors.New("agent identity private key 格式无效")
-			}
+			item.AgentRuntimeID, item.AgentPrivateKey, item.AgentTaskID = parsed.AgentRuntimeID, parsed.AgentPrivateKey, parsed.AgentTaskID
+			item.AccountID, item.UserID, item.Email, item.PlanType = parsed.AccountID, parsed.UserID, parsed.Email, parsed.PlanType
+			item.AgentFedRAMP = parsed.AgentFedRAMP
 			item.Credentials["auth_mode"] = service.OpenAIAuthModeAgentIdentity
 			item.Credentials["agent_runtime_id"] = item.AgentRuntimeID
 			item.Credentials["agent_private_key"] = item.AgentPrivateKey
@@ -537,25 +528,6 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 			item.Name = buildCodexImportAccountName(item, entry.Index)
 			return item, nil
 		}
-		item.AccessToken = firstCodexString(raw,
-			[]string{"tokens", "access_token"},
-			[]string{"tokens", "accessToken"},
-			[]string{"access_token"},
-			[]string{"accessToken"},
-			[]string{"token"},
-		)
-		item.RefreshToken = firstCodexString(raw,
-			[]string{"tokens", "refresh_token"},
-			[]string{"tokens", "refreshToken"},
-			[]string{"refresh_token"},
-			[]string{"refreshToken"},
-		)
-		item.IDToken = firstCodexString(raw,
-			[]string{"tokens", "id_token"},
-			[]string{"tokens", "idToken"},
-			[]string{"id_token"},
-			[]string{"idToken"},
-		)
 		item.Email = firstCodexString(raw, []string{"email"}, []string{"user", "email"})
 		item.AccountID = firstCodexString(raw,
 			[]string{"chatgpt_account_id"},

@@ -101,14 +101,18 @@ func composePrivateConnectionBindings(c Config, profiles []gatewaytransport.Qual
 		}
 	}
 	for _, adapter := range adapters {
-		if adapter.ProfileID == "" || adapter.Purpose == "" || len(adapter.MethodIDs) > 32 || adapter.Begin == nil ||
+		if adapter.ProfileID == "" || adapter.Purpose == "" || len(adapter.MethodIDs) > 32 || len(adapter.RecoveryMethodIDs) > 32 || adapter.Begin == nil ||
 			adapter.Read == nil || adapter.Submit == nil || adapter.Describe == nil || adapter.Refresh == nil || adapter.Custody == nil || adapter.Cleanup == nil {
 			return nil, ErrDenied
 		}
 		if out.recovery[adapter.ProfileID] == nil {
 			out.recovery[adapter.ProfileID] = make(map[string]service.GatewayNativeConnectionAdapter)
 		}
-		for _, method := range adapter.MethodIDs {
+		recoveryMethods := adapter.RecoveryMethodIDs
+		if recoveryMethods == nil {
+			recoveryMethods = adapter.MethodIDs
+		}
+		for _, method := range recoveryMethods {
 			if _, duplicate := out.recovery[adapter.ProfileID][method]; duplicate {
 				return nil, ErrDenied
 			}
@@ -130,6 +134,10 @@ func composePrivateConnectionBindings(c Config, profiles []gatewaytransport.Qual
 			Methods:     []service.GatewayConnectionMethod{}, AccountInfo: oauth.info != nil, LimitsContract: definition.LimitsContract,
 			Availability: "deployment_configuration_required", Mount: service.GatewayConnectionMount{BaseURL: mounted.BaseURL, Model: mounted.Model, QualificationRef: mounted.QualificationRef},
 			LegacyAliases: []service.GatewayConnectionLegacyAlias{},
+		}
+		if (oauth.nativeConnections != nil || oauth.limits != nil || oauth.limitsV2 != nil) &&
+			(definition.LimitsContract == service.GatewayAccountLimitsContract || definition.LimitsContract == service.GatewayAccountLimitsContractV2) {
+			capability.LimitsContract = service.GatewayAccountLimitsContractV3
 		}
 		for _, method := range definition.Methods {
 			selection := service.GatewayConnectionSelection{ProfileID: mounted.Profile, MethodID: method.MethodID, MethodRevision: method.Revision, ConfigurationGeneration: generation}

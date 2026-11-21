@@ -48,7 +48,7 @@ func (s *privateConnections) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusConflict)
 		return
 	}
-	if action == "begin" || action == "submit" || action == "poll" || action == "refresh" {
+	if action == "begin" || action == "submit" || action == "poll" {
 		current, configured := s.bindings[request.Connection.ProfileID][request.Connection.MethodID]
 		if !configured || current.selection != request.Connection {
 			deny(http.StatusConflict)

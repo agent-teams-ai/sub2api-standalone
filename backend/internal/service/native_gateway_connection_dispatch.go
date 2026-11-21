@@ -14,6 +14,26 @@ import (
 
 type GatewayNativeConnectionCanonicalRepository interface {
 	ResolveGatewayNativeConnectionCanonical(context.Context, GatewayNativeRoute, string) (GatewayNativeCredentialScope, string, GatewayConnectionPublication, error)
+	GatewayNativeConnectionRouteMarked(context.Context, GatewayNativeRoute) (bool, error)
+}
+
+// BindRoute distinguishes a stored native publication from a legacy physical
+// row before choosing its decoder. An unavailable or mismatched row is an error,
+// never permission to try another credential lifecycle.
+func (s *GatewayNativeConnections) BindRoute(ctx context.Context, route GatewayNativeRoute, account string, authorizationEpoch, requestBytes, tokens int64) (context.Context, bool, error) {
+	if s == nil || ctx == nil {
+		return nil, false, ErrGatewayNativeIdentity
+	}
+	repository, ok := s.repository.(GatewayNativeConnectionCanonicalRepository)
+	if !ok {
+		return nil, false, ErrGatewayNativeIdentity
+	}
+	marked, err := repository.GatewayNativeConnectionRouteMarked(ctx, route)
+	if err != nil || !marked {
+		return ctx, marked, err
+	}
+	bound, err := s.BindApproved(ctx, route, account, authorizationEpoch, requestBytes, tokens)
+	return bound, true, err
 }
 
 type gatewayConnectionDispatchBinding struct {
@@ -114,6 +134,9 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 		return nil, false, ErrGatewayNativeIdentity
 	}
 	s := binding.service
+	if !s.GatewayNativeConnectionModelAllowed(ctx, binding.native, model) {
+		return nil, false, ErrGatewayNativeIdentity
+	}
 	dispatch, exists := s.dispatchers[binding.native.Publication.DispatchFamily]
 	if !exists || dispatch.Forward == nil || dispatch.ValidateRequest == nil {
 		return nil, false, ErrGatewayNativeIdentity
@@ -202,6 +225,9 @@ func CheckGatewayNativeConnectionDispatch(request *http.Request, account *Accoun
 		return noop, true, ErrGatewayNativeIdentity
 	}
 	s := state.binding.service
+	if !s.GatewayNativeConnectionModelAllowed(request.Context(), state.binding.native, state.requestedModel) {
+		return noop, true, ErrGatewayNativeIdentity
+	}
 	dispatch := s.dispatchers[state.binding.native.Publication.DispatchFamily]
 	if dispatch.ValidateRequest == nil || !dispatch.ValidateRequest(request, account, state.binding.native, state.requestedModel) {
 		return noop, true, ErrGatewayNativeIdentity
@@ -243,5 +269,22 @@ func GatewayNativeConnectionAccountAuthorized(ctx context.Context, account *Acco
 		return false
 	}
 	state, _ := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState)
-	return state != nil && state.account == account && GatewayConnectionScopeAuthorized(ctx, state.binding.in.Scope) && GatewayConnectionSelectionAuthorized(ctx, &state.binding.in.Connection)
+	if state == nil || state.account != account || ctx.Err() != nil || !GatewayConnectionScopeAuthorized(ctx, state.binding.in.Scope) || !GatewayConnectionSelectionAuthorized(ctx, &state.binding.in.Connection) {
+		return false
+	}
+	canonical, err := json.Marshal(account.Credentials)
+	if err != nil {
+		return false
+	}
+	digest := sha256.Sum256(canonical)
+	clear(canonical)
+	if digest != state.credentials || !reflect.DeepEqual(account.Extra, state.physical.Account.Extra) {
+		return false
+	}
+	fresh, release, err := state.binding.service.repository.LockGatewayNativeConnection(ctx, state.binding.in.Scope, state.binding.in.Operation, &state.binding.native)
+	if err != nil || release == nil {
+		return false
+	}
+	defer release()
+	return fresh.CredentialVersion == state.physical.CredentialVersion && reflect.DeepEqual(fresh.Account.Credentials, state.physical.Account.Credentials) && reflect.DeepEqual(fresh.Account.Extra, state.physical.Account.Extra)
 }

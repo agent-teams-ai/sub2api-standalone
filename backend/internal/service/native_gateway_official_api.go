@@ -63,13 +63,17 @@ func gatewayNativePrepareAnthropicAPI(body []byte) ([]byte, func([]apicompat.Res
 }
 
 func (s *OpenAIGatewayService) forwardGatewayAnthropicAPI(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	return s.forwardGatewayNativeAnthropicAPI(ctx, c, account, body, GatewayAnthropicAPIBaseURL+"/messages", GatewayAnthropicAPIModel, false)
+}
+
+func (s *OpenAIGatewayService) forwardGatewayNativeAnthropicAPI(ctx context.Context, c *gin.Context, account *Account, body []byte, target, model string, connection bool) (*OpenAIForwardResult, error) {
 	wire, validate, err := gatewayNativePrepareAnthropicAPI(body)
 	if err != nil {
 		return nil, err
 	}
 	upstreamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	request, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, GatewayAnthropicAPIBaseURL+"/messages", bytes.NewReader(wire))
+	request, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, target, bytes.NewReader(wire))
 	if err != nil {
 		return nil, ErrGatewayNativeIdentity
 	}
@@ -80,6 +84,11 @@ func (s *OpenAIGatewayService) forwardGatewayAnthropicAPI(ctx context.Context, c
 	// The shared final custody seam replaces this encrypted placeholder with
 	// x-api-key under the same physical lock and one-use dispatch fence.
 	request.Header.Set("Authorization", "Bearer "+account.GetCredential("api_key"))
+	if connection {
+		request.Header.Del("Authorization")
+		setAnthropicAPIKeyAuthHeader(request.Header, account, account.GetCredential("api_key"), account.GetAnthropicProtocolBaseURL())
+		applyOpenCodeUpstreamUserAgent(account, target, request.Header)
+	}
 	start := time.Now()
 	observation := GatewayNativeUsage{Source: "native_provider_response", State: "unknown", CostState: "unknown"}
 	defer func() {
@@ -95,5 +104,5 @@ func (s *OpenAIGatewayService) forwardGatewayAnthropicAPI(ctx context.Context, c
 	if err != nil || response == nil || response.Body == nil {
 		return nil, ErrGatewayNativeEffectUnknown
 	}
-	return gatewayNativeAnthropicResponse(ctx, c, response, GatewayAnthropicAPIModel, start, cancel, &observation, validate)
+	return gatewayNativeAnthropicResponse(ctx, c, response, model, start, cancel, &observation, validate)
 }
