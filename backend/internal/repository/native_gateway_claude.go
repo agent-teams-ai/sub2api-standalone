@@ -108,10 +108,9 @@ func (r *gatewayClaudeRepository) CompleteGatewayClaudeConnect(ctx context.Conte
 	if tx.QueryRowContext(ctx, `SELECT consumer=$3 AND owner_ref=$4 AND account_ref=$5 FROM gateway_claude_principal_claims WHERE account_uuid=$1 AND organization_uuid=$2 FOR UPDATE`, account, org, s.Consumer, s.Owner, s.Account).Scan(&owned) != nil || !owned {
 		return out, service.ErrGatewayNativeIdentity
 	}
-	var prior bool
-	if tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gateway_claude_connect_intents c JOIN accounts a ON a.id=c.account_id WHERE c.consumer=$1 AND c.account_ref=$2 AND a.deleted_at IS NULL)`, s.Consumer, s.Account).Scan(&prior) != nil || prior {
-		return out, service.ErrGatewayNativeIdentity
-	}
+	// Reconnect seals a distinct generation while the canonical older birth is
+	// still retained. The facade switches that exact binding before cleanup;
+	// permanent consumer/owner/logical-account ownership above remains enforced.
 	extra, _ := json.Marshal(map[string]any{"gateway_claude_profile_v1": service.GatewayClaudeOAuthMessagesProfile, "gateway_claude_generation_v1": s.Generation, "gateway_claude_scope_v1": s.Metadata()})
 	credentials, _ := json.Marshal(map[string]string{"oauth_bundle": in.Envelope})
 	var id int64

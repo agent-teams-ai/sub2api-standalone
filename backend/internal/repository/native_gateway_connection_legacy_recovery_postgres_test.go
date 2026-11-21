@@ -237,7 +237,8 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					authorize, err := url.Parse(begin.AuthorizeURL)
 					require.NoError(t, err)
 					fixture.state = authorize.Query().Get("state")
-					completed, err := current.CompleteOwnerCallback(selectedCtx, in.Scope, in.Operation, fixture.state, "fixture-code")
+					fixture.completionCode, fixture.codeChallenge = "fresh-code-"+uuid.NewString(), authorize.Query().Get("code_challenge")
+					completed, err := current.CompleteOwnerCallback(selectedCtx, in.Scope, in.Operation, fixture.state, fixture.completionCode)
 					require.NoError(t, err)
 					require.Equal(t, "completed", completed.State)
 					descriptor, err := current.Descriptor(selectedCtx, in.Scope, in.Operation)
@@ -245,6 +246,82 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					route = descriptor.Native
 					recovery, err = service.NewGatewayNativeClaudeRecoveryConnectionAdapter(claudeRepo, custody, cleanup)
 					require.NoError(t, err)
+					// Actual facade reconnect must stage a fresh native generation
+					// before switching its canonical binding and erasing the old birth.
+					// Both grants use fresh source codes/PKCE over the real TLS peer.
+					active, err := service.NewGatewayNativeClaudeConnectionAdapter(current, cleanup)
+					require.NoError(t, err)
+					candidate := in
+					candidate.Scope.Generation, candidate.Operation = uuid.NewString(), "reconnect-"+uuid.NewString()
+					candidateBegin, err := active.Begin(ownerCtx, candidate, map[string]string{})
+					require.NoError(t, err)
+					require.Empty(t, candidateBegin.Method)
+					authorize, err = url.Parse(candidateBegin.AuthorizeURL)
+					require.NoError(t, err)
+					fixture.state = authorize.Query().Get("state")
+					fixture.completionCode, fixture.codeChallenge = "fresh-code-"+uuid.NewString(), authorize.Query().Get("code_challenge")
+					connected, err := active.Submit(ownerCtx, candidate, map[string]string{"completion": fixture.completionCode})
+					require.NoError(t, err)
+					require.Equal(t, "completed", connected.State)
+					require.EqualValues(t, 2, fixture.grant.Load())
+					_, err = active.Submit(ownerCtx, candidate, map[string]string{"completion": fixture.completionCode})
+					require.NoError(t, err)
+					require.EqualValues(t, 2, fixture.grant.Load(), "committed reconnect readback cannot replay its one-use source grant")
+					candidateDescriptor, err := current.Descriptor(selectedCtx, candidate.Scope, candidate.Operation)
+					require.NoError(t, err)
+					require.NotNil(t, candidateDescriptor.Native)
+					require.NotEqual(t, route.AccountID, candidateDescriptor.Native.AccountID)
+					require.False(t, route.CreatedAt.Equal(candidateDescriptor.Native.CreatedAt))
+					_, err = current.RetainedCustody(selectedCtx, in.Scope, in.Operation, *route)
+					require.NoError(t, err, "old custody stays retained until the facade commits replacement")
+					// A new logical account still cannot take the permanently owned
+					// provider principal, even with a successful fresh source exchange.
+					foreign := candidate
+					foreign.Scope.Account, foreign.Scope.Generation, foreign.Operation = uuid.NewString(), uuid.NewString(), "foreign-"+uuid.NewString()
+					foreignBegin, err := active.Begin(ownerCtx, foreign, map[string]string{})
+					require.NoError(t, err)
+					authorize, err = url.Parse(foreignBegin.AuthorizeURL)
+					require.NoError(t, err)
+					fixture.state = authorize.Query().Get("state")
+					fixture.completionCode, fixture.codeChallenge = "fresh-code-"+uuid.NewString(), authorize.Query().Get("code_challenge")
+					_, err = active.Submit(ownerCtx, foreign, map[string]string{"completion": fixture.completionCode})
+					require.Error(t, err)
+					unknown, err := active.Read(ownerCtx, foreign)
+					require.NoError(t, err)
+					require.Equal(t, "unknown", unknown.State)
+					require.Nil(t, unknown.Credential)
+					require.EqualValues(t, 3, fixture.grant.Load())
+					// A separately authenticated owner also cannot take the original
+					// logical account's provider principal. Its source grant is valid;
+					// the permanent native SQL claim rejects the ownership change.
+					foreign.Scope = candidate.Scope
+					foreign.Scope.Owner, foreign.Scope.Generation, foreign.Operation = "another-owner", uuid.NewString(), "owner-"+uuid.NewString()
+					foreignCtx, err := service.WithGatewayNativeOAuthOwner(selectedCtx, foreign.Scope.Owner)
+					require.NoError(t, err)
+					foreignCurrent, err := service.NewGatewayNativeClaudeOAuth(claudeRepo, custody, transport)
+					require.NoError(t, err)
+					authenticatedOwner := func(ctx context.Context, scope service.GatewayNativeCredentialScope, _ string) error {
+						if !service.GatewayConnectionScopeAuthorized(ctx, scope) {
+							return service.ErrGatewayNativeIdentity
+						}
+						return nil
+					}
+					require.NoError(t, foreignCurrent.SetEntryAuthorizers(authenticatedOwner, authenticatedOwner))
+					foreignStart, err := foreignCurrent.BeginConnectMethod(foreignCtx, foreign.Scope, foreign.Operation, "browser")
+					require.NoError(t, err)
+					authorize, err = url.Parse(foreignStart.AuthorizeURL)
+					require.NoError(t, err)
+					fixture.state = authorize.Query().Get("state")
+					fixture.completionCode, fixture.codeChallenge = "fresh-code-"+uuid.NewString(), authorize.Query().Get("code_challenge")
+					_, err = foreignCurrent.CompleteOwnerCallback(foreignCtx, foreign.Scope, foreign.Operation, fixture.state, fixture.completionCode)
+					require.Error(t, err)
+					require.EqualValues(t, 4, fixture.grant.Load())
+					nativeLegacyRecoveryAssertions(t, ownerCtx, recovery, in, route, &requests)
+					_, err = current.RetainedCustody(selectedCtx, candidate.Scope, candidate.Operation, *candidateDescriptor.Native)
+					require.NoError(t, err, "erasing the old birth cannot erase or retarget fresh custody")
+					route = candidateDescriptor.Native
+					nativeLegacyRecoveryAssertions(t, ownerCtx, recovery, candidate, route, &requests)
+					return
 				} else {
 					fixture.clientID = "old-qualified-grok-client"
 					current, err := service.NewGatewayNativeGrokOAuth(grokRepo, custody, transport, service.GatewayNativeGrokOAuthQualification{ClientID: fixture.clientID, RedirectURI: xai.DefaultRedirectURI, DeploymentQualified: true})

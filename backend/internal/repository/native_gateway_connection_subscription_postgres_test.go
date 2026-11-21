@@ -8,6 +8,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -37,6 +38,8 @@ type nativeSubscriptionWire struct {
 	t                                             *testing.T
 	method, provider, input, subject, team, state string
 	clientID, nonce                               string
+	completionCode, codeChallenge                 string
+	consumedCodes                                 map[string]bool
 	key                                           *ecdsa.PrivateKey
 	grant, calls, quotas                          atomic.Int32
 	wrongPrincipal, loseReply, omitExpiry         atomic.Bool
@@ -203,8 +206,21 @@ func (f *nativeSubscriptionWire) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		assert.Equal(t, oauth.ClientID, body["client_id"])
 		if body["grant_type"] == "authorization_code" {
 			assert.Equal(t, f.state, body["state"])
-			assert.Equal(t, "fixture-code", body["code"])
+			expected := f.completionCode
+			if expected == "" {
+				expected = "fixture-code"
+			}
+			assert.Equal(t, expected, body["code"])
 			assert.Len(t, body["code_verifier"], 43)
+			if f.codeChallenge != "" {
+				digest := sha256.Sum256([]byte(body["code_verifier"]))
+				require.Equal(t, f.codeChallenge, base64.RawURLEncoding.EncodeToString(digest[:]))
+				if f.consumedCodes == nil {
+					f.consumedCodes = make(map[string]bool)
+				}
+				require.False(t, f.consumedCodes[expected], "each source authorization code can enter only once")
+				f.consumedCodes[expected] = true
+			}
 		} else {
 			assert.Equal(t, "refresh_token", body["grant_type"])
 			assert.Equal(t, f.refresh(), body["refresh_token"])
