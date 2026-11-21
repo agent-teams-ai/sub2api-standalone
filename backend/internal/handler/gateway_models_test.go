@@ -64,7 +64,7 @@ func TestGatewayModelsAnthropicLongContextVariants(t *testing.T) {
 			}}, absent: []string{"public[1m]"}},
 		{name: "routing only to the large-window account restores 1m", mapping: map[string]any{"public": "upstream"},
 			metadata: map[string]service.UpstreamModelMetadata{"upstream": {ContextWindow: 1_000_000}},
-			routing: map[string][]int64{"public": {1}},
+			routing:  map[string][]int64{"public": {1}},
 			otherAccounts: []service.Account{{ID: 2, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth,
 				Credentials: map[string]any{"model_mapping": map[string]any{"public": "small"}},
 				Extra: map[string]any{service.UpstreamModelMetadataExtraKey: service.UpstreamModelMetadataSnapshot{

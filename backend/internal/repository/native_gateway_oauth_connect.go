@@ -96,7 +96,7 @@ func (r *gatewayOAuthConnectRepository) EnterConnect(ctx context.Context, in ser
 		if err != nil {
 			return false, service.ErrGatewayNativeIdentity
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(261,1)`); err != nil {
 			return false, service.ErrGatewayNativeIdentity
 		}

@@ -251,11 +251,6 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 	return out, nil
 }
 
-func (s *GatewayNativeOAuthDispatch) accountCheck(ctx context.Context, access string) (string, error) {
-	id, _, err := s.accountCheckInfo(ctx, access)
-	return id, err
-}
-
 func (s *GatewayNativeOAuthDispatch) accountCheckInfo(ctx context.Context, access string) (string, GatewayAccountInfoFields, error) {
 	empty := GatewayAccountInfoEmptyFields(GatewayCodexOAuthResponsesProfile)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gatewayCodexAccountCheckURL, nil)

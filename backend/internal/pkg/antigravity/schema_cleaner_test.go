@@ -243,9 +243,9 @@ func TestCleanJSONSchema_EmptyPrefixItems(t *testing.T) {
 
 func TestCleanJSONSchemaEnumCoercionRemovesArrayItems(t *testing.T) {
 	input := map[string]any{
-		"type": "array",
+		"type":  "array",
 		"items": map[string]any{"type": "integer"},
-		"enum": []any{float64(1), "other"},
+		"enum":  []any{float64(1), "other"},
 	}
 	cleaned := CleanJSONSchema(input)
 	require.NotNil(t, cleaned)

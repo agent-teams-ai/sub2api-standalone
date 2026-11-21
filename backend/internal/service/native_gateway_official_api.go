@@ -90,7 +90,7 @@ func (s *OpenAIGatewayService) forwardGatewayAnthropicAPI(ctx context.Context, c
 	}()
 	response, err := s.doOpenAIUpstream(request, "", account)
 	if response != nil && response.Body != nil {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 	}
 	if err != nil || response == nil || response.Body == nil {
 		return nil, ErrGatewayNativeEffectUnknown

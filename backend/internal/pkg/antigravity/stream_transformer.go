@@ -95,8 +95,8 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 		return nil
 	}
 	v1Resp := V1InternalResponse{
-		ResponseID: parsed.GeminiResponse.ResponseID,
-		ModelVersion: parsed.GeminiResponse.ModelVersion,
+		ResponseID:   parsed.ResponseID,
+		ModelVersion: parsed.ModelVersion,
 	}
 	if parsed.Response != nil {
 		v1Resp.Response = *parsed.Response

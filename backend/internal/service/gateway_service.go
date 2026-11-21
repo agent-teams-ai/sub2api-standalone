@@ -1717,7 +1717,7 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 			continue
 		}
 		if normalizedPlatform != "" && parts[1] != normalizedPlatform &&
-			!(normalizedPlatform == PlatformAnthropic && strings.HasPrefix(parts[1], PlatformAnthropic+"|long:")) {
+			(normalizedPlatform != PlatformAnthropic || !strings.HasPrefix(parts[1], PlatformAnthropic+"|long:")) {
 			continue
 		}
 		s.modelsListCache.Delete(key)

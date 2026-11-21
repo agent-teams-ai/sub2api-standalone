@@ -345,6 +345,7 @@ func GatewayAccountInfoObservationValid(profile string, o GatewayAccountInfoObse
 	}
 	return false
 }
+
 // GatewayAccountInfoPlanQuotaProfile is the closed source policy shared by
 // observation validation and pre-HTTP quota/info order reservation.
 func GatewayAccountInfoPlanQuotaProfile(profile string) bool {

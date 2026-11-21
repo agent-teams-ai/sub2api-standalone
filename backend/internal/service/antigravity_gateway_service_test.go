@@ -1263,10 +1263,10 @@ func TestStreamUpstreamResponse_OversizedEventSendsError(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
-		Header: http.Header{},
+		Header:     http.Header{},
 		Body: io.NopCloser(strings.NewReader(
-			"event: message_start\ndata: {}\n\n"+
-				"data: "+strings.Repeat("x", 512)+"\n\n",
+			"event: message_start\ndata: {}\n\n" +
+				"data: " + strings.Repeat("x", 512) + "\n\n",
 		)),
 	}
 

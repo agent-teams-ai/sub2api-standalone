@@ -31,17 +31,17 @@ func anthropicLongContextCacheKey(group *Group, models []string) string {
 	for _, model := range models {
 		// Include both the requested model list and per-model routing so distinct
 		// allowlists and route settings cannot reuse the same cached expansion.
-		signature.WriteString(strconv.Itoa(len(model)))
-		signature.WriteByte(':')
-		signature.WriteString(model)
+		_, _ = signature.WriteString(strconv.Itoa(len(model)))
+		_ = signature.WriteByte(':')
+		_, _ = signature.WriteString(model)
 		if group != nil {
-			signature.WriteByte('/')
+			_ = signature.WriteByte('/')
 			for _, id := range group.GetRoutingAccountIDs(model) {
-				signature.WriteString(strconv.FormatInt(id, 10))
-				signature.WriteByte(',')
+				_, _ = signature.WriteString(strconv.FormatInt(id, 10))
+				_ = signature.WriteByte(',')
 			}
 		}
-		signature.WriteByte(';')
+		_ = signature.WriteByte(';')
 	}
 	digest := sha256.Sum256([]byte(signature.String()))
 	return fmt.Sprintf("%s|long:%x", modelsListCacheKey(groupID, PlatformAnthropic), digest)
