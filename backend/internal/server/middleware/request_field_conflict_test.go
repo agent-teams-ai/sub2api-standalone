@@ -104,10 +104,14 @@ func TestRejectConflictingRequestFieldsErrorFormats(t *testing.T) {
 	openai := doJSON(t, router, http.MethodPost, "/v1/responses", body)
 	var openaiErr struct {
 		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(openai.Body.Bytes(), &openaiErr); err != nil || openaiErr.Error.Message == "" || strings.Contains(openai.Body.String(), "model_not_found") {
+	if err := json.Unmarshal(openai.Body.Bytes(), &openaiErr); err != nil || openaiErr.Error.Message == "" ||
+		openaiErr.Error.Type != "invalid_request_error" || openaiErr.Error.Code != "invalid_request_error" ||
+		strings.Contains(openai.Body.String(), "model_not_found") {
 		t.Fatalf("unexpected OpenAI error format: %s", openai.Body.String())
 	}
 	anthropic := doJSON(t, router, http.MethodPost, "/v1/messages", body)

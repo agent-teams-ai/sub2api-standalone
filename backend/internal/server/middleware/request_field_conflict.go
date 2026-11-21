@@ -88,9 +88,10 @@ func writeGatewayInvalidRequest(c *gin.Context, status int, message string) {
 			"error": gin.H{"type": "invalid_request_error", "message": message},
 		})
 	case strings.Contains(path, "/responses"):
-		// Responses clients inspect error.code; Chat Completions uses error.type.
+		// Responses clients inspect error.code; OpenAI HTTP errors also carry
+		// error.type, which the gateway's own Responses errors keep.
 		c.JSON(status, gin.H{
-			"error": gin.H{"code": "invalid_request_error", "message": message},
+			"error": gin.H{"type": "invalid_request_error", "code": "invalid_request_error", "message": message},
 		})
 	default:
 		c.JSON(status, gin.H{

@@ -48,10 +48,6 @@ func writeGatewayMemoryOverload(c *gin.Context, message string) {
 		GoogleErrorWriter(c, http.StatusServiceUnavailable, message)
 	case strings.Contains(path, "/messages"):
 		AnthropicErrorWriter(c, http.StatusServiceUnavailable, message)
-	case strings.Contains(path, "/responses"):
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"code": "service_unavailable", "message": message},
-		})
 	default:
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": gin.H{"type": "server_error", "code": "service_unavailable", "message": message},

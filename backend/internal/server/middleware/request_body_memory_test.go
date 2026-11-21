@@ -110,7 +110,7 @@ func TestRejectRequestBodyReadErrorCancellation(t *testing.T) {
 
 func TestRejectRequestBodyMemoryOverloadProtocolErrors(t *testing.T) {
 	for _, tt := range []struct{ path, field string }{
-		{"/v1/responses", `"code":"service_unavailable"`},
+		{"/v1/responses", `"code":"service_unavailable","message":"Request body buffering capacity is exhausted; retry later","type":"server_error"`},
 		{"/v1/chat/completions", `"type":"server_error"`},
 		{"/v1/messages", `"type":"api_error"`},
 		{"/v1beta/models/gemini-3:generateContent", `"code":503`},

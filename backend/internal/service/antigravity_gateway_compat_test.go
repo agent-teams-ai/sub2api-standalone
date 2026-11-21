@@ -1530,3 +1530,19 @@ func TestAntigravityCompatInterleavedThoughtChunksResetIdleTimeout(t *testing.T)
 	require.Contains(t, out, "event: response.completed")
 	require.NotContains(t, out, "stream_timeout")
 }
+
+func TestAntigravityCompatDoesNotRejectOrForwardStructuredOutput(t *testing.T) {
+	for _, format := range []string{
+		`{"type":"json_object"}`,
+		`{"type":"json_schema","name":"grade","schema":{"type":"object"}}`,
+	} {
+		request := &apicompat.ResponsesRequest{
+			Model: "claude-sonnet-4-5",
+			Input: json.RawMessage(`[{"role":"user","content":"hi"}]`),
+			Text:  &apicompat.ResponsesText{Format: json.RawMessage(format)},
+		}
+		converted, err := convertAntigravityCompatResponsesToAnthropic(request)
+		require.NoError(t, err, format)
+		require.True(t, converted.OutputConfig == nil || converted.OutputConfig.Format == nil, format)
+	}
+}

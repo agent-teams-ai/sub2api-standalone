@@ -192,6 +192,12 @@ func convertAntigravityCompatResponsesToAnthropic(request *apicompat.ResponsesRe
 			}
 		}
 	}
+	// The Antigravity Claude request has no structured output field, so the
+	// Anthropic hop must neither validate nor keep the format. As upstream,
+	// it is not forwarded, and json_object no longer turns into a 400.
+	if request.Text != nil {
+		request.Text.Format = nil
+	}
 	return apicompat.ResponsesToAnthropicRequest(request)
 }
 
