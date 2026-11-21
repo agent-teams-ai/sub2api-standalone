@@ -1253,6 +1253,35 @@ func TestStreamUpstreamResponse_UsageAndFirstToken(t *testing.T) {
 
 // TestStreamUpstreamResponse_NormalComplete
 // 验证：正常流式转发完成时，数据正确透传、usage 正确收集、clientDisconnect=false
+func TestStreamUpstreamResponse_OversizedEventSendsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: 4096, SSEEventMaxBytes: 128},
+	})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body: io.NopCloser(strings.NewReader(
+			"event: message_start\ndata: {}\n\n" +
+				"data: " + strings.Repeat("x", 512) + "\n\n",
+		)),
+	}
+
+	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	require.NotNil(t, result)
+	require.False(t, result.clientDisconnect)
+	require.Contains(t, rec.Body.String(), "event: error")
+	require.Contains(t, rec.Body.String(), "response_too_large")
+	require.NotContains(t, rec.Body.String(), strings.Repeat("x", 512))
+	ops, marked := GetOpsStreamError(c)
+	require.True(t, marked)
+	require.True(t, ops.CountTowardsSLA, "oversized stream must count as failed despite HTTP 200")
+	require.Equal(t, http.StatusBadGateway, ops.IntendedStatus)
+}
+
 func TestStreamUpstreamResponse_NormalComplete(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newAntigravityTestService(&config.Config{
@@ -1427,6 +1456,37 @@ func TestHandleGeminiStreamingResponse_EventSeparatorIsExactlyOneBlankLine(t *te
 	for _, token := range strings.Split(strings.TrimSuffix(body, "\n\n"), "\n\n") {
 		prefix, _, _ := strings.Cut(token, ":")
 		require.Equal(t, "data", prefix, "token %q would be rejected by a \\n\\n-delimited SSE parser", token)
+	}
+}
+
+func TestHandleGeminiStreamingResponse_ForwardedCommentFrames(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+	const first = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"first"}]}}]}` + "\n\n"
+	const second = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"second"}]}}]}` + "\n\n"
+	const comment = ": upstream"
+	const stream = first + comment + "\r\n\r\n" + second
+
+	for _, tc := range []struct {
+		name             string
+		userAgent        string
+		forwardedComment string
+	}{
+		{"js-genai", "google-genai-sdk/3.6.0 gl-node/v26.13.1", comment + "\n\n"},
+		{"go-genai", "google-genai-sdk/1.71.0 gl-go/go1.27.4", ""},
+		{"python-genai", "google-genai-sdk/1.20.0 gl-python/3.12.4", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, rec := newAntigravityCompatContext(http.MethodPost, "/v1beta/models/gemini-2.5-flash:streamGenerateContent", nil)
+			c.Request.Header.Set("User-Agent", tc.userAgent)
+			resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(stream)), Header: http.Header{}}
+
+			_, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			require.NoError(t, err)
+			require.Equal(t, first+tc.forwardedComment+second, rec.Body.String())
+		})
 	}
 }
 
@@ -1781,14 +1841,14 @@ func TestExtractSSEUsage(t *testing.T) {
 		{
 			name:     "top-level usage with all fields",
 			line:     `data: {"usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":5,"cache_creation_input_tokens":3}}`,
-			expected: ClaudeUsage{InputTokens: 10, OutputTokens: 20, CacheReadInputTokens: 5, CacheCreationInputTokens: 3},
+			expected: ClaudeUsage{InputTokens: 10, OutputTokens: 20, CacheReadInputTokens: 5, CacheCreationInputTokens: 3, cacheCreationInputTokensPresent: true},
 		},
 		{
 			// Anthropic message_start 把 usage 嵌套在 message.usage 下，
 			// 必须从这里提取输入侧字段（含 cache_read/cache_creation_input_tokens）。
 			name:     "message_start nested usage with input/cache tokens",
 			line:     `data: {"type":"message_start","message":{"id":"msg_01","usage":{"input_tokens":35576,"cache_creation_input_tokens":0,"cache_read_input_tokens":12000,"output_tokens":1}}}`,
-			expected: ClaudeUsage{InputTokens: 35576, OutputTokens: 1, CacheReadInputTokens: 12000},
+			expected: ClaudeUsage{InputTokens: 35576, OutputTokens: 1, CacheReadInputTokens: 12000, cacheCreationInputTokensPresent: true},
 		},
 		{
 			// message_start.message.usage.cache_creation 内的 5m/1h 明细也要解析。

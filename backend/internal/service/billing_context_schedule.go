@@ -21,14 +21,15 @@ const ContextPricingBasisWholeRequest ContextPricingBasis = "whole_request"
 // ContextPricingTier (MinTokens, MaxTokens] 区间内的有效 per-token 单价（USD）。
 // nil 表示该项无价/不计费；MaxTokens 为 nil 表示无上限。
 type ContextPricingTier struct {
-	MinTokens    int
-	MaxTokens    *int
-	Label        string
-	Input        *float64
-	Output       *float64
-	CacheWrite   *float64
-	CacheWrite1h *float64
-	CacheRead    *float64
+	MinTokens     int
+	MaxTokens     *int
+	Label         string
+	Input         *float64
+	Output        *float64
+	CacheWrite    *float64
+	CacheWrite1h  *float64
+	CacheWrite12h *float64
+	CacheRead     *float64
 }
 
 // TimePricingPeriod 分时倍率时段：配置时区当天 [StartTime, EndTime) 内整单费用乘 Multiplier。
@@ -122,7 +123,12 @@ func (s *BillingService) ResolveContextPricingSchedule(ctx context.Context, reso
 
 	tiers := make([]ContextPricingTier, 0, len(segments))
 	for _, seg := range segments {
-		tier, err := probeContextTier(seg, resolved, probe)
+		// Use the same per-tier, policy-adjusted pricing as calculateTokenCost.
+		// The raw BasePricing misses model defaults such as GPT-5.6's 12h write tier.
+		tierPricing := resolver.GetIntervalPricing(resolved, seg.min+1)
+		tierPricing = s.applyModelSpecificPricingPolicyEx(in.Model, tierPricing, resolved.Source == PricingSourceLiteLLM, timezone.Now())
+		has12hWritePrice := tierPricing != nil && tierPricing.CacheCreation12hPricePerToken != nil
+		tier, err := probeContextTier(seg, resolved, has12hWritePrice, probe)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +277,7 @@ func buildContextSegments(bounds []int) []contextSegment {
 // 每次只喂一种 token，ActualCost 即该项费用；旧边际规则的加倍只体现在 ActualCost
 // 而不在分项费用里，因此统一读 ActualCost。整单阶梯与边际规则在同一段内都是
 // 线性函数，差商同时适用，无需区分规则类型。
-func probeContextTier(seg contextSegment, resolved *ResolvedPricing, probe func(UsageTokens) (*CostBreakdown, error)) (ContextPricingTier, error) {
+func probeContextTier(seg contextSegment, resolved *ResolvedPricing, has12hWritePrice bool, probe func(UsageTokens) (*CostBreakdown, error)) (ContextPricingTier, error) {
 	tier := ContextPricingTier{MinTokens: seg.min, MaxTokens: seg.max}
 	c := seg.min + 1
 	delta := contextProbeDelta
@@ -303,12 +309,18 @@ func probeContextTier(seg contextSegment, resolved *ResolvedPricing, probe func(
 	if err != nil {
 		return tier, err
 	}
-
 	explicit := explicitContextPricingFields(resolved, c)
+	if explicit.cacheWrite12h || has12hWritePrice {
+		tier.CacheWrite12h, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{CacheCreationTokens: n, CacheCreation12hTokens: n} }, c, delta, probe)
+		if err != nil {
+			return tier, err
+		}
+	}
 	tier.Input = contextPricePtr(tier.Input, explicit.input)
 	tier.Output = contextPricePtr(tier.Output, explicit.output)
 	tier.CacheWrite = contextPricePtr(tier.CacheWrite, explicit.cacheWrite)
 	tier.CacheWrite1h = contextPricePtr(tier.CacheWrite1h, explicit.cacheWrite1h)
+	tier.CacheWrite12h = contextPricePtr(tier.CacheWrite12h, explicit.cacheWrite12h)
 	tier.CacheRead = contextPricePtr(tier.CacheRead, explicit.cacheRead)
 	return tier, nil
 }
@@ -352,7 +364,7 @@ func roundContextPrice(v float64) float64 {
 }
 
 type explicitContextFields struct {
-	input, output, cacheWrite, cacheWrite1h, cacheRead bool
+	input, output, cacheWrite, cacheWrite1h, cacheWrite12h, cacheRead bool
 }
 
 // explicitContextPricingFields 判断各项是否被分组卡/渠道定价（含命中区间）显式配置。
@@ -367,12 +379,14 @@ func explicitContextPricingFields(resolved *ResolvedPricing, contextTokens int) 
 	out.output = cp.OutputPrice != nil
 	out.cacheWrite = cp.CacheWritePrice != nil
 	out.cacheWrite1h = cp.CacheWrite1hPrice != nil || cp.CacheWritePrice != nil
+	out.cacheWrite12h = cp.CacheWrite12hPrice != nil
 	out.cacheRead = cp.CacheReadPrice != nil
 	if iv := FindMatchingInterval(resolved.Intervals, contextTokens); iv != nil {
 		out.input = out.input || iv.InputPrice != nil
 		out.output = out.output || iv.OutputPrice != nil
 		out.cacheWrite = out.cacheWrite || iv.CacheWritePrice != nil
 		out.cacheWrite1h = out.cacheWrite1h || iv.CacheWrite1hPrice != nil || iv.CacheWritePrice != nil
+		out.cacheWrite12h = out.cacheWrite12h || iv.CacheWrite12hPrice != nil
 		out.cacheRead = out.cacheRead || iv.CacheReadPrice != nil
 	}
 	return out
@@ -406,7 +420,8 @@ func mergeEqualContextTiers(tiers []ContextPricingTier) []ContextPricingTier {
 
 func sameContextPrices(a, b ContextPricingTier) bool {
 	return samePricePtr(a.Input, b.Input) && samePricePtr(a.Output, b.Output) &&
-		samePricePtr(a.CacheWrite, b.CacheWrite) && samePricePtr(a.CacheWrite1h, b.CacheWrite1h) && samePricePtr(a.CacheRead, b.CacheRead)
+		samePricePtr(a.CacheWrite, b.CacheWrite) && samePricePtr(a.CacheWrite1h, b.CacheWrite1h) &&
+		samePricePtr(a.CacheWrite12h, b.CacheWrite12h) && samePricePtr(a.CacheRead, b.CacheRead)
 }
 
 func samePricePtr(a, b *float64) bool {

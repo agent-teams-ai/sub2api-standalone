@@ -14,6 +14,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ForwardGemini 转发 Gemini 协议请求
@@ -355,7 +357,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		if unwrapErr != nil || len(unwrappedForOps) == 0 {
 			unwrappedForOps = respBody
 		}
-		s.handleUpstreamError(ctx, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, forwardOpts.groupID, forwardOpts.sessionHash, isStickySession)
+		s.handleUpstreamErrorAfterRetryLoop(ctx, c, prefix, account, resp.StatusCode, resp.Header, respBody, originalModel, forwardOpts.groupID, forwardOpts.sessionHash, isStickySession)
 		upstreamMsg := strings.TrimSpace(extractAntigravityErrorMessage(unwrappedForOps))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		upstreamDetail := s.getUpstreamErrorDetail(unwrappedForOps)
@@ -479,54 +481,117 @@ handleSuccess:
 
 // cleanGeminiRequest 清理 Gemini 请求体中的 Schema
 func cleanGeminiRequest(body []byte) ([]byte, error) {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	// Preserve the original contract: malformed JSON or a non-object envelope
+	// must be rejected before any raw-path tool/schema transformation.
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, err
 	}
-
-	modified := false
-
-	// 1. 清理 Tools
-	if tools, ok := payload["tools"].([]any); ok && len(tools) > 0 {
-		for _, t := range tools {
-			toolMap, ok := t.(map[string]any)
-			if !ok {
+	if envelope == nil {
+		return nil, fmt.Errorf("invalid Gemini request envelope: expected a JSON object")
+	}
+	// Rewrite individual tool parameter schemas instead of decoding and
+	// re-marshaling the entire payload. The latter reorders unrelated JSON
+	// properties and converts large integers to float64.
+	tools := gjson.GetBytes(body, "tools")
+	if tools.IsArray() {
+		for toolIndex, tool := range tools.Array() {
+			declarationsKey := "functionDeclarations"
+			declarations := tool.Get(declarationsKey)
+			if !declarations.IsArray() {
+				declarationsKey = "function_declarations"
+				declarations = tool.Get(declarationsKey)
+			}
+			if !declarations.IsArray() {
 				continue
 			}
-
-			// function_declarations (snake_case) or functionDeclarations (camelCase)
-			var funcs []any
-			if f, ok := toolMap["functionDeclarations"].([]any); ok {
-				funcs = f
-			} else if f, ok := toolMap["function_declarations"].([]any); ok {
-				funcs = f
-			}
-
-			if len(funcs) == 0 {
-				continue
-			}
-
-			for _, f := range funcs {
-				funcMap, ok := f.(map[string]any)
-				if !ok {
+			for declarationIndex, declaration := range declarations.Array() {
+				params := declaration.Get("parameters")
+				if !params.IsObject() {
 					continue
 				}
-
-				if params, ok := funcMap["parameters"].(map[string]any); ok {
-					antigravity.DeepCleanUndefined(params)
-					cleaned := antigravity.CleanJSONSchema(params)
-					funcMap["parameters"] = cleaned
-					modified = true
+				var schema map[string]any
+				decoder := json.NewDecoder(strings.NewReader(params.Raw))
+				decoder.UseNumber()
+				if err := decoder.Decode(&schema); err != nil {
+					return nil, err
+				}
+				before, err := json.Marshal(schema)
+				if err != nil {
+					return nil, err
+				}
+				antigravity.DeepCleanUndefined(schema)
+				cleaned := antigravity.CleanJSONSchema(schema)
+				after, err := json.Marshal(cleaned)
+				if err != nil {
+					return nil, err
+				}
+				if bytes.Equal(before, after) {
+					continue
+				}
+				path := fmt.Sprintf("tools.%d.%s.%d.parameters", toolIndex, declarationsKey, declarationIndex)
+				body, err = sjson.SetRawBytes(body, path, after)
+				if err != nil {
+					return nil, err
 				}
 			}
 		}
 	}
+	return normalizeGeminiResponseSchemaRaw(body)
+}
 
-	if !modified {
-		return body, nil
+// normalizeGeminiResponseSchemaRaw renames responseJsonSchema to responseSchema:
+// Antigravity silently ignores responseJsonSchema, so the latter is required
+// for JSON-mode structured output to work. Raw paths preserve property order
+// and exact JSON numbers when the schema cleaner makes no changes.
+func normalizeGeminiResponseSchemaRaw(body []byte) ([]byte, error) {
+	for _, configKey := range []string{"generationConfig", "generation_config"} {
+		for _, schemaKey := range []string{"responseJsonSchema", "response_json_schema"} {
+			path := configKey + "." + schemaKey
+			raw := gjson.GetBytes(body, path)
+			if !raw.Exists() {
+				continue
+			}
+			hasReplacement := gjson.GetBytes(body, configKey+".responseSchema").Exists() ||
+				gjson.GetBytes(body, configKey+".response_schema").Exists()
+			var err error
+			body, err = sjson.DeleteBytes(body, path)
+			if err != nil {
+				return nil, err
+			}
+			if hasReplacement || !raw.IsObject() {
+				continue
+			}
+
+			var schema map[string]any
+			decoder := json.NewDecoder(strings.NewReader(raw.Raw))
+			decoder.UseNumber() // never round numbers beyond 2^53
+			if err := decoder.Decode(&schema); err != nil {
+				return nil, err
+			}
+			before, err := json.Marshal(schema)
+			if err != nil {
+				return nil, err
+			}
+			antigravity.DeepCleanUndefined(schema)
+			cleaned := antigravity.CleanJSONSchema(schema)
+			after, err := json.Marshal(cleaned)
+			if err != nil {
+				return nil, err
+			}
+			schemaBytes := after
+			if bytes.Equal(before, after) {
+				// The schema was already compatible: retain the exact original
+				// property order, integer precision, and client formatting.
+				schemaBytes = []byte(raw.Raw)
+			}
+			body, err = sjson.SetRawBytes(body, configKey+".responseSchema", schemaBytes)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
-
-	return json.Marshal(payload)
+	return body, nil
 }
 
 // filterEmptyPartsFromGeminiRequest 过滤掉 parts 为空的消息

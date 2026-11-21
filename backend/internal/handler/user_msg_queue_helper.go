@@ -27,7 +27,7 @@ func NewUserMsgQueueHelper(
 	pingFormat SSEPingFormat,
 	pingInterval time.Duration,
 ) *UserMsgQueueHelper {
-	if pingInterval <= 0 {
+	if pingInterval < 0 {
 		pingInterval = defaultPingInterval
 	}
 	return &UserMsgQueueHelper{
@@ -35,6 +35,12 @@ func NewUserMsgQueueHelper(
 		pingFormat:   pingFormat,
 		pingInterval: pingInterval,
 	}
+}
+
+// shouldPing is shared by both the lock wait and throttle paths.
+// A zero interval explicitly disables pings rather than creating NewTicker(0).
+func (h *UserMsgQueueHelper) shouldPing(isStream bool) bool {
+	return h != nil && isStream && h.pingFormat != "" && h.pingInterval > 0
 }
 
 // AcquireWithWait 等待获取串行锁，流式请求期间发送 SSE ping
@@ -86,7 +92,7 @@ func (h *UserMsgQueueHelper) waitForLockWithPing(
 	streamStarted *bool,
 	reqLog *zap.Logger,
 ) (func(), error) {
-	needPing := isStream && h.pingFormat != ""
+	needPing := h.shouldPing(isStream)
 
 	var flusher http.Flusher
 	if needPing {
@@ -196,7 +202,7 @@ func (h *UserMsgQueueHelper) ThrottleWithPing(
 	)
 
 	// 延迟期间发送 SSE ping（复用 waitForLockWithPing 的 ping 逻辑）
-	needPing := isStream && h.pingFormat != ""
+	needPing := h.shouldPing(isStream)
 	var flusher http.Flusher
 	if needPing {
 		flusher, _ = c.Writer.(http.Flusher)

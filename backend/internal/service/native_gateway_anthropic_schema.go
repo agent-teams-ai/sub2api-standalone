@@ -49,7 +49,7 @@ func gatewayAnthropicOutputSchema(raw json.RawMessage) (json.RawMessage, func([]
 				if part.Type != "output_text" || len(part.Text) > gatewayNativeResponseLimit-text.Len() {
 					return false
 				}
-				text.WriteString(part.Text)
+				_, _ = text.WriteString(part.Text)
 			}
 		}
 		// Validation is against the full original schema, including minimum and

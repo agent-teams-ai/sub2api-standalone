@@ -70,7 +70,9 @@ func TestNativeOfficialAPIConfigUsesExistingClosedFD6Profiles(t *testing.T) {
 		for _, field := range []string{"tokens", "providerTokenUpperBound", "unknown"} {
 			var config map[string]any
 			require.NoError(t, json.Unmarshal(raw, &config))
-			config[name].(map[string]any)[field] = 65537
+			section, ok := config[name].(map[string]any)
+			require.True(t, ok, name)
+			section[field] = 65537
 			changed, err := json.Marshal(config)
 			require.NoError(t, err)
 			var invalid Config

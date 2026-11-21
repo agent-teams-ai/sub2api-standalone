@@ -106,7 +106,7 @@ func TestNativeGatewayJoinedLifecyclePostgres(t *testing.T) {
 	repo := repository.NewAccountRepository(client, db, nil)
 	adminRepo, ok := repo.(service.AdminAccountRepository)
 	require.True(t, ok)
-	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	cfg := fixtureOAuthConfig()
 	control, callback := "joined-test-control-"+uuid.NewString(), "joined-test-callback-"+uuid.NewString()
 	consumer := "joined-consumer"

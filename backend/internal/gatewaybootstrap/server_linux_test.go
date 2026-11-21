@@ -71,7 +71,7 @@ func TestDedicatedHTTPRolesAndBypassDenial(t *testing.T) {
 	if !ok {
 		t.Fatal("fixture admin repository unavailable")
 	}
-	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	a, _ := newAuthority(c.Authority, nil)
 	auth := authorize(c.Peers)
 	tcfg := gatewaytransport.Config{Gateway: gateway, Custody: custody, Authorize: auth, Enrollment: gatewaytransport.Enrollment{OriginRef: "fixture-origin", EngineIncarnation: "11111111-1111-4111-8111-111111111111", QualificationRef: c.Profile.QualificationRef},
@@ -747,7 +747,7 @@ func TestAdditiveThreeProfilesHTTPComposition(t *testing.T) {
 	}))); err != nil {
 		t.Fatal(err)
 	}
-	adminSvc := service.NewAdminService(nil, nil, nil, rows, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSvc := service.NewAdminService(nil, nil, nil, rows, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	auth := authorize(c.Peers)
 	cfg := gatewaytransport.Config{Gateway: gateway, Custody: custody, OAuth: dispatch, Authorize: auth,
 		Enrollment: gatewaytransport.Enrollment{OriginRef: origin, EngineIncarnation: engineIncarnation, QualificationRef: c.Profile.QualificationRef},

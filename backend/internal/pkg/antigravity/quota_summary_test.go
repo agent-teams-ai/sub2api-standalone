@@ -1,0 +1,149 @@
+//go:build unit
+
+package antigravity
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
+	"testing"
+)
+
+// The shape Google returned for a consumer Ultra account on 2026-11-04.
+const quotaSummaryBody = `{
+  "groups": [
+    {"buckets": [
+       {"bucketId": "gemini-weekly", "displayName": "Weekly Limit Remaining", "window": "weekly",
+        "resetTime": "2026-11-11T15:52:48Z", "remainingFraction": 0.75},
+       {"bucketId": "gemini-5h", "displayName": "Five Hour Limit Remaining", "window": "5h",
+        "resetTime": "2026-11-04T20:52:48Z", "remainingFraction": 0.4}],
+     "displayName": "Gemini Models", "description": "Models within this group: Gemini Flash, Gemini Pro"},
+    {"buckets": [
+       {"bucketId": "3p-weekly", "window": "weekly", "resetTime": "2026-11-11T15:52:48Z", "remainingFraction": 1},
+       {"bucketId": "3p-5h", "window": "5h", "remainingFraction": 1}],
+     "displayName": "Claude and GPT models"}
+  ],
+  "description": "Within each group, models share a weekly limit and a 5-hour limit."
+}`
+
+func TestClient_RetrieveUserQuotaSummaryFromURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1internal:retrieveUserQuotaSummary" || r.Method != http.MethodPost {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("unexpected authorization header")
+		}
+		var body FetchAvailableModelsRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Project != "proj" {
+			t.Errorf("unexpected project: %+v, %v", body, err)
+		}
+		_, _ = w.Write([]byte(quotaSummaryBody))
+	}))
+	defer server.Close()
+
+	client := mustNewClient(t, "")
+	summary, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), server.URL, "tok", "proj")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(summary.Groups) != 2 || summary.Groups[0].DisplayName != "Gemini Models" {
+		t.Fatalf("groups: %+v", summary.Groups)
+	}
+	weekly := summary.Groups[0].Buckets[0]
+	if weekly.BucketID != "gemini-weekly" || weekly.Window != "weekly" || weekly.RemainingFraction != 0.75 ||
+		weekly.ResetTime != "2026-11-11T15:52:48Z" {
+		t.Fatalf("weekly bucket: %+v", weekly)
+	}
+	if summary.Groups[1].Buckets[1].ResetTime != "" {
+		t.Fatalf("a bucket without resetTime keeps it empty")
+	}
+}
+
+func TestClient_RetrieveUserQuotaSummaryFromURL_Errors(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+	}{{http.StatusForbidden, `{"error":{"code":403}}`}, {http.StatusInternalServerError, `{}`}, {http.StatusOK, `not json`}} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		client := mustNewClient(t, "")
+		if _, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), server.URL, "tok", "proj"); err == nil {
+			t.Errorf("status %d body %q must be an error", tc.status, tc.body)
+		}
+		server.Close()
+	}
+}
+
+func TestClient_RetrieveUserQuotaSummaryFromURL_RejectsRedirectToUntrustedHost(t *testing.T) {
+	var untrustedHits atomic.Int32
+	untrusted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		untrustedHits.Add(1)
+	}))
+	defer untrusted.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", untrusted.URL+"/collect")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+	client := mustNewClient(t, "")
+	_, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), server.URL, "secret", "proj")
+	if err == nil || !strings.Contains(err.Error(), "HTTP 302") {
+		t.Fatalf("a pinned quota probe must surface the redirect instead of following it, got %v", err)
+	}
+	if hits := untrustedHits.Load(); hits != 0 {
+		t.Fatalf("pinned quota probe followed a redirect %d times; the token must not leave the pinned endpoint", hits)
+	}
+	// The shared fallback client still refuses redirects to hosts outside the allowlist.
+	redirect := httptest.NewRequest(http.MethodPost, "https://attacker.invalid/collect", nil)
+	if err := checkFetchAvailableModelsRedirect(redirect, nil); err == nil || !strings.Contains(err.Error(), "redirect to unsupported host") {
+		t.Fatalf("expected redirect host protection, got %v", err)
+	}
+}
+
+func TestClient_QuotaSummaryConnectionErrorCanFallback(t *testing.T) {
+	requestErr := &url.Error{Op: "Post", URL: "https://example.invalid", Err: &url.Error{Op: "dial", Err: http.ErrServerClosed}}
+	if !shouldFallbackToNextURL(requestErr, 0) {
+		t.Fatal("quota summary must fall back on connection errors")
+	}
+}
+
+type quotaSummaryRedirectRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn quotaSummaryRedirectRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func TestClient_RetrieveUserQuotaSummaryFromURL_DoesNotFollowTrustedHostRedirect(t *testing.T) {
+	calls := 0
+	client := &Client{httpClient: &http.Client{Transport: quotaSummaryRedirectRoundTripper(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{BaseURLs[0] + "/redirected"}},
+				Body:       io.NopCloser(strings.NewReader("redirect")),
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(quotaSummaryBody)),
+			Request:    req,
+		}, nil
+	})}}
+	_, err := client.RetrieveUserQuotaSummaryFromURL(context.Background(), BaseURLs[0], "sensitive-token", "proj")
+	if err == nil {
+		t.Fatal("fixed-endpoint quota summary must reject redirects")
+	}
+	if calls != 1 {
+		t.Fatalf("redirect must not be followed even to an allowed BaseURL host; got %d calls", calls)
+	}
+}

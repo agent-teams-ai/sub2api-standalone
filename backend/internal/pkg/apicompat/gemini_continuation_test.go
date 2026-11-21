@@ -199,7 +199,7 @@ func TestGeminiContinuationWireMatchesCompletedHistory(t *testing.T) {
 		for _, event := range events {
 			sse, err := ResponsesEventToSSE(event)
 			require.NoError(t, err)
-			wire.WriteString(sse)
+			_, _ = wire.WriteString(sse)
 		}
 	}
 	// The joined native fixture sends the signature after the function call.
@@ -311,7 +311,7 @@ func TestGeminiContinuationRejectsSignatureWithoutStreamedOutput(t *testing.T) {
 	require.ErrorIs(t, err, ErrGeminiContinuation)
 	require.Empty(t, events)
 	require.False(t, state.CompletedSent)
-	state.Reasoning.WriteString(" \t\n")
+	_, _ = state.Reasoning.WriteString(" \t\n")
 	events, err = stream.Finalize(state, codec)
 	require.ErrorIs(t, err, ErrGeminiContinuation)
 	require.Empty(t, events)

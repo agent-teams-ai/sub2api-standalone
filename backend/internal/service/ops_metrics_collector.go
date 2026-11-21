@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -721,34 +722,9 @@ func (c *OpsMetricsCollector) tryCgroupCPUPercent(now time.Time) *float64 {
 }
 
 func readCgroupMemoryBytes() (usedBytes uint64, totalBytes uint64, ok bool) {
-	// cgroup v2 (most common in modern containers)
-	if used, ok1 := readUintFile("/sys/fs/cgroup/memory.current"); ok1 {
-		usedBytes = used
-		rawMax, err := os.ReadFile("/sys/fs/cgroup/memory.max")
-		if err == nil {
-			s := strings.TrimSpace(string(rawMax))
-			if s != "" && s != "max" {
-				if v, err := strconv.ParseUint(s, 10, 64); err == nil {
-					totalBytes = v
-				}
-			}
-		}
-		return usedBytes, totalBytes, true
-	}
-
-	// cgroup v1 fallback
-	if used, ok1 := readUintFile("/sys/fs/cgroup/memory/memory.usage_in_bytes"); ok1 {
-		usedBytes = used
-		if limit, ok2 := readUintFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); ok2 {
-			// Some environments report a very large number when unlimited.
-			if limit > 0 && limit < (1<<60) {
-				totalBytes = limit
-			}
-		}
-		return usedBytes, totalBytes, true
-	}
-
-	return 0, 0, false
+	// Read usage and limit from the same cgroup hierarchy level. The tightest
+	// parent limit must not be paired with unrelated mount-root usage.
+	return sysutil.CgroupMemoryUsageAndLimitBytes()
 }
 
 func readCgroupCPUUsageNanos() (usageNanos uint64, ok bool) {

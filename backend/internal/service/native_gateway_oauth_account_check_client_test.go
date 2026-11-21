@@ -141,7 +141,7 @@ func TestGatewayOAuthAccountCheckDefaultFirefoxTLSAndBounds(t *testing.T) {
 				}
 				return response, err
 			})
-			provider, err := dispatch.accountCheck(context.Background(), "controlled-account-check-access")
+			provider, _, err := dispatch.accountCheckInfo(context.Background(), "controlled-account-check-access")
 			if scenario == "firefox" {
 				t.Logf("controlled hellos=%d remote_matches=%v sni_matches=%v", hellos.Load(), remoteMatches.Load(), sniMatches.Load())
 				t.Logf("controlled transport status=%d dials=%d error=%v", transportStatus, dials.Load(), transportError)

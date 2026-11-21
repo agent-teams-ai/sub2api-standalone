@@ -43,7 +43,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.3'
+          go version | grep -q 'go1.27.4'
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -61,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: '9.15.9'
       - name: Setup Node.js
@@ -75,6 +75,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend typecheck and critical vitest
         run: make test-frontend
+      - name: Full frontend Vitest suite
+        working-directory: frontend
+        run: pnpm exec vitest run
       - name: Build production frontend
         working-directory: frontend
         run: pnpm run build
@@ -91,7 +94,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.3'
+          go version | grep -q 'go1.27.4'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
@@ -109,3 +112,133 @@ jobs:
       - run: python -m pip install -r .github/release-tools/requirements-release.txt
       - run: python -m unittest discover -s .github/release-tools -p 'test_release_matrix.py'
       - run: bash -n .github/release-tools/release-images.sh
+      - name: Verify standalone Git migration failure and resume guards
+        run: bash scripts/github/tests/probe-sub2api-standalone-test.sh
+
+  # Builds the release image from the exact commit and boots it against
+  # PostgreSQL 17 and Redis 8: a fresh install, then an upgrade of a database
+  # created by the base commit, so new migrations are applied on top of the
+  # schema a running deployment already has.
+  container:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: sub2api
+          POSTGRES_PASSWORD: sub2api-ci-only
+          POSTGRES_DB: sub2api_fresh
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sub2api -d sub2api_fresh"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+        ports:
+          - 127.0.0.1:6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || (github.ref == 'refs/heads/main' && github.event.before) || '' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Build the release image
+        run: |
+          docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org \
+            --build-arg COMMIT="$GITHUB_SHA" -t sub2api:head .
+      - name: Fresh install, upgrade and login smoke
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          run_app() { # name volume database image redis-db
+            docker run -d --name "$1" --network host -v "$2:/app/data" \
+              -e AUTO_SETUP=true -e TZ=UTC -e SERVER_HOST=127.0.0.1 -e SERVER_PORT=8080 -e SERVER_MODE=release \
+              -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 -e DATABASE_USER=sub2api \
+              -e DATABASE_PASSWORD=sub2api-ci-only -e DATABASE_DBNAME="$3" -e DATABASE_SSLMODE=disable \
+              -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 -e REDIS_DB="$5" \
+              -e ADMIN_EMAIL=ci-admin@example.com -e ADMIN_PASSWORD=ci-only-Passw0rd-1 "$4" >/dev/null
+          }
+          wait_ready() { # name
+            for _ in $(seq 1 120); do
+              if curl -fsS --max-time 10 http://127.0.0.1:8080/health | grep -q '"ok"'; then return 0; fi
+              if [ "$(docker inspect -f '{{.State.Running}}' "$1")" != true ]; then break; fi
+              sleep 2
+            done
+            docker logs "$1" 2>&1 | tail -200
+            return 1
+          }
+          stop_app() { docker stop -t 30 "$1" >/dev/null; docker logs "$1" > "$RUNNER_TEMP/$1.log" 2>&1; docker rm "$1" >/dev/null; }
+          check_app() { # name database
+            index="$(curl -fsS --max-time 30 http://127.0.0.1:8080/)"
+            printf '%s' "$index" | grep -q '<div id="app"'
+            login="$(curl -fsS --max-time 30 -X POST http://127.0.0.1:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+              -d '{"email":"ci-admin@example.com","password":"ci-only-Passw0rd-1"}')"
+            printf '%s' "$login" | grep -Eq '"access_token":"[^"]+"'
+            missing=0
+            for file in backend/migrations/*.sql; do
+              grep -q '[^[:space:]]' "$file" || continue
+              name="$(basename "$file")"
+              applied="$(docker exec "$PG_CONTAINER" psql -U sub2api -d "$2" -tAc "SELECT count(*) FROM schema_migrations WHERE filename = '$name'")"
+              if [ "$applied" != 1 ]; then echo "::error::$2 is missing migration $name"; missing=1; fi
+            done
+            test "$missing" = 0
+          }
+          clean_log() { # name
+            if grep -Eq '^panic: |checksum mismatch' "$RUNNER_TEMP/$1.log"; then
+              echo "::error::$1 logged a panic or a migration checksum mismatch"
+              return 1
+            fi
+          }
+
+          echo '== fresh install of the exact commit'
+          docker volume create sub2api-fresh >/dev/null
+          run_app fresh sub2api-fresh sub2api_fresh sub2api:head 0
+          wait_ready fresh
+          check_app fresh sub2api_fresh
+          stop_app fresh
+          clean_log fresh
+
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && ! git cat-file -e "${BASE_SHA:-missing}^{commit}"; then
+            echo "::error::pull request base ${BASE_SHA:-<empty>} is not available for the upgrade smoke"
+            exit 1
+          fi
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = 0000000000000000000000000000000000000000 ]; then
+            # Feature branch pushes upgrade from main, never from their own previous push.
+            BASE_SHA="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "$GITHUB_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            echo 'No distinct base commit for this event; upgrade smoke skipped.'
+            exit 0
+          fi
+          echo "== upgrade a database created by base $BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org \
+            --build-arg COMMIT="$BASE_SHA" -t sub2api:base "$RUNNER_TEMP/base"
+          docker exec "$PG_CONTAINER" createdb -U sub2api sub2api_upgrade
+          docker volume create sub2api-upgrade >/dev/null
+          run_app base sub2api-upgrade sub2api_upgrade sub2api:base 1
+          wait_ready base
+          stop_app base
+          run_app upgraded sub2api-upgrade sub2api_upgrade sub2api:head 1
+          wait_ready upgraded
+          check_app upgraded sub2api_upgrade
+          stop_app upgraded
+          clean_log base
+          clean_log upgraded
+
+  deploy-image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build the deploy image
+        run: |
+          docker build -f deploy/Dockerfile --build-arg GOPROXY=https://proxy.golang.org,direct \
+            --build-arg GOSUMDB=sum.golang.org --build-arg COMMIT="$GITHUB_SHA" -t sub2api:deploy .
+          docker run --rm --entrypoint /app/sub2api sub2api:deploy --version

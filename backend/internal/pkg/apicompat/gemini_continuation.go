@@ -102,7 +102,7 @@ func geminiItemDigest(item ResponsesOutput) (string, error) {
 			if part.Type != "output_text" && part.Type != "input_text" && part.Type != "text" {
 				return "", ErrGeminiContinuation
 			}
-			text.WriteString(part.Text)
+			_, _ = text.WriteString(part.Text)
 		}
 		value = []string{item.Type, item.Role, text.String()}
 	default:

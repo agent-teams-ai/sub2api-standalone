@@ -39,7 +39,7 @@ func nativeReviewGateway(repo service.AccountRepository, cache service.GatewayCa
 	return service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, cache, cfg, nil, nil, nil, nil, nil, transport, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 func nativeReviewAdmin(repo service.AccountRepository, client *dbent.Client) service.AdminService {
-	return service.NewAdminService(nil, nil, nil, repo.(service.AdminAccountRepository), nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return service.NewAdminService(nil, nil, nil, repo.(service.AdminAccountRepository), nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 func nativeReviewSyntheticBytes(t *testing.T, size int) []byte {
 	t.Helper()

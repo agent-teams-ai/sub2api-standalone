@@ -13,6 +13,27 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+// scopedAdminGroupRuleAlternatives builds the same SQL-scope predicates for
+// group capacity and model listing. Each rule is conjunctive (ID + platform)
+// and alternatives are ORed, so unrelated permissions cannot be composed.
+func scopedAdminGroupRuleAlternatives(rules []adminaccess.Rule) []predicate.Group {
+	alternatives := make([]predicate.Group, 0, len(rules))
+	for _, rule := range rules {
+		terms := []predicate.Group{group.IDGT(0)}
+		if !rule.AllGroups {
+			if len(rule.GroupIDs) == 0 {
+				continue
+			}
+			terms = append(terms, group.IDIn(rule.GroupIDs...))
+		}
+		if len(rule.Platforms) > 0 {
+			terms = append(terms, group.PlatformIn(rule.Platforms...))
+		}
+		alternatives = append(alternatives, group.And(terms...))
+	}
+	return alternatives
+}
+
 func (r *groupRepository) ScopedAdminUpdateGroupModels(ctx context.Context, id int64, cfg service.GroupModelAllowlist) (*service.Group, error) {
 	p := adminaccess.FromContext(ctx)
 	if p == nil {
@@ -25,7 +46,7 @@ func (r *groupRepository) ScopedAdminUpdateGroupModels(ctx context.Context, id i
 	defer func() { _ = tx.Rollback() }()
 	txctx := dbent.NewTxContext(ctx, tx)
 	row, err := tx.Client().Group.Query().Where(group.IDEQ(id), group.DeletedAtIsNil()).
-		Select(group.FieldID, group.FieldName, group.FieldPlatform, group.FieldModelAllowlist).ForUpdate().Only(txctx)
+		Select(group.FieldID, group.FieldName, group.FieldPlatform, group.FieldStatus, group.FieldModelAllowlist).ForUpdate().Only(txctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrGroupNotFound, nil)
 	}
@@ -42,7 +63,7 @@ func (r *groupRepository) ScopedAdminUpdateGroupModels(ctx context.Context, id i
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &service.Group{ID: row.ID, Name: row.Name, Platform: row.Platform, ModelAllowlist: cfg}, nil
+	return &service.Group{ID: row.ID, Name: row.Name, Platform: row.Platform, Status: row.Status, ModelAllowlist: cfg}, nil
 }
 
 // ScopedAdminListGroupModels 在数据库内过滤范围，分页和总数均只包含已授权分组。
@@ -51,20 +72,8 @@ func (r *groupRepository) ScopedAdminListGroupModels(ctx context.Context, params
 	if p == nil {
 		return nil, 0, infraerrors.Forbidden("SCOPED_GROUP_MODELS_FORBIDDEN", "缺少受限身份")
 	}
-	alternatives := []predicate.Group{}
-	for _, rule := range p.Policy.RulesFor("groups.models.read") {
-		terms := []predicate.Group{group.IDGT(0)}
-		if !rule.AllGroups {
-			if len(rule.GroupIDs) == 0 {
-				continue
-			}
-			terms = append(terms, group.IDIn(rule.GroupIDs...))
-		}
-		if len(rule.Platforms) > 0 {
-			terms = append(terms, group.PlatformIn(rule.Platforms...))
-		}
-		alternatives = append(alternatives, group.And(terms...))
-	}
+	rules := append(p.Policy.RulesFor("groups.models.read"), p.Policy.RulesFor("groups.list.read")...)
+	alternatives := scopedAdminGroupRuleAlternatives(rules)
 	if len(alternatives) == 0 {
 		return []service.Group{}, 0, nil
 	}
@@ -82,7 +91,7 @@ func (r *groupRepository) ScopedAdminListGroupModels(ctx context.Context, params
 	if err != nil {
 		return nil, 0, err
 	}
-	q.Select(group.FieldID, group.FieldName, group.FieldPlatform, group.FieldModelAllowlist).Order(group.ByID())
+	q.Select(group.FieldID, group.FieldName, group.FieldPlatform, group.FieldStatus).Order(group.ByID())
 	if !all {
 		q.Offset(params.Offset()).Limit(params.Limit())
 	}
@@ -91,8 +100,24 @@ func (r *groupRepository) ScopedAdminListGroupModels(ctx context.Context, params
 		return nil, 0, err
 	}
 	result := make([]service.Group, 0, len(rows))
+	modelIDs := make([]int64, 0, len(rows))
+	modelIndexes := make(map[int64]int)
 	for _, row := range rows {
-		result = append(result, service.Group{ID: row.ID, Name: row.Name, Platform: row.Platform, ModelAllowlist: service.GroupModelAllowlistFromDomain(row.ModelAllowlist)})
+		result = append(result, service.Group{ID: row.ID, Name: row.Name, Platform: row.Platform, Status: row.Status})
+		if p.Policy.AllowsGroupConfig("groups.models.read", row.ID, row.Platform) {
+			modelIDs = append(modelIDs, row.ID)
+			modelIndexes[row.ID] = len(result) - 1
+		}
+	}
+	// 仅为独立模型读取权限允许的行加载配置，基本列表不读取模型或费率。
+	if len(modelIDs) > 0 {
+		models, err := r.client.Group.Query().Where(group.IDIn(modelIDs...), group.DeletedAtIsNil()).Select(group.FieldID, group.FieldModelAllowlist).All(ctx)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, model := range models {
+			result[modelIndexes[model.ID]].ModelAllowlist = service.GroupModelAllowlistFromDomain(model.ModelAllowlist)
+		}
 	}
 	return result, int64(total), nil
 }

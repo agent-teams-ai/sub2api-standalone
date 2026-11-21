@@ -47,8 +47,12 @@ func (h *OpenAIOAuthHandler) RefreshReferrals(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !h.scopedOpenAIAllowed(c, id, "openai.referrals.read", true) {
+		return
+	}
 	eligibility, err := h.referralService.QueryReferralEligibility(c.Request.Context(), id)
 	if err != nil {
+		// Referral errors contain fixed, user-facing reasons; preserve their status and reason fields.
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -56,13 +60,17 @@ func (h *OpenAIOAuthHandler) RefreshReferrals(c *gin.Context) {
 		response.Error(c, http.StatusBadGateway, "Empty invitation eligibility response")
 		return
 	}
+	// Persist the complete upstream snapshot; redact only what the caller sees.
 	cacheErr := h.referralService.CacheReferralSnapshot(c.Request.Context(), id, eligibility)
-	response.Success(c, openAIReferralRefreshResponse{Eligibility: eligibility, CachePersisted: cacheErr == nil})
+	response.Success(c, openAIReferralRefreshResponse{Eligibility: h.scopedReferralDTO(c, eligibility), CachePersisted: cacheErr == nil})
 }
 
 func (h *OpenAIOAuthHandler) SendReferralInvite(c *gin.Context) {
 	id, ok := h.referralAccountID(c)
 	if !ok {
+		return
+	}
+	if !h.scopedOpenAIAllowed(c, id, "openai.referrals.invite", false) {
 		return
 	}
 	var input service.OpenAIReferralSendRequest
@@ -72,6 +80,7 @@ func (h *OpenAIOAuthHandler) SendReferralInvite(c *gin.Context) {
 	}
 	result, err := h.referralService.SendReferralInvite(c.Request.Context(), id, input)
 	if err != nil {
+		// Referral errors contain fixed, user-facing reasons; preserve their status and reason fields.
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -81,7 +90,7 @@ func (h *OpenAIOAuthHandler) SendReferralInvite(c *gin.Context) {
 	}
 	// The email is already sent. Refresh failure must not turn it into a failed
 	// submission and encourage a duplicate send, even if the browser disconnects.
-	baseCtx := context.WithoutCancel(c.Request.Context())
+	baseCtx := service.WithScopedAdminAccountOperation(context.WithoutCancel(c.Request.Context()), "openai.referrals.invite")
 	refreshCtx, cancelRefresh := context.WithTimeout(baseCtx, 8*time.Second)
 	eligibility, refreshErr := h.referralService.QueryReferralEligibility(refreshCtx, id)
 	cancelRefresh()
@@ -92,10 +101,15 @@ func (h *OpenAIOAuthHandler) SendReferralInvite(c *gin.Context) {
 	// invalidating a stale snapshot) a fresh, independent deadline.
 	cacheCtx, cancelCache := context.WithTimeout(baseCtx, 3*time.Second)
 	defer cancelCache()
+	// Never persist a presentation-only redacted DTO.
 	cacheErr := h.referralService.CacheReferralSnapshot(cacheCtx, id, eligibility)
+	responseEligibility := h.scopedReferralDTO(c, eligibility)
+	if !h.scopedOpenAIHasPermission(c, id, "openai.referrals.read", true) {
+		responseEligibility = nil
+	}
 	response.Success(c, openAIReferralSendResponse{
 		OpenAIReferralSendResult:      *result,
-		openAIReferralRefreshResponse: openAIReferralRefreshResponse{Eligibility: eligibility, CachePersisted: cacheErr == nil},
+		openAIReferralRefreshResponse: openAIReferralRefreshResponse{Eligibility: responseEligibility, CachePersisted: cacheErr == nil},
 		RefreshFailed:                 eligibility == nil,
 	})
 }

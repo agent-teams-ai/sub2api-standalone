@@ -85,10 +85,6 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 	if isReservedEmail(email) {
 		return nil, nil, ErrEmailReserved
 	}
-	if err := s.validateRegistrationEmailPolicy(ctx, email); err != nil {
-		return nil, nil, err
-	}
-
 	identityUser, err := s.findEmailOAuthIdentityOwner(ctx, providerType, providerKey, providerSubject)
 	if err != nil {
 		return nil, nil, err
@@ -158,6 +154,11 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return nil, ErrRegDisabled
 	}
+	// Registration restrictions apply only when creating a new user; existing
+	// verified OAuth identities must be able to log in after policy changes.
+	if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
+		return nil, err
+	}
 	invitationRedeemCode, err := s.validateOAuthRegistrationInvitation(ctx, invitationCode)
 	if err != nil {
 		if errors.Is(err, ErrInvitationCodeRequired) {
@@ -190,13 +191,21 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 		Status:       StatusActive,
 		SignupSource: providerType,
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	// The domain quota must be enforced at the atomic creation boundary too.
+	if err := s.createUserWithRegistrationEmailGuard(ctx, user); err != nil {
 		if errors.Is(err, ErrEmailExists) {
 			existing, loadErr := s.userRepo.GetByEmail(ctx, email)
+			if errors.Is(loadErr, ErrUserNotFound) {
+				// An email alias (plus/dot variant) can conflict even when exact lookup misses.
+				return nil, ErrEmailExists
+			}
 			if loadErr != nil {
 				return nil, ErrServiceUnavailable
 			}
 			return existing, nil
+		}
+		if errors.Is(err, ErrEmailDomainRegistrationLimit) {
+			return nil, ErrEmailDomainRegistrationLimit
 		}
 		return nil, ErrServiceUnavailable
 	}
