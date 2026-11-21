@@ -1,6 +1,6 @@
 # Полное подключение провайдеров через Sub2API: план и границы
 
-Статус: план версии 4 после трёх кругов критики; готов к рассмотрению и реализации. Реализация не начата. Дата: 2026-11-21.
+Статус: план версии 5 после четырёх кругов критики; реализация разрешена владельцем и начата с G0/G1/G2. E2E и завершение всей матрицы пока не подтверждены. Дата: 2026-11-21.
 Владелец реализации провайдеров: `agent-teams-ai/sub2api-standalone`.
 Потребители: `agent-teams-ai/account-gateway`, `777genius/review-router-ai`.
 
@@ -218,6 +218,17 @@ provider key, subscription/session credential, cloud identity и delegated
 identity не становятся одинаковыми полномочиями из-за общей формы.
 Минимальный набор классов и requirements фиксируется в G0. Сервер повторно
 проверяет их перед sensitive ingress; неизвестный required class запрещает метод.
+G0 закрепляет immutable selection `{profileId, methodId, methodRevision,
+configurationGeneration}`. Фактическая native attestation credentials хранится
+отдельно: `credentialKind: api_key | oauth | native`,
+`credentialPolicy: provider_key | subscription_session | cloud_identity | delegated_identity`,
+`refreshPolicy: native | none`. Метод объявляет допустимые policies, а adapter
+подтверждает конкретную после проверки ввода. Один видимый Codex importer может
+принимать AT-only, AT+RT и delegated identity: форма не определяет refresh.
+Закрытые required capabilities: `owner_scoped_custody/v1`, `effect_fence/v1`,
+`native_dispatch/v1`. Native dispatch/auth family также проверяется при публикации;
+Gateway не восстанавливает его по имени профиля. Private capabilities v2 и fixed
+private connection adapter расширяют существующий durable flow, без второго engine.
 Descriptor не содержит JS, HTML, arbitrary regex,
 submission endpoints, scripts или произвольный граф переходов. Названия и
 подсказки — bounded plain text; неизвестный бренд имеет нейтральный icon fallback.
@@ -326,6 +337,10 @@ adapter, не превращаясь в fallback нового пути.
 Перечисления providers/profiles заменяются чтением применимой capability;
 семантика models/limits/usage и авторизация сохраняются; допустима нужная
 bounded additive эволюция безопасных DTO с legacy decoder.
+G0 подтвердил необходимость конечных `account-limits/v3` и usage schema v2:
+прежние strict contracts закрывают provider IDs и billing context. Новые read
+DTO используют существующие readers, canonical windows и explicit version selection;
+v1/v2 проекции сохраняются без ослабления старых схем. Это не отдельные сервисы.
 
 Usage/limits получают native result с фактическим request/model/billing context,
 где он поддержан источником. Profile/product описывает подключение, но не всегда
@@ -480,7 +495,9 @@ Qualification ledger содержит evidence, не отдельные provider
 Каждый implementation PR начинается Draft. Коммиты публикуются сразу;
 незакоммиченные/непушенные цепочки не накапливаются. Требования author/committer
 каждого репозитория и существующие toolchain pins соблюдаются. TypeScript не ниже
-7.0.2, без отката на 5.9; отдельного toolchain upgrade в scope нет.
+7.0.2, без отката на 5.9; массового toolchain upgrade в scope нет. Если изменяемый
+пакет ещё использует старый compiler, квалифицируется минимальный совместимый
+путь этого пакета; другие dependency upgrades в эту работу не включаются.
 
 | Этап | Результат | Условие выхода |
 | --- | --- | --- |
@@ -512,6 +529,16 @@ Legacy v1/v2 projection имеет владельца и критерий уда
 как второй каталог. Не поднимаем временную совместимость до бессрочной архитектуры.
 
 ## 9. Проверка end-to-end без реальных подписок
+
+Основа проверки — существующие E2E и интеграционные harness, реальные durable
+операции и проверки межрепозиторных контрактов. Unit-тесты добавляются только
+для важных независимых правил: admission неизвестного security requirement,
+immutable intent/input identity, source/fence ordering и однозначная историческая
+usage attribution. Простые getters, декларации полей, визуальные варианты одного
+primitive и переносы кода не получают отдельный unit-тест ради покрытия.
+Матрица использует общие сценарии с разными native fixtures. Оценки verification
+LOC ниже включают fixtures и orchestration, не задают цель по количеству тестов.
+Повторная проверка расширяется только при конкретном риске или обязательном gate.
 
 ### 9.1 Матрица по разным осям, без полного декартова произведения
 
@@ -669,7 +696,22 @@ Security reviewer потребовал одну точную правку: rollb
 первой записи любого нового operation/custody/metadata encoding, а не только
 после первого connection v3 acceptance. Эта правка включена в версию 4.
 
-Итог трёх кругов — план готов к реализации по перечисленным критериям.
+Четвёртый круг выполнен после разрешения реализации на конкретных source seams:
+
+- Устранено статическое допущение «неизвестный profile означает API key» в плане
+  Gateway mount/custody/resume; selection отделён от фактической attestation.
+- Подтверждены отдельные свойства Codex PAT, AT-only и Agent Identity. Импорт не
+  наследует глобальный admin merge и не выдаёт unsigned claims за verified identity.
+- Protected Gemini refresh связывается с принятым client/config и не пробует
+  другой OAuth client после ошибки. Сохраняется fixed trusted Vertex token endpoint.
+- RR recovery, model admission, generic limits и immutable usage включены в тот
+  же consumer slice. Нельзя закрыть G2 только новой формой и discovery.
+- Для limits/usage закреплены минимальные новые read versions; новый billing
+  engine и общий runtime negotiation service не нужны.
+- По уточнению владельца unit coverage ограничено существенными правилами;
+  основные доказательства дают существующие integration/E2E harness.
+
+Итог четырёх кругов — план готов к реализации по перечисленным критериям.
 Это не runtime PASS: G0 уточняет machine-readable матрицу и спорные adapters,
 G1–G6 должны отдельно доказать поведение, совместимость и E2E. Архитектурные
 решения не подменяются количеством согласившихся reviewers.
