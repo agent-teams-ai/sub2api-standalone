@@ -91,7 +91,7 @@ func TestGPT62CompatHTTPRejectsDisabledReasoning(t *testing.T) {
 					case "chat":
 						_, err = svc.forwardAsRawChatCompletions(context.Background(), c, account, []byte(body), "")
 					case "responses":
-						_, err = svc.forwardResponsesViaRawChatCompletions(context.Background(), c, account, []byte(body), time.Now())
+						_, err = svc.forwardResponsesViaRawChatCompletionsWithStartTime(context.Background(), c, account, []byte(body), time.Now())
 					case "messages":
 						_, err = svc.forwardAnthropicViaRawChatCompletions(context.Background(), c, account, []byte(body), "")
 					}
@@ -235,7 +235,7 @@ func TestGPT62ResponsesToChatDropsSamplingAfterMapping(t *testing.T) {
 	body := []byte(`{"model":"public","input":"hi","temperature":0.3,"top_p":0.8,"reasoning":{"effort":"max"}}`)
 	captured := &httpUpstreamRecorder{err: errors.New("capture outbound request")}
 	svc := &OpenAIGatewayService{cfg: passthroughArgsTestConfig(), httpUpstream: captured}
-	_, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), account, body, time.Now())
+	_, err := svc.forwardResponsesViaRawChatCompletionsWithStartTime(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), account, body, time.Now())
 	require.Error(t, err)
 	var outbound map[string]any
 	require.NoError(t, json.Unmarshal(captured.lastBody, &outbound))

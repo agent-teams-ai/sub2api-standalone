@@ -158,7 +158,7 @@ func TestScopedAdminAccountListPostgresRulesAndPagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 	principal.Policy.Rules = []adminaccess.Rule{{Permissions: []string{"accounts.read"}, Platforms: []string{"grok"}, AccountTypes: []string{"oauth"}, AllGroups: true, IncludeUngrouped: true}}
-	rows, total, err = repo.ScopedAdminList(ctx, pagination.PaginationParams{Page: 1, PageSize: 1}, "", "", "", "")
+	rows, total, err = repo.ScopedAdminList(ctx, pagination.PaginationParams{Page: 1, PageSize: 1}, "", "", "", "", 0)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, total)
 	require.Len(t, rows, 1)

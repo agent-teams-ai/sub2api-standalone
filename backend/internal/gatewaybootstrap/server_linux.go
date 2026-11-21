@@ -174,7 +174,7 @@ func Run(ctx context.Context, options Options) error {
 	if !ok {
 		return ErrDenied
 	}
-	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSvc := service.NewAdminService(nil, nil, nil, adminRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	a, err := newAuthority(c.Authority, options.AuthorityTransport)
 	if err != nil {
 		return ErrDenied
