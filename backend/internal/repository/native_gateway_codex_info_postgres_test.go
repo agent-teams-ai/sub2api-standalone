@@ -301,4 +301,88 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	require.Equal(t, unchanged.Sources, guarded.Sources, "stale expiry must not become a current-credential fact")
 	require.EqualValues(t, 1, accountChecks.Load(), "maintenance never repeats account qualification")
 	require.EqualValues(t, 1, subscriptions.Load(), "cached reads and retained hydration never fetch subscription metadata")
+
+	t.Run("stored v1 rows preserve evidence and current authority", func(t *testing.T) {
+		// The actual writer above created this exact physical principal and the
+		// real refresh journal advanced it to credential revision 3. Install an
+		// independent old wire fixture only in the cached observation column;
+		// credentials, identity, birth and snapshot revision remain untouched.
+		const oldSources = `{
+		 "verified_claims":{"source":"verified_claims","order":17,"credentialRevision":2,"fields":{
+		  "email":{"status":"known","value":"owner@example.invalid","source":"verified_claim","observedAt":"2026-11-19T10:00:00Z","freshness":"stale"},
+		  "accountLabel":{"status":"unknown"},"subscription":{"status":"unknown"},"credentialExpiresAt":{"status":"unknown"},"privacyMode":{"status":"unsupported"}}},
+		 "credential":{"source":"credential","order":18,"credentialRevision":2,"fields":{
+		  "email":{"status":"unknown"},"accountLabel":{"status":"unknown"},"subscription":{"status":"unknown"},
+		  "credentialExpiresAt":{"status":"known","value":"2026-12-19T10:00:00Z","source":"provider_api","observedAt":"2026-11-19T10:00:00Z","freshness":"stale"},"privacyMode":{"status":"unsupported"}}}
+		}`
+		installed, err := db.ExecContext(owner, `UPDATE gateway_account_info_snapshots SET sources=$6::jsonb
+ WHERE account_id=$1 AND native_created_at=$2 AND generation=$3 AND principal_version=$4 AND revision=$5`, route.AccountID, route.CreatedAt, route.Generation, guarded.PrincipalVersion, guarded.Revision, oldSources)
+		require.NoError(t, err)
+		rows, err := installed.RowsAffected()
+		require.NoError(t, err)
+		require.EqualValues(t, 1, rows)
+		readRow := func() string {
+			var row string
+			require.NoError(t, db.QueryRowContext(owner, `SELECT to_jsonb(s)::text FROM gateway_account_info_snapshots s WHERE account_id=$1`, route.AccountID).Scan(&row))
+			return row
+		}
+		originalRow, httpBefore := readRow(), counted.calls.Load()
+		stored, err := info.ReadGatewayAccountInfo(owner, input, route)
+		require.NoError(t, err)
+		require.Equal(t, guarded.PrincipalVersion, stored.PrincipalVersion)
+		require.Equal(t, guarded.Revision, stored.Revision)
+		require.EqualValues(t, 3, stored.CredentialRevision)
+		require.Len(t, stored.Sources, 2)
+		claims, credential := stored.Sources["verified_claims"], stored.Sources["credential"]
+		require.Equal(t, "verified_claims", claims.Source)
+		require.EqualValues(t, 17, claims.Order)
+		require.EqualValues(t, 18, credential.Order)
+		require.EqualValues(t, 2, claims.CredentialRevision)
+		require.EqualValues(t, 2, credential.CredentialRevision)
+		require.Equal(t, "2026-11-19T10:00:00Z", claims.Fields.Email.ObservedAt)
+		require.Equal(t, "verified_claim", claims.Fields.Email.Source)
+		require.Equal(t, "stale", claims.Fields.Email.Freshness)
+		require.Equal(t, "2026-11-19T10:00:00Z", credential.Fields.CredentialExpiresAt.ObservedAt)
+		require.Equal(t, "provider_api", credential.Fields.CredentialExpiresAt.Source)
+		require.Equal(t, "unsupported", claims.Fields.TrainingUsage.Status)
+
+		selectedRoute := route
+		reader, err := service.NewGatewayAccountInfoReader(info, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+			return selectedRoute, nil
+		})
+		require.NoError(t, err)
+		public := reader.Read(owner, input)
+		require.Equal(t, "available", public.Info.Status)
+		require.Equal(t, fmt.Sprint(guarded.Revision), public.Info.InfoRevision)
+		require.Equal(t, route.Generation, public.PhysicalGeneration)
+		require.Equal(t, guarded.PrincipalVersion, public.PrincipalVersion)
+		require.Equal(t, claims.Fields.Email, public.Info.Fields.Email)
+		require.Equal(t, "unknown", public.Info.Fields.CredentialExpiresAt.Status, "revision 2 expiry cannot describe the actually rotated revision 3 credential")
+		require.Equal(t, "unknown", public.Info.Fields.TrainingUsage.Status, "old privacy support is not a provider training-settings observation")
+
+		foreignContext, err := service.WithGatewayNativeConsumer(ctx, scope.Consumer)
+		require.NoError(t, err)
+		foreignContext, err = service.WithGatewayNativeOAuthOwner(foreignContext, "different-owner")
+		require.NoError(t, err)
+		foreignInput := input
+		foreignInput.OwnerRef = "different-owner"
+		_, err = info.ReadGatewayAccountInfo(foreignContext, foreignInput, route)
+		require.Error(t, err, "legacy fields do not bypass exact owner custody")
+		require.Equal(t, "unavailable", reader.Read(foreignContext, foreignInput).Info.Status)
+		selectedRoute.CreatedAt = route.CreatedAt.Add(time.Microsecond)
+		_, err = info.ReadGatewayAccountInfo(owner, input, selectedRoute)
+		require.Error(t, err, "legacy fields do not bypass physical birth")
+		require.Equal(t, "unavailable", reader.Read(owner, input).Info.Status)
+		selectedRoute = route
+
+		late := claims
+		late.Order, late.CredentialRevision = 16, current.CredentialRevision
+		require.NoError(t, info.StoreGatewayAccountInfo(owner, current, false, late), "a lower source order remains an ignored late observation")
+		stalePhysical := current
+		stalePhysical.CredentialRevision = credential.CredentialRevision
+		credential.Order = 19
+		require.Error(t, info.StoreGatewayAccountInfo(owner, stalePhysical, false, credential), "a higher source order cannot bypass current credential revision")
+		require.Equal(t, originalRow, readRow(), "cached reads and rejected/obsolete writes preserve the whole old row, including its original encoding")
+		require.Equal(t, httpBefore, counted.calls.Load(), "legacy decoding, public reads and fences never re-observe provider facts")
+	})
 }
