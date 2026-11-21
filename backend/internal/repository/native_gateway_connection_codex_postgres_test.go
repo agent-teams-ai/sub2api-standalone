@@ -207,11 +207,45 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, published.Native)
 			route = &published.Native.GatewayNativeRoute
+			infoReader, err := service.NewGatewayAccountInfoReader(NewGatewayAccountInfoRepository(db), func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+				return *route, nil
+			}, native)
+			require.NoError(t, err)
+			infoInput := service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: in.Connection.ProfileID, ExpectedAuthorizationEpoch: 1}
+			checksBefore, tokensBefore, tasksBefore := f.checks.Load(), f.tokens.Load(), f.tasks.Load()
+			info := infoReader.Read(ownerCtx, infoInput)
+			require.Equal(t, "available", info.Info.Status)
+			require.Equal(t, in.Scope.Generation, info.PhysicalGeneration)
+			require.NotEmpty(t, info.PrincipalVersion)
+			require.NotNil(t, info.Info.Fields)
+			if f.clientID != "" {
+				require.Equal(t, "known", info.Info.Fields.CredentialExpiresAt.Status, "committed provider expiry reaches the cached reader")
+			}
+			require.Equal(t, "unsupported", service.ProjectGatewayAccountInfoV1(info).Info.Fields.PrivacyMode.Status)
+			infoInput.OwnerRef = "foreign-owner"
+			require.Equal(t, "unavailable", infoReader.Read(ownerCtx, infoInput).Info.Status)
+			require.Equal(t, checksBefore, f.checks.Load(), "metadata reads do not call account check")
+			require.Equal(t, tokensBefore, f.tokens.Load(), "metadata reads do not refresh credentials")
+			require.Equal(t, tasksBefore, f.tasks.Load(), "metadata reads do not register tasks")
 			reader, err := service.NewGatewayAccountModelsReaderV2(native, nil, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
 				return *route, nil
 			})
 			require.NoError(t, err)
 			modelsInput := service.GatewayAccountModelsInput{GatewayAccountLimitsInput: service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: in.Connection.ProfileID, ExpectedAuthorizationEpoch: 1}}
+			limitsReader, err := service.NewGatewayAccountLimitsReaderV3(native, nil, nil, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+				return *route, nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, "unknown", limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput).Status)
+			candidates, err := native.ListQuotaAccounts(ownerCtx)
+			require.NoError(t, err)
+			require.Len(t, candidates, 1)
+			require.NoError(t, native.CollectQuota(ownerCtx, candidates[0], service.NewGatewayProviderQuotaCollector(transport)))
+			collected := limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput)
+			require.Equal(t, "snapshot", collected.Status)
+			require.Len(t, collected.Windows, 1)
+			require.Equal(t, 75.0, *collected.Windows[0].UsedPercent)
+			require.EqualValues(t, 1, f.quotas.Load(), "cached read does not repeat the quota-only GET")
 			models := reader.Read(ownerCtx, modelsInput)
 			require.Equal(t, "snapshot", models.Status)
 			require.Len(t, *models.Models, 1)
@@ -234,6 +268,14 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			first, entered, err := nativeConnectionForwardFixture(t, ownerCtx, custody, native, gateway, in, *route, body)
 			require.NoError(t, err)
 			require.True(t, entered)
+			passive := limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput)
+			require.Equal(t, "snapshot", passive.Status)
+			require.Len(t, passive.Windows, 1)
+			require.Equal(t, 25.0, *passive.Windows[0].UsedPercent, "actual response headers replace the earlier quota source")
+			require.EqualValues(t, 1, f.quotas.Load())
+			previousPhysical, releaseQuota, err := physical.LockGatewayNativeConnection(selectedCtx, in.Scope, in.Operation, published.Native)
+			require.NoError(t, err)
+			releaseQuota()
 			output := nativeConnectionCompletedOutput(t, first.Body.String())
 			toolResult := json.RawMessage(`{"type":"function_call_output","call_id":"call_review","output":"synthetic file contents"}`)
 			request["input"] = append(output, toolResult)
@@ -271,12 +313,21 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 				resolution, err := physical.ResolveGatewayNativeConnectionRefresh(selectedCtx, in.Scope, in.Operation)
 				require.NoError(t, err)
 				require.EqualValues(t, 2, resolution.Physical.CredentialVersion)
+				require.Equal(t, "unknown", limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput).Status, "old quota principal cannot survive a credential revision")
+				writer, ok := physical.(service.GatewayNativeConnectionQuotaRepository)
+				require.True(t, ok)
+				observed, err := time.Parse(time.RFC3339Nano, *passive.Windows[0].ObservedAt)
+				require.NoError(t, err)
+				require.Error(t, writer.StoreGatewayNativeConnectionQuota(selectedCtx, previousPhysical, service.GatewayProviderQuotaObservation{Limits: service.GatewayAccountLimitsSnapshotV2{Scope: passive.Scope, Windows: passive.Windows}, ObservedAt: observed}, 0), "a late response from the old credential cannot publish")
 				modelsInput.ForceRefresh = true
 				require.Equal(t, "snapshot", reader.Read(ownerCtx, modelsInput).Status)
 				f.phase.Store(2)
 				_, entered, err = nativeConnectionForwardFixture(t, ownerCtx, custody, native, gateway, in, *route, body)
 				require.NoError(t, err)
 				require.True(t, entered)
+				currentQuota := limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput)
+				require.Equal(t, "snapshot", currentQuota.Status)
+				require.NotEqual(t, passive.PrincipalVersion, currentQuota.PrincipalVersion)
 			} else {
 				require.Equal(t, "idle", maintained.State, "AT-only and PAT never invent refresh")
 			}

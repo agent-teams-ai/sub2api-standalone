@@ -238,11 +238,6 @@ func Run(ctx context.Context, options Options) error {
 		}
 		oauth = &privateOAuth{owners: owners}
 	}
-	if _, available := oauth.owners.(NativeAccountInfoAuthority); available {
-		if composePrivateAccountInfo(oauth, db, oauth.owners) != nil {
-			return ErrDenied
-		}
-	}
 	if oauth.cleanup == nil {
 		if authority, ok := oauth.owners.(NativeOAuthCleanupAuthority); ok {
 			oauth.cleanup = authority.AuthorizeNativeOAuthCleanup
@@ -258,6 +253,11 @@ func Run(ctx context.Context, options Options) error {
 		return ErrDenied
 	}
 	tcfg.Connections = oauth.nativeConnections
+	if _, available := oauth.owners.(NativeAccountInfoAuthority); available {
+		if composePrivateAccountInfo(oauth, db, oauth.owners) != nil {
+			return ErrDenied
+		}
+	}
 	a.compose(&tcfg)
 	prepared, err := gatewaytransport.Prepare(ctx, tcfg)
 	if err != nil || ctx.Err() != nil {
@@ -322,7 +322,7 @@ func Run(ctx context.Context, options Options) error {
 		return ErrDenied
 	}
 	_ = ready.Close()
-	if len(c.CodingPlans) > 0 || c.Grok != nil {
+	if len(c.CodingPlans) > 0 || c.Grok != nil || oauth != nil && oauth.nativeConnections != nil {
 		quotaCtx, stopQuota := context.WithCancel(ctx)
 		quotaDone := make(chan struct{})
 		go func() { defer close(quotaDone); runPrivateProviderQuota(quotaCtx, db, c, gateway, custody, oauth) }()

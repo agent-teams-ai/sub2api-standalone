@@ -88,11 +88,51 @@ func runPrivateProviderQuota(ctx context.Context, db *sql.DB, c Config, gateway 
 					}
 				}
 			}
+			if oauth != nil && oauth.nativeConnections != nil {
+				accounts, err := oauth.nativeConnections.ListQuotaAccounts(consumerCtx)
+				if err == nil {
+					for _, p := range accounts {
+						withPrivateQuotaDue(ctx, db, service.GatewayNativeConnectionInfoPhysical(p), service.GatewayNativeConnectionObservationPrincipal(p), func(bounded context.Context) {
+							_ = oauth.nativeConnections.CollectQuota(bounded, p, collector)
+						})
+					}
+				}
+			}
 		}
 		timer.Reset(time.Minute)
 	}
 }
 func collectPrivateQuotaInfo(ctx context.Context, db *sql.DB, p service.GatewayNativeOAuthPhysical, fetch func(context.Context) (service.GatewayProviderQuotaObservation, error), cache service.GatewayAccountLimitsRepositoryV2) {
+	withPrivateQuotaDue(ctx, db, p, "", func(bounded context.Context) {
+		composite, ok := cache.(service.GatewayAccountQuotaInfoRepository)
+		var order int64
+		var err error
+		if service.GatewayAccountInfoPlanQuotaProfile(p.Route.Profile) {
+			if !ok {
+				return
+			}
+			order, err = composite.ReserveGatewayAccountInfoOrder(bounded)
+			if err != nil {
+				return
+			}
+		}
+		observation, err := fetch(bounded)
+		if err != nil {
+			return
+		}
+		if observation.Info != nil {
+			if !ok {
+				return
+			}
+			info := service.GatewayAccountInfoObservation{Source: "plan_quota", Order: order, CredentialRevision: p.CredentialRevision, Fields: *observation.Info}
+			_ = composite.StoreGatewayQuotaAndInfo(bounded, p, observation.Limits, observation.ObservedAt, &info)
+		} else {
+			_ = cache.StoreGatewayAccountLimitsV2(bounded, p, observation.Limits, observation.ObservedAt)
+		}
+	})
+}
+
+func withPrivateQuotaDue(ctx context.Context, db *sql.DB, p service.GatewayNativeOAuthPhysical, principal string, collect func(context.Context)) {
 	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	conn, err := db.Conn(bounded)
@@ -110,7 +150,7 @@ func collectPrivateQuotaInfo(ctx context.Context, db *sql.DB, p service.GatewayN
 		_, _ = conn.ExecContext(release, `SELECT pg_advisory_unlock(219906,$1::integer)`, p.Route.AccountID)
 	}()
 	var due bool
-	if conn.QueryRowContext(bounded, `SELECT NOT EXISTS(SELECT 1 FROM gateway_account_limits_v2_snapshots WHERE account_id=$1 AND native_created_at=$2 AND generation=$3 AND (source_observations->>'plan_quota')::timestamptz>clock_timestamp()-interval '1 minute')`, p.Route.AccountID, p.Route.CreatedAt, p.Route.Generation).Scan(&due) != nil || !due {
+	if conn.QueryRowContext(bounded, `SELECT NOT EXISTS(SELECT 1 FROM gateway_account_limits_v2_snapshots WHERE account_id=$1 AND native_created_at=$2 AND generation=$3 AND ($4='' OR principal_version=$4) AND (source_observations->>'plan_quota')::timestamptz>clock_timestamp()-interval '1 minute')`, p.Route.AccountID, p.Route.CreatedAt, p.Route.Generation, principal).Scan(&due) != nil || !due {
 		return
 	}
 	bounded, err = service.WithGatewayNativeConsumer(bounded, p.Scope.Consumer)
@@ -121,28 +161,5 @@ func collectPrivateQuotaInfo(ctx context.Context, db *sql.DB, p service.GatewayN
 	if err != nil {
 		return
 	}
-	composite, ok := cache.(service.GatewayAccountQuotaInfoRepository)
-	var order int64
-	if service.GatewayAccountInfoPlanQuotaProfile(p.Route.Profile) {
-		if !ok {
-			return
-		}
-		order, err = composite.ReserveGatewayAccountInfoOrder(bounded)
-		if err != nil {
-			return
-		}
-	}
-	observation, err := fetch(bounded)
-	if err != nil {
-		return
-	}
-	if observation.Info != nil {
-		if !ok {
-			return
-		}
-		info := service.GatewayAccountInfoObservation{Source: "plan_quota", Order: order, CredentialRevision: p.CredentialRevision, Fields: *observation.Info}
-		_ = composite.StoreGatewayQuotaAndInfo(bounded, p, observation.Limits, observation.ObservedAt, &info)
-	} else {
-		_ = cache.StoreGatewayAccountLimitsV2(bounded, p, observation.Limits, observation.ObservedAt)
-	}
+	collect(bounded)
 }

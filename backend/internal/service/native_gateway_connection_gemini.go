@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,30 @@ func gatewayGeminiOAuthType(profile string) string {
 		return "ai_studio"
 	}
 	return ""
+}
+
+// Gemini CLI and Antigravity generate a canonical base64url 32-byte state.
+// Keep that native grammar; the legacy Codex callback requires hexadecimal
+// state and cannot validate these provider-owned browser continuations.
+func gatewayGeminiConnectionCallback(input, expectedRedirect string) (string, string, error) {
+	if len(input) == 0 || len(input) > 8192 || strings.TrimSpace(input) != input {
+		return "", "", ErrGatewayNativeIdentity
+	}
+	u, err := url.Parse(input)
+	expected, expectedErr := url.Parse(expectedRedirect)
+	if err != nil || expectedErr != nil || u.User != nil || u.Fragment != "" || u.Scheme != expected.Scheme || u.Host != expected.Host || u.Path != expected.Path || u.RawPath != "" || u.Opaque != "" {
+		return "", "", ErrGatewayNativeIdentity
+	}
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(query) != 2 || len(query["state"]) != 1 || len(query["code"]) != 1 || !connectCodeValid(query.Get("code")) {
+		return "", "", ErrGatewayNativeIdentity
+	}
+	state := query.Get("state")
+	random, err := base64.RawURLEncoding.Strict().DecodeString(state)
+	if err != nil || len(random) != 32 || base64.RawURLEncoding.EncodeToString(random) != state {
+		return "", "", ErrGatewayNativeIdentity
+	}
+	return state, query.Get("code"), nil
 }
 
 func gatewayGeminiOAuthConfig(s *GeminiOAuthService, oauthType string) (geminicli.OAuthConfig, error) {
@@ -130,7 +156,7 @@ func NewGatewayNativeGeminiConnectionMethod(profile, generation string, mount Ga
 			material.OAuthType != oauthType || material.RedirectURI != redirect || material.Verifier == "" {
 			return GatewayNativeConnectionCredential{}, ErrGatewayNativeIdentity
 		}
-		state, code, err := gatewayConnectionCallback(completion["completion"], material.RedirectURI)
+		state, code, err := gatewayGeminiConnectionCallback(completion["completion"], material.RedirectURI)
 		if err != nil || state != material.State {
 			return GatewayNativeConnectionCredential{}, ErrGatewayNativeIdentity
 		}

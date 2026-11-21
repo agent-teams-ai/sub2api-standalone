@@ -77,16 +77,21 @@ type GatewayAccountInfoWriter interface {
 type GatewayAccountInfoReader struct {
 	cache     GatewayAccountInfoCache
 	authorize GatewayAccountLimitsAuthorizer
+	native    *GatewayNativeConnections
 	now       func() time.Time
 	mu        sync.Mutex
 	active    map[string]int
 }
 
-func NewGatewayAccountInfoReader(cache GatewayAccountInfoCache, authorize GatewayAccountLimitsAuthorizer) (*GatewayAccountInfoReader, error) {
-	if cache == nil || authorize == nil {
+func NewGatewayAccountInfoReader(cache GatewayAccountInfoCache, authorize GatewayAccountLimitsAuthorizer, native ...*GatewayNativeConnections) (*GatewayAccountInfoReader, error) {
+	if cache == nil || authorize == nil || len(native) > 1 {
 		return nil, ErrGatewayNativeIdentity
 	}
-	return &GatewayAccountInfoReader{cache: cache, authorize: authorize, now: time.Now, active: map[string]int{}}, nil
+	reader := &GatewayAccountInfoReader{cache: cache, authorize: authorize, now: time.Now, active: map[string]int{}}
+	if len(native) == 1 {
+		reader.native = native[0]
+	}
+	return reader, nil
 }
 
 func GatewayAccountInfoProvider(profile string) string {
@@ -169,6 +174,20 @@ func (s *GatewayAccountInfoReader) Read(ctx context.Context, in GatewayAccountLi
 	if GatewayAccountInfoProvider(in.ProfileID) == "" {
 		return GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "unsupported"}}
 	}
+	if s.native != nil {
+		bound, marked, err := s.native.BindAccountRead(ctx, in, before)
+		if err != nil {
+			return unavailable
+		}
+		if marked {
+			result := s.native.readAccountInfo(bound, in, s.now())
+			after, err := s.authorize(ctx, in)
+			if err != nil || ctx.Err() != nil || !SameGatewayNativeDescriptor(before, after) || !s.native.CheckAccountRead(bound, in, after) {
+				return unavailable
+			}
+			return result
+		}
+	}
 	if !GatewayAccountInfoRouteValid(before, in) {
 		return unavailable
 	}
@@ -188,11 +207,16 @@ func (s *GatewayAccountInfoReader) Read(ctx context.Context, in GatewayAccountLi
 	if err != nil || ctx.Err() != nil || stored.PrincipalVersion == "" || current.PrincipalVersion != stored.PrincipalVersion || current.Revision < stored.Revision || current.Revision > gatewayLimitsMaxInteger {
 		return unavailable
 	}
-	fields, valid := GatewayAccountInfoProject(in.ProfileID, current, s.now())
+	return projectGatewayAccountInfoResult(in.ProfileID, current, after.Generation, s.now())
+}
+
+func projectGatewayAccountInfoResult(profile string, current GatewayAccountInfoStored, generation string, now time.Time) GatewayAccountInfoResult {
+	unavailable := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "unavailable"}}
+	fields, valid := GatewayAccountInfoProject(profile, current, now)
 	if !valid {
 		return unavailable
 	}
-	result := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "available", InfoRevision: strconv.FormatInt(current.Revision, 10), Fields: &fields}, PhysicalGeneration: after.Generation, PrincipalVersion: current.PrincipalVersion}
+	result := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "available", InfoRevision: strconv.FormatInt(current.Revision, 10), Fields: &fields}, PhysicalGeneration: generation, PrincipalVersion: current.PrincipalVersion}
 	raw, err := json.Marshal(result)
 	if err != nil || len(raw) > 8192 {
 		return unavailable

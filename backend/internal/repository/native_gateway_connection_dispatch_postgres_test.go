@@ -340,14 +340,34 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			second, entered, err := call(in, *route, body)
 			require.NoError(t, err)
 			require.True(t, entered)
-			require.NotEmpty(t, nativeConnectionCompletedOutput(t, second.Body.String()))
-			require.EqualValues(t, 2, row.calls.Load())
+			message := nativeConnectionCompletedOutput(t, second.Body.String())
+			require.NotEmpty(t, message)
+			// Replay our full message and tool output unchanged. Native codecs
+			// attach output metadata that must remain valid on the next turn.
+			history := append(append(append([]json.RawMessage{}, output...), toolResult), message...)
+			history = append(history, json.RawMessage(`{"role":"user","content":"Confirm the review"}`))
+			request["input"] = history
+			body, err = json.Marshal(request)
+			require.NoError(t, err)
+			if row.profile != service.GatewayOpenRouterResponsesProfile && bytes.Contains(body, []byte(`"logprobs":[]`)) {
+				for _, unsupported := range []string{`[{"logprob":0}]`, `null`} {
+					invalid := bytes.Replace(body, []byte(`"logprobs":[]`), []byte(`"logprobs":`+unsupported), 1)
+					_, entered, err = call(in, *route, invalid)
+					require.Error(t, err)
+					require.False(t, entered, "unsupported probability payload cannot enter provider dispatch")
+				}
+			}
+			third, entered, err := call(in, *route, body)
+			require.NoError(t, err)
+			require.True(t, entered)
+			require.NotEmpty(t, nativeConnectionCompletedOutput(t, third.Body.String()))
+			require.EqualValues(t, 3, row.calls.Load())
 			row.phase.Store(3)
 			failure, entered, err := call(in, *route, body)
 			require.ErrorIs(t, err, service.ErrGatewayNativeEffectUnknown)
 			require.True(t, entered)
 			require.NotContains(t, failure.Body.String(), "provider-private-body-must-not-leak")
-			require.EqualValues(t, 3, row.calls.Load(), "there is no automatic provider/protocol fallback after effect entry")
+			require.EqualValues(t, 4, row.calls.Load(), "there is no automatic provider/protocol fallback after effect entry")
 			foreign := in
 			foreign.Scope.Owner = "foreign-owner"
 			_, err = native.Custody(ownerCtx, foreign, *published.Native)
@@ -357,7 +377,7 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			_, entered, err = call(in, *route, body)
 			require.Error(t, err)
 			require.False(t, entered)
-			require.EqualValues(t, 3, row.calls.Load(), "an erased physical birth cannot dispatch")
+			require.EqualValues(t, 4, row.calls.Load(), "an erased physical birth cannot dispatch")
 			var durable string
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object('account',(SELECT to_jsonb(a) FROM accounts a WHERE id=$1),'intent',(SELECT to_jsonb(i) FROM gateway_oauth_connect_intents i WHERE operation_ref=$2))::text`, route.AccountID, in.Operation).Scan(&durable))
 			require.NotContains(t, durable, row.secret)

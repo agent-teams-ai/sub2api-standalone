@@ -21,14 +21,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type connectionModelsPeer struct{ target *url.URL }
+type connectionModelsPeer struct {
+	target    *url.URL
+	transport http.RoundTripper
+}
 
 func (p connectionModelsPeer) RoundTrip(request *http.Request) (*http.Response, error) {
 	cloned := request.Clone(request.Context())
 	copyURL := *request.URL
 	copyURL.Scheme, copyURL.Host = p.target.Scheme, p.target.Host
 	cloned.URL = &copyURL
-	response, err := http.DefaultTransport.RoundTrip(cloned)
+	cloned.Host = request.URL.Host
+	response, err := p.transport.RoundTrip(cloned)
 	if response != nil {
 		response.Request = request
 	}
@@ -50,7 +54,19 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	custody, err := service.NewGatewayNativeCredentialCustody("observation-fixture", map[string][]byte{"observation-fixture": bytes.Repeat([]byte{0x37}, 32)})
 	require.NoError(t, err)
 	var providerCalls atomic.Int32
-	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var quotaCalls atomic.Int32
+	peer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NotNil(t, r.TLS)
+		if r.URL.Path == "/api/monitor/usage/quota/limit" {
+			quotaCalls.Add(1)
+			require.Equal(t, "api.z.ai", r.Host)
+			require.Equal(t, http.MethodGet, r.Method)
+			require.Equal(t, "observation-synthetic-secret", r.Header.Get("Authorization"))
+			require.Empty(t, r.Header.Get("Cookie"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"success":true,"data":{"level":"GLM Coding Max","limits":[{"type":"CREDIT_LIMIT","unit":3,"percentage":23.5}]}}`)
+			return
+		}
 		providerCalls.Add(1)
 		require.Equal(t, http.MethodGet, r.Method)
 		require.Empty(t, r.Header.Get("Authorization"))
@@ -61,8 +77,9 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	defer peer.Close()
 	target, err := url.Parse(peer.URL)
 	require.NoError(t, err)
+	providerTransport := connectionModelsPeer{target, peer.Client().Transport}
 	gateway := &service.OpenAIGatewayService{}
-	require.NoError(t, gateway.SetGatewayOpenRouterModels(service.NewGatewayOpenRouterModels(connectionModelsPeer{target})))
+	require.NoError(t, gateway.SetGatewayOpenRouterModels(service.NewGatewayOpenRouterModels(providerTransport)))
 	definitions := []struct{ profile, base, model string }{
 		{"deepseek-responses-apikey-v1", service.DefaultDeepseekBaseURL, "deepseek-v4-flash"},
 		{service.GatewayGLMCodingResponsesProfile, service.GatewayGLMCodingResponsesBaseURL, service.GatewayGLMCodingResponsesModel},
@@ -136,6 +153,13 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	require.NoError(t, err)
 	limits, err := service.NewGatewayAccountLimitsReaderV3(native, nil, nil, authorize)
 	require.NoError(t, err)
+	info, err := service.NewGatewayAccountInfoReader(NewGatewayAccountInfoRepository(db), authorize, native)
+	require.NoError(t, err)
+	beforeInfo := providerCalls.Load()
+	initialInfo := info.Read(ownerCtx, inputs[0])
+	require.Equal(t, "available", initialInfo.Info.Status)
+	require.Equal(t, "unsupported", initialInfo.Info.Fields.CredentialExpiresAt.Status)
+	require.Equal(t, beforeInfo, providerCalls.Load(), "cached metadata cannot fetch provider models or quotas")
 	deepseek := models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]})
 	require.Equal(t, "snapshot", deepseek.Status)
 	require.Equal(t, inputs[0].ProfileID, deepseek.SourceID)
@@ -145,34 +169,37 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	wrongOwner := inputs[0]
 	wrongOwner.OwnerRef = "foreign-owner"
 	require.Equal(t, "unavailable", models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: wrongOwner}).Status)
+	require.Equal(t, "unavailable", info.Read(ownerCtx, wrongOwner).Info.Status)
 	require.Equal(t, "unsupported", limits.Read(ownerCtx, inputs[0]).Status)
 	require.Equal(t, "unknown", limits.Read(ownerCtx, inputs[1]).Status)
 
-	// The quota table contains an independently observed synthetic fact, not a
-	// limit inferred by the reader. Unknown duration/unit stay unknown in JSON.
+	// The existing fixed provider collector observes actual TLS bytes and
+	// atomically publishes quota plus plan facts under the encrypted revision.
 	quotaRoute := routes[inputs[1].AccountRef]
-	bound, marked, err := native.BindAccountRead(ownerCtx, inputs[1], quotaRoute.GatewayNativeRoute)
+	candidates, err := native.ListQuotaAccounts(ownerCtx)
 	require.NoError(t, err)
-	require.True(t, marked)
-	physical, release, err := rows.LockGatewayNativeConnection(bound, scopes[1].Scope, scopes[1].Operation, &quotaRoute)
+	require.Len(t, candidates, 1)
+	principal := service.GatewayNativeConnectionObservationPrincipal(candidates[0])
+	collector := service.NewGatewayProviderQuotaCollector(providerTransport)
+	foreignCtx, err := service.WithGatewayNativeOAuthOwner(ownerCtx, "foreign-owner")
 	require.NoError(t, err)
-	principal := service.GatewayNativeConnectionObservationPrincipal(physical)
-	release()
-	observed := time.Now().UTC().Truncate(time.Microsecond)
-	stamp := observed.Format(time.RFC3339Nano)
-	used := 23.5
-	snapshot := service.GatewayAccountLimitsSnapshotV2{Scope: "subscription", Windows: []service.GatewayAccountLimitWindowV2{
-		{ID: "primary", Provider: "glm", Dimension: "plan_quota", Unit: "unknown", Period: service.GatewayAccountLimitPeriodV2{Kind: "unknown"}, UsedPercent: &used, ObservedAt: &stamp},
-	}}
-	rawSnapshot, err := json.Marshal(snapshot)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `INSERT INTO gateway_account_limits_v2_snapshots(account_id,native_created_at,generation,principal_version,revision,observed_at,source_observations,snapshot)
- VALUES($1,$2,$3,$4,1,$5,'{}',$6)`, quotaRoute.AccountID, quotaRoute.CreatedAt, quotaRoute.Generation, principal, observed, rawSnapshot)
-	require.NoError(t, err)
+	require.Error(t, native.CollectQuota(foreignCtx, candidates[0], collector))
+	require.Zero(t, quotaCalls.Load())
+	require.NoError(t, native.CollectQuota(ownerCtx, candidates[0], collector))
+	require.EqualValues(t, 1, quotaCalls.Load())
 	quota := limits.Read(ownerCtx, inputs[1])
 	require.Equal(t, "snapshot", quota.Status)
 	require.Equal(t, principal, quota.PrincipalVersion)
-	require.Equal(t, snapshot.Windows, quota.Windows)
+	require.Len(t, quota.Windows, 1)
+	require.Equal(t, "five_hour", quota.Windows[0].ID)
+	require.Equal(t, "credits", quota.Windows[0].Unit)
+	require.Equal(t, 23.5, *quota.Windows[0].UsedPercent)
+	plan := info.Read(ownerCtx, inputs[1])
+	require.Equal(t, "available", plan.Info.Status)
+	require.Equal(t, "known", plan.Info.Fields.Subscription.Status)
+	require.Equal(t, "GLM Coding Max", plan.Info.Fields.Subscription.Value.Code)
+	require.Equal(t, "provider_api", plan.Info.Fields.Subscription.Source)
+	require.EqualValues(t, 1, quotaCalls.Load(), "cached quota/account-info reads never collect")
 
 	openRouter := models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[2]})
 	require.Equal(t, "snapshot", openRouter.Status)
@@ -193,6 +220,11 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	recoveryModels, err := service.NewGatewayAccountModelsReaderV2(recovery, nil, authorize)
 	require.NoError(t, err)
 	require.Equal(t, "snapshot", recoveryModels.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]}).Status)
+	recoveryInfo, err := service.NewGatewayAccountInfoReader(NewGatewayAccountInfoRepository(db), authorize, recovery)
+	require.NoError(t, err)
+	require.Equal(t, initialInfo, recoveryInfo.Read(ownerCtx, inputs[0]), "unmounting does not erase or reinterpret original metadata")
+	require.Error(t, recovery.CollectQuota(ownerCtx, candidates[0], collector))
+	require.EqualValues(t, 1, quotaCalls.Load(), "removed configuration grants no new collection")
 
 	// Native cleanup committed during the owner recheck must discard the old
 	// snapshot. Reconnect binds a distinct birth/principal. No direct credential
@@ -218,6 +250,20 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	current := models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]})
 	require.Equal(t, "snapshot", current.Status)
 	require.NotEqual(t, deepseek.PrincipalVersion, current.PrincipalVersion)
+	currentInfo := info.Read(ownerCtx, inputs[0])
+	require.Equal(t, "available", currentInfo.Info.Status)
+	require.NotEqual(t, initialInfo.PrincipalVersion, currentInfo.PrincipalVersion)
+	quotaRoute = routes[inputs[1].AccountRef]
+	cleanupRoute = &quotaRoute.GatewayNativeRoute
+	authorityCalls = 0
+	afterAuthority = func() {
+		_, err := native.Cleanup(ownerCtx, scopes[1], service.GatewayNativeOAuthCleanupRequest{Scope: scopes[1].Scope, Operation: scopes[1].Operation, Action: "erase", CleanupRef: "info-cleanup", CleanupToken: "info-cleanup-token"})
+		require.NoError(t, err)
+	}
+	require.Equal(t, "unavailable", info.Read(ownerCtx, inputs[1]).Info.Status, "erasure during final authority check discards cached fields")
+	afterAuthority = nil
+	require.Error(t, native.CollectQuota(ownerCtx, candidates[0], collector))
+	require.EqualValues(t, 1, quotaCalls.Load(), "erasure prevents collection with a stale listing")
 	public, err := json.Marshal([]any{current, quota, openRouter})
 	require.NoError(t, err)
 	require.False(t, strings.Contains(string(public), "synthetic-secret"))

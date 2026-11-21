@@ -37,7 +37,7 @@ type nativeSubscriptionWire struct {
 	method, provider, input, subject, team, state string
 	clientID, nonce                               string
 	key                                           *ecdsa.PrivateKey
-	grant, calls                                  atomic.Int32
+	grant, calls, quotas                          atomic.Int32
 	wrongPrincipal, loseReply, omitExpiry         atomic.Bool
 	second                                        atomic.Bool
 }
@@ -202,6 +202,13 @@ func (f *nativeSubscriptionWire) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			subject = "foreign-fixture-subject"
 		}
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]string{"sub": subject, "team_id": f.team, "email": "grok-fixture@example.test", "name": "Fixture account"}))
+	case "https://cli-chat-proxy.grok.com/v1/billing":
+		f.quotas.Add(1)
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "Bearer "+f.access(), r.Header.Get("Authorization"))
+		assert.Equal(t, xai.ProtectedClientIdentifier, r.Header.Get("x-grok-client-identifier"))
+		assert.Empty(t, r.Header.Get("Cookie"))
+		_, _ = io.WriteString(w, `{"config":{"currentPeriod":{"type":"weekly"},"creditUsagePercent":35,"monthlyLimit":{"val":15000},"used":{"val":7500}}}`)
 	default:
 		f.calls.Add(1)
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -214,10 +221,13 @@ func (f *nativeSubscriptionWire) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			assert.Equal(t, "https://api.anthropic.com/v1/messages", "https://"+r.Host+r.URL.Path)
 			assert.Contains(t, r.Header.Get("anthropic-beta"), "oauth-")
 			row.model, row.protocol = service.GatewayClaudeOAuthModel, service.APIProtocolAnthropic
+			w.Header().Set("anthropic-ratelimit-unified-5h-utilization", "0.25")
 		} else {
 			assert.Equal(t, service.GatewayGrokOAuthBaseURL+"/v1/responses", "https://"+r.Host+r.URL.Path)
 			assert.Equal(t, xai.CLITokenAuth, r.Header.Get("X-XAI-Token-Auth"))
 			assert.Equal(t, xai.ProtectedClientIdentifier, r.Header.Get("x-grok-client-identifier"))
+			w.Header().Set("x-ratelimit-limit-requests", "100")
+			w.Header().Set("x-ratelimit-remaining-requests", "75")
 		}
 		raw, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
@@ -406,6 +416,22 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, published.Native.Publication, after.Native.Publication)
 			route = &after.Native.GatewayNativeRoute
+			limitsReader, err := service.NewGatewayAccountLimitsReaderV3(native, nil, nil, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+				return *route, nil
+			})
+			require.NoError(t, err)
+			limitsInput := service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: in.Connection.ProfileID, ExpectedAuthorizationEpoch: 1}
+			require.Equal(t, "unknown", limitsReader.Read(ownerCtx, limitsInput).Status)
+			if fixture.provider == "grok" {
+				candidates, err := native.ListQuotaAccounts(ownerCtx)
+				require.NoError(t, err)
+				require.Len(t, candidates, 1)
+				require.NoError(t, native.CollectQuota(ownerCtx, candidates[0], service.NewGatewayProviderQuotaCollector(transport)))
+				quota := limitsReader.Read(ownerCtx, limitsInput)
+				require.Equal(t, "snapshot", quota.Status)
+				require.Len(t, quota.Windows, 2)
+				require.EqualValues(t, 2, fixture.quotas.Load(), "one bounded weekly/monthly provider batch")
+			}
 			call := func(body []byte) (*httptest.ResponseRecorder, bool, error) {
 				callCtx, stop := context.WithTimeout(ownerCtx, 10*time.Second)
 				defer stop()
@@ -434,6 +460,20 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 			first, entered, err := call(body)
 			require.NoError(t, err)
 			require.True(t, entered)
+			passiveQuota := limitsReader.Read(ownerCtx, limitsInput)
+			require.Equal(t, "snapshot", passiveQuota.Status)
+			observedPassive := false
+			for _, window := range passiveQuota.Windows {
+				if fixture.provider == "claude" && window.ID == "five_hour" || fixture.provider == "grok" && window.ID == "request_rate" {
+					require.Equal(t, 25.0, *window.UsedPercent)
+					observedPassive = true
+				}
+			}
+			require.True(t, observedPassive, "native source response headers reach the cached V3 reader")
+			if fixture.provider == "grok" {
+				require.Len(t, passiveQuota.Windows, 3, "rate observation preserves independent weekly/monthly quota")
+				require.EqualValues(t, 2, fixture.quotas.Load(), "metadata read never repeats provider collection")
+			}
 			output := nativeConnectionCompletedOutput(t, first.Body.String())
 			toolResult, err := json.Marshal(map[string]string{"type": "function_call_output", "call_id": "call_review", "output": "synthetic file contents"})
 			require.NoError(t, err)
@@ -469,6 +509,7 @@ func TestGatewayNativeConnectionPostgresSubscriptionMethods(t *testing.T) {
 				unknown, err := native.Maintain(ownerCtx, in)
 				require.NoError(t, err)
 				require.Equal(t, "unknown", unknown.State)
+				require.Equal(t, "unavailable", limitsReader.Read(ownerCtx, limitsInput).Status, "uncertain credential refresh cannot reuse cached principal")
 				count := fixture.grant.Load()
 				again, err := native.Maintain(ownerCtx, in)
 				require.NoError(t, err)

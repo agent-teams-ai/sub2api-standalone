@@ -135,7 +135,28 @@ func (r *gatewayAccountLimitsRepositoryV2) ReserveGatewayAccountInfoOrder(ctx co
 	return NewGatewayAccountInfoRepository(r.db).ReserveGatewayAccountInfoOrder(ctx)
 }
 func (r *gatewayAccountLimitsRepositoryV2) StoreGatewayQuotaAndInfo(ctx context.Context, expected service.GatewayNativeOAuthPhysical, snapshot service.GatewayAccountLimitsSnapshotV2, observed time.Time, info *service.GatewayAccountInfoObservation) error {
-	if observed.IsZero() || observed.Year() < 1 || observed.Year() > 9999 || observed.After(time.Now().Add(time.Minute)) || !service.ValidateGatewayAccountLimitsSnapshotV2(snapshot, expected.Route.Profile) {
+	tx, current, err := r.physicalTx(ctx, expected.Scope, expected.Route, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	principal := service.GatewayAccountLimitsPrincipalV2(current)
+	if principal != service.GatewayAccountLimitsPrincipalV2(expected) || current.Operation != expected.Operation || current.CredentialRevision != expected.CredentialRevision {
+		return service.ErrGatewayNativeIdentity
+	}
+	if err := storeGatewayAccountQuotaTx(ctx, tx, current, principal, snapshot, observed, info, service.ValidateGatewayAccountLimitsSnapshotV2); err != nil {
+		return err
+	}
+	if tx.Commit() != nil {
+		return service.ErrGatewayNativeIdentity
+	}
+	return nil
+}
+
+// Caller holds the exact native physical write lock and owns its principal.
+// Source replacement, ordering and the account-info fact commit stay shared.
+func storeGatewayAccountQuotaTx(ctx context.Context, tx *sql.Tx, current service.GatewayNativeOAuthPhysical, principal string, snapshot service.GatewayAccountLimitsSnapshotV2, observed time.Time, info *service.GatewayAccountInfoObservation, validate func(service.GatewayAccountLimitsSnapshotV2, string) bool) error {
+	if observed.IsZero() || observed.Year() < 1 || observed.Year() > 9999 || observed.After(time.Now().Add(time.Minute)) || !validate(snapshot, current.Route.Profile) {
 		return service.ErrGatewayNativeIdentity
 	}
 	dimension := "plan_quota"
@@ -153,20 +174,11 @@ func (r *gatewayAccountLimitsRepositoryV2) StoreGatewayQuotaAndInfo(ctx context.
 			}
 		}
 	}
-	tx, current, err := r.physicalTx(ctx, expected.Scope, expected.Route, true)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	principal := service.GatewayAccountLimitsPrincipalV2(current)
-	if principal != service.GatewayAccountLimitsPrincipalV2(expected) || current.Operation != expected.Operation || current.CredentialRevision != expected.CredentialRevision {
-		return service.ErrGatewayNativeIdentity
-	}
 	var birth time.Time
 	var generation, storedPrincipal string
 	var revision int64
 	var existingRaw, sourceRaw []byte
-	err = tx.QueryRowContext(ctx, `SELECT native_created_at,generation,principal_version,revision,snapshot,source_observations
+	err := tx.QueryRowContext(ctx, `SELECT native_created_at,generation,principal_version,revision,snapshot,source_observations
  FROM gateway_account_limits_v2_snapshots WHERE account_id=$1 FOR UPDATE`, current.Route.AccountID).Scan(&birth, &generation, &storedPrincipal, &revision, &existingRaw, &sourceRaw)
 	exists := err == nil
 	if err != nil && err != sql.ErrNoRows {
@@ -179,7 +191,7 @@ func (r *gatewayAccountLimitsRepositoryV2) StoreGatewayQuotaAndInfo(ctx context.
 			return service.ErrGatewayNativeIdentity
 		}
 		var existing service.GatewayAccountLimitsSnapshotV2
-		if json.Unmarshal(existingRaw, &existing) != nil || !service.ValidateGatewayAccountLimitsSnapshotV2(existing, current.Route.Profile) || json.Unmarshal(sourceRaw, &observations) != nil || observations == nil || len(observations) > 2 {
+		if json.Unmarshal(existingRaw, &existing) != nil || !validate(existing, current.Route.Profile) || json.Unmarshal(sourceRaw, &observations) != nil || observations == nil || len(observations) > 2 {
 			return service.ErrGatewayNativeIdentity
 		}
 		for source, raw := range observations {
@@ -222,7 +234,7 @@ func (r *gatewayAccountLimitsRepositoryV2) StoreGatewayQuotaAndInfo(ctx context.
 		}
 	}
 	merged.Windows = append(merged.Windows, snapshot.Windows...)
-	if !service.ValidateGatewayAccountLimitsSnapshotV2(merged, current.Route.Profile) {
+	if !validate(merged, current.Route.Profile) {
 		return service.ErrGatewayNativeIdentity
 	}
 	observations[dimension] = observed.UTC().Format(time.RFC3339Nano)
@@ -254,9 +266,6 @@ func (r *gatewayAccountLimitsRepositoryV2) StoreGatewayQuotaAndInfo(ctx context.
 		if err := storeGatewayAccountInfoTx(ctx, tx, current, *info, false); err != nil {
 			return err
 		}
-	}
-	if tx.Commit() != nil {
-		return service.ErrGatewayNativeIdentity
 	}
 	return nil
 }

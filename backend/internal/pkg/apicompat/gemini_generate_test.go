@@ -125,3 +125,35 @@ func TestGeminiGenerateKeepsSchemaAndActualZeroUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, unknown.Usage, "absence must never become measured zero")
 }
+
+func TestGeminiGenerateCombinedTextAndFunctionCompletedArrayContinuation(t *testing.T) {
+	codec := newGeminiFixtureCodec(t, "native-completed-array")
+	native := NewGeminiGenerateStream("gemini-fixture")
+	state := NewChatCompletionsToResponsesStreamState("gemini-fixture")
+	continuation := NewGeminiContinuationStream(state)
+	chunk, err := native.Push([]byte(`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Checking the file."},{"functionCall":{"id":"native_review","name":"read_source","args":{"path":"file.go"}},"thoughtSignature":"real-native-function-signature"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3}}`))
+	require.NoError(t, err)
+	wire, err := json.Marshal(chunk)
+	require.NoError(t, err)
+	var decoded ChatCompletionsChunk
+	require.NoError(t, json.Unmarshal(wire, &decoded))
+	require.NoError(t, continuation.Observe(&decoded))
+	_ = ChatCompletionsChunkToResponsesEvents(&decoded, state)
+	continuation.SetNativeParts(native.NativeParts())
+	final, err := continuation.Finalize(state, codec)
+	require.NoError(t, err)
+	raw, err := json.Marshal(final[len(final)-1].Response.Output)
+	require.NoError(t, err)
+	var input []json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &input))
+	input = append(input, json.RawMessage(`{"type":"function_call_output","call_id":"native_review","output":"synthetic file contents"}`))
+	raw, err = json.Marshal(input)
+	require.NoError(t, err)
+	limit := 512
+	chat, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{Model: "gemini-fixture", Input: raw, Stream: true, MaxOutputTokens: &limit})
+	require.NoError(t, err)
+	require.NoError(t, RestoreGeminiContinuation(raw, chat, codec))
+	request, err := ChatCompletionsToGeminiGenerateContent(chat)
+	require.NoError(t, err)
+	require.Contains(t, string(request), "real-native-function-signature")
+}

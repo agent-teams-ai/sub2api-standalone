@@ -84,7 +84,7 @@ func (c *gatewayNativeGeminiOAuthClient) codeAssist(ctx context.Context, token, 
 	request.Header.Set("User-Agent", geminicli.GeminiCLIUserAgent)
 	response, err := c.client.Do(request)
 	if response != nil && response.Body != nil {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 	}
 	if err != nil || response == nil || response.Body == nil || response.StatusCode != http.StatusOK ||
 		(response.Header.Get("Content-Encoding") != "" && response.Header.Get("Content-Encoding") != "identity") {
@@ -155,7 +155,7 @@ func (c *gatewayNativeGeminiOAuthClient) exchange(ctx context.Context, oauthType
 	request.Header.Set("Accept-Encoding", "identity")
 	response, err := c.client.Do(request)
 	if response != nil && response.Body != nil {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 	}
 	if err != nil || response == nil || response.Body == nil || response.StatusCode != http.StatusOK ||
 		(response.Header.Get("Content-Encoding") != "" && response.Header.Get("Content-Encoding") != "identity") {

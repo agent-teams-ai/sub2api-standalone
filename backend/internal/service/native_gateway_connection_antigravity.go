@@ -179,7 +179,7 @@ func NewGatewayNativeAntigravityConnectionMethod(profile, methodID, generation s
 			}
 			token, err = client.RefreshToken(ctx, state.Refresh)
 		} else {
-			callbackState, code, callbackErr := gatewayConnectionCallback(completion["completion"], antigravity.RedirectURI)
+			callbackState, code, callbackErr := gatewayGeminiConnectionCallback(completion["completion"], antigravity.RedirectURI)
 			if len(completion) != 1 || callbackErr != nil || callbackState != state.State || state.Verifier == "" {
 				return GatewayNativeConnectionCredential{}, ErrGatewayNativeIdentity
 			}

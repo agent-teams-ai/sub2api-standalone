@@ -295,13 +295,11 @@ func gatewayNativeProviderTextInput(profile string, raw []byte) bool {
 			if json.Unmarshal(fields["content"], &parts) != nil {
 				return false
 			}
-			partKeys := []string{"type", "text", "annotations"}
-			// OpenRouter returns an empty logprobs array on every output_text
-			// part and a client replays the item unchanged (confirmed in
-			// production: the only refused item of a replayed history).
-			if profile == GatewayOpenRouterResponsesProfile {
-				partKeys = append(partKeys, "logprobs")
-			}
+			// The native Chat/Messages Responses codecs emit this exact empty
+			// marker on assistant output_text. Replaying their own output is
+			// valid; measured probabilities have no representation in those
+			// protocols. OpenRouter retains its existing upstream array grammar.
+			partKeys := []string{"type", "text", "annotations", "logprobs"}
 			for _, raw := range parts {
 				part, ok := gatewayClaudeObject(raw, partKeys...)
 				if !ok || (string(part["type"]) != `"input_text"` && string(part["type"]) != `"output_text"`) || json.Unmarshal(part["text"], &text) != nil {
@@ -309,7 +307,8 @@ func gatewayNativeProviderTextInput(profile string, raw []byte) bool {
 				}
 				if logprobs := part["logprobs"]; logprobs != nil {
 					var entries []json.RawMessage
-					if json.Unmarshal(logprobs, &entries) != nil {
+					if json.Unmarshal(logprobs, &entries) != nil || profile != GatewayOpenRouterResponsesProfile &&
+						(role != "assistant" || string(part["type"]) != `"output_text"` || len(entries) != 0 || bytes.Equal(bytes.TrimSpace(logprobs), []byte("null"))) {
 						return false
 					}
 				}

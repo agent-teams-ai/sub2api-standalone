@@ -203,7 +203,7 @@ func (s *OpenAIGatewayService) forwardGatewayNativeGemini(ctx context.Context, c
 	start := time.Now()
 	response, err := s.doOpenAIUpstream(request, "", account)
 	if response != nil && response.Body != nil {
-		defer response.Body.Close()
+		defer func(body io.ReadCloser) { _ = body.Close() }(response.Body)
 	}
 	if err != nil || response == nil || response.Body == nil || response.StatusCode != http.StatusOK ||
 		strings.TrimSpace(strings.Split(response.Header.Get("Content-Type"), ";")[0]) != "text/event-stream" ||

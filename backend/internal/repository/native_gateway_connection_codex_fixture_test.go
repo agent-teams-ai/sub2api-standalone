@@ -34,7 +34,7 @@ type nativeCodexImportFixture struct {
 	key                       *rsa.PrivateKey
 	phase                     atomic.Int32
 	tokens, checks, tasks     atomic.Int32
-	models, inference         atomic.Int32
+	models, inference, quotas atomic.Int32
 }
 
 func (f *nativeCodexImportFixture) bearer() string {
@@ -116,6 +116,11 @@ func (f *nativeCodexImportFixture) serve(w http.ResponseWriter, r *http.Request)
 		assert.Equal(f.t, service.CodexCanonicalClientVersion(), r.URL.Query().Get("client_version"))
 		f.assertHeaders(r)
 		_, _ = io.WriteString(w, `{"models":[{"slug":"future-native-model","visibility":"list","supported_endpoints":["responses"],"input_modalities":["text"],"instructions":"PRIVATE-NATIVE-INSTRUCTIONS"}]}`)
+	case "chatgpt.com/backend-api/wham/usage":
+		f.quotas.Add(1)
+		assert.Equal(f.t, http.MethodGet, r.Method)
+		f.assertHeaders(r)
+		_ = json.NewEncoder(w).Encode(map[string]any{"account_id": f.account, "rate_limit": map[string]any{"primary_window": map[string]any{"used_percent": 75, "limit_window_seconds": 18000}}})
 	case "chatgpt.com/backend-api/codex/responses":
 		f.inference.Add(1)
 		assert.Equal(f.t, http.MethodPost, r.Method)
@@ -129,6 +134,8 @@ func (f *nativeCodexImportFixture) serve(w http.ResponseWriter, r *http.Request)
 			_, _ = io.WriteString(w, `{"error":{"code":"invalid_task_id","message":"private provider task rejection"}}`)
 			return
 		}
+		w.Header().Set("X-Codex-Primary-Used-Percent", "25")
+		w.Header().Set("X-Codex-Primary-Window-Minutes", "300")
 		second := f.phase.Load() == 2
 		if second {
 			assert.Contains(f.t, string(raw), "synthetic file contents")
