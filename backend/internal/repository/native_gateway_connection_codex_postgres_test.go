@@ -265,9 +265,18 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			body, err := json.Marshal(request)
 			require.NoError(t, err)
 			f.phase.Store(1)
-			first, entered, err := nativeConnectionForwardFixture(t, ownerCtx, custody, native, gateway, in, *route, body)
+			var firstUsage []service.GatewayNativeUsage
+			usageCtx := service.WithGatewayNativeUsageObserver(ownerCtx, func(usage service.GatewayNativeUsage) { firstUsage = append(firstUsage, usage) })
+			first, entered, err := nativeConnectionForwardFixture(t, usageCtx, custody, native, gateway, in, *route, body)
 			require.NoError(t, err)
 			require.True(t, entered)
+			require.Len(t, firstUsage, 1)
+			require.Equal(t, &service.GatewayNativeUsageContext{ProviderID: "openai", ProductID: "subscription", ProfileID: service.GatewayCodexOAuthResponsesProfile,
+				ModelID: "future-native-model", Billing: service.GatewayNativeUsageBilling{Status: "unknown"}}, firstUsage[0].NativeContext)
+			require.NotEqual(t, route.Model, firstUsage[0].NativeContext.ModelID, "usage records the admitted live model, not the qualified anchor")
+			firstUsageJSON, err := json.Marshal(firstUsage[0])
+			require.NoError(t, err)
+			require.NotContains(t, string(firstUsageJSON), f.access)
 			passive := limitsReader.Read(ownerCtx, modelsInput.GatewayAccountLimitsInput)
 			require.Equal(t, "snapshot", passive.Status)
 			require.Len(t, passive.Windows, 1)
@@ -348,6 +357,9 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			require.Error(t, err)
 			require.False(t, entered)
 			require.Equal(t, before, f.inference.Load())
+			afterEraseUsage, err := json.Marshal(firstUsage[0])
+			require.NoError(t, err)
+			require.JSONEq(t, string(firstUsageJSON), string(afterEraseUsage), "captured usage survives physical retirement without a fresh lookup")
 		})
 	}
 }

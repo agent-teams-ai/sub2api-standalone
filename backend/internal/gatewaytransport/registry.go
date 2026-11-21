@@ -535,6 +535,10 @@ func (h *Handler) receipt(consumer string, e *reservation) Receipt {
 				*field = &value
 			}
 		}
+		if usage.NativeContext != nil {
+			context := *usage.NativeContext
+			usage.NativeContext = &context
+		}
 		r.NativeUsage = &usage
 	}
 	if e.proof != nil {

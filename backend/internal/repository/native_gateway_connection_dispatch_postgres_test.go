@@ -291,6 +291,8 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			call := func(scope service.GatewayNativeConnectionScope, selected service.GatewayNativeRoute, body []byte) (*httptest.ResponseRecorder, bool, error) {
 				callCtx, stop := context.WithTimeout(ownerCtx, 10*time.Second)
 				defer stop()
+				var observations []service.GatewayNativeUsage
+				callCtx = service.WithGatewayNativeUsageObserver(callCtx, func(observation service.GatewayNativeUsage) { observations = append(observations, observation) })
 				life, err := service.NewGatewayNativeLifetime(callCtx, stop, func() {}, 1<<20)
 				require.NoError(t, err)
 				life.BindAccount(scope.Scope.Consumer, scope.Scope.Account, scope.Scope.Generation)
@@ -309,6 +311,18 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 				c.Request.Header.Set("X-Codex-Turn-State", "foreign")
 				_, entered, callErr := gateway.ForwardGatewayRoute(bound, c, selected, body)
 				require.True(t, life.Snapshot().ForwardingReturned)
+				if entered {
+					require.Len(t, observations, 1)
+					definition, found := service.LookupGatewayConnectionProfile(row.profile)
+					require.True(t, found)
+					require.Equal(t, &service.GatewayNativeUsageContext{ProviderID: definition.Provider.ID, ProductID: definition.Product.ID,
+						ProfileID: row.profile, ModelID: row.model, Billing: service.GatewayNativeUsageBilling{Status: "unknown"}}, observations[0].NativeContext)
+					require.Equal(t, "unknown", observations[0].CostState)
+				} else {
+					for _, observation := range observations {
+						require.Nil(t, observation.NativeContext, "unentered requests cannot claim admitted source identity")
+					}
+				}
 				return recorder, entered, callErr
 			}
 			request := map[string]any{"model": row.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}

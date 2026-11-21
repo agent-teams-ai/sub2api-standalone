@@ -169,6 +169,11 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 	defer clear(credentials)
 	release()
 	state := &gatewayConnectionDispatchState{binding: binding, physical: physical, account: transient, credentials: digest, requestedModel: model}
+	ctx, finishUsage, err := withGatewayNativeConnectionUsage(ctx, physical.Native.Publication, model, &state.entered)
+	if err != nil {
+		return nil, false, err
+	}
+	defer finishUsage()
 	ctx = WithHTTPUpstreamRedirectsDisabled(context.WithValue(ctx, gatewayConnectionDispatchStateKey{}, state))
 	request := c.Request.Clone(ctx)
 	request.Header = make(http.Header)
