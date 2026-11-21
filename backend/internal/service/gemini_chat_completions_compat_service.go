@@ -55,6 +55,12 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	// Gemini applies ccReq.ResponseFormat itself below. The Anthropic hop is
+	// only an internal carrier, so it must not validate or carry the format:
+	// Anthropic cannot represent json_object and would reject a valid request.
+	if responsesReq.Text != nil {
+		responsesReq.Text.Format = nil
+	}
 
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 func scopedStatisticsServiceContext(action string) context.Context {
 	return adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{Policy: adminaccess.Policy{Rules: []adminaccess.Rule{{Permissions: []string{action}, GroupIDs: []int64{1}, AccountTypes: []string{"oauth"}, Platforms: []string{"openai"}}}}})
 }
+
 type scopedAccountLookupErrorRepo struct {
 	AccountRepository
 	err error
@@ -124,6 +125,15 @@ func TestScopedAdminUsageReadDoesNotRecoverAccount(t *testing.T) {
 }
 
 type scopedStatisticsBatchRepo struct{ stubQuotaAccountRepo }
+
+// GetByID mirrors the real repository: a missing account is ErrAccountNotFound,
+// which scoped lookups report as 404 rather than as a storage failure.
+func (r *scopedStatisticsBatchRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if _, ok := r.accounts[id]; !ok {
+		return nil, ErrAccountNotFound
+	}
+	return r.stubQuotaAccountRepo.GetByID(ctx, id)
+}
 
 func (r *scopedStatisticsBatchRepo) GetByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
 	out := []*Account{}
