@@ -30,6 +30,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
@@ -1742,7 +1743,7 @@ func (h *AccountHandler) GetStats(c *gin.Context) {
 	stats, err := h.accountUsageService.GetAccountUsageStats(c.Request.Context(), accountID, startTime, endTime)
 	if err != nil {
 		// Scoped responses deliberately redact details, but operators still need the cause.
-		slog.Warn("account usage statistics query failed", "account_id", accountID, "error", err)
+		slog.Warn("account usage statistics query failed", "account_id", accountID, "error", logredact.RedactText(err.Error()))
 		scopedOpenAIError(c, err)
 		return
 	}
