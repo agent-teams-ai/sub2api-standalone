@@ -373,10 +373,10 @@ jobs:
           test "$(docker image inspect "$image_id" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$ROLLBACK_READER_REVISION"
           reader_uid="$(docker run --rm --network none --entrypoint id "$image_id" -u postgres)"
           reader_gid="$(docker run --rm --network none --entrypoint id "$image_id" -g postgres)"
-          sudo chown -R "$reader_uid:$reader_gid" "$NATIVE_ROLLBACK_ROOT/output"
-          chmod 700 "$NATIVE_ROLLBACK_ROOT/output"
           restore_owner() { sudo chown -R "$(id -u):$(id -g)" "$NATIVE_ROLLBACK_ROOT/output"; }
           trap restore_owner EXIT
+          chmod 700 "$NATIVE_ROLLBACK_ROOT/output"
+          sudo chown -R "$reader_uid:$reader_gid" "$NATIVE_ROLLBACK_ROOT/output"
           reader_sha="$(sha256sum "$NATIVE_ROLLBACK_ROOT/image/reader.test" | cut -d ' ' -f 1)"
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --memory 1536m --cpus 2 --pids-limit 256 --tmpfs /tmp:rw,exec,mode=1777,size=512m \
