@@ -29,6 +29,7 @@ const GatewayGrokOAuthIssuer = "https://auth.x.ai"
 // Private source-owned intent and qualification. Plaintext provider credentials
 // never enter repository input, browser DTOs, or the Gateway wire.
 type GatewayGrokConnectIntent struct {
+	Connection                            *GatewayConnectionSelection
 	Scope                                 GatewayNativeCredentialScope
 	Operation, StateHash, Envelope, State string
 	Deadline                              time.Time
@@ -81,25 +82,27 @@ type GatewayNativeGrokDispatchEntry struct {
 }
 
 type gatewayGrokBundle struct {
-	Kind         string    `json:"kind"`
-	Revision     int64     `json:"revision"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	Subject      string    `json:"subject"`
-	Team         string    `json:"team"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	ObservedAt   time.Time `json:"observed_at,omitzero"`
-	Nonce        string    `json:"nonce"`
-	ClientID     string    `json:"client_id"`
+	Connection   *GatewayConnectionSelection `json:"connection,omitempty"`
+	Kind         string                      `json:"kind"`
+	Revision     int64                       `json:"revision"`
+	AccessToken  string                      `json:"access_token"`
+	RefreshToken string                      `json:"refresh_token"`
+	Subject      string                      `json:"subject"`
+	Team         string                      `json:"team"`
+	ExpiresAt    time.Time                   `json:"expires_at"`
+	ObservedAt   time.Time                   `json:"observed_at,omitzero"`
+	Nonce        string                      `json:"nonce"`
+	ClientID     string                      `json:"client_id"`
 	info         []GatewayAccountInfoObservation
 }
 type gatewayGrokConnectSecret struct {
-	Kind        string `json:"kind"`
-	State       string `json:"state"`
-	Verifier    string `json:"verifier"`
-	Nonce       string `json:"nonce"`
-	ClientID    string `json:"client_id"`
-	RedirectURI string `json:"redirect_uri"`
+	Connection  *GatewayConnectionSelection `json:"connection,omitempty"`
+	Kind        string                      `json:"kind"`
+	State       string                      `json:"state"`
+	Verifier    string                      `json:"verifier"`
+	Nonce       string                      `json:"nonce"`
+	ClientID    string                      `json:"client_id"`
+	RedirectURI string                      `json:"redirect_uri"`
 }
 
 type GatewayNativeGrokOAuth struct {
@@ -164,7 +167,7 @@ func (s *GatewayNativeGrokOAuth) seal(scope GatewayNativeCredentialScope, value 
 
 func (s *GatewayNativeGrokOAuth) BeginConnectMethod(ctx context.Context, scope GatewayNativeCredentialScope, operation, method string) (GatewayNativeOAuthConnectResult, error) {
 	var empty GatewayNativeOAuthConnectResult
-	if s == nil || !grokScope(ctx, scope, operation) || method != "browser" {
+	if s == nil || !grokScope(ctx, scope, operation) || method != "browser" || !gatewayConnectionMatchesContext(ctx, GatewayGrokOAuthResponsesProfile, method) {
 		return empty, ErrGatewayNativeIdentity
 	}
 	state, verifier := make([]byte, 32), make([]byte, 32)
@@ -178,21 +181,27 @@ func (s *GatewayNativeGrokOAuth) BeginConnectMethod(ctx context.Context, scope G
 	if _, err := rand.Read(nonce); err != nil {
 		return empty, ErrGatewayNativeIdentity
 	}
-	secret := gatewayGrokConnectSecret{Kind: "grok-connect/v1", State: hex.EncodeToString(state), Verifier: base64.RawURLEncoding.EncodeToString(verifier), Nonce: base64.RawURLEncoding.EncodeToString(nonce), ClientID: s.qualification.ClientID, RedirectURI: s.qualification.RedirectURI}
+	secret := gatewayGrokConnectSecret{Connection: gatewayConnectionSelectionFromContext(ctx), Kind: "grok-connect/v1", State: hex.EncodeToString(state), Verifier: base64.RawURLEncoding.EncodeToString(verifier), Nonce: base64.RawURLEncoding.EncodeToString(nonce), ClientID: s.qualification.ClientID, RedirectURI: s.qualification.RedirectURI}
 	envelope, err := s.seal(scope, secret)
 	if err != nil {
 		return empty, err
 	}
 	digest := sha256.Sum256([]byte(secret.State))
-	in, err := s.repository.PutGatewayGrokConnect(ctx, GatewayGrokConnectIntent{Scope: scope, Operation: operation, StateHash: hex.EncodeToString(digest[:]), Envelope: envelope, State: "prepared", Deadline: time.Now().UTC().Add(10 * time.Minute)})
+	in, err := s.repository.PutGatewayGrokConnect(ctx, GatewayGrokConnectIntent{Connection: secret.Connection, Scope: scope, Operation: operation, StateHash: hex.EncodeToString(digest[:]), Envelope: envelope, State: "prepared", Deadline: time.Now().UTC().Add(10 * time.Minute)})
 	if err != nil {
 		return empty, err
 	}
+	if !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return empty, ErrGatewayNativeIdentity
+	}
 	out := grokConnectView(in)
+	if in.Connection != nil && in.StateHash != hex.EncodeToString(digest[:]) {
+		return out, nil
+	}
 	if in.State != "prepared" || !time.Now().Before(in.Deadline) {
 		return out, nil
 	}
-	if s.open(scope, in.Envelope, &secret) != nil || !s.connectSecretValid(secret) {
+	if s.open(scope, in.Envelope, &secret) != nil || !SameGatewayConnectionSelection(secret.Connection, in.Connection) || !s.connectSecretValid(secret) {
 		return empty, ErrGatewayNativeIdentity
 	}
 	challenge := sha256.Sum256([]byte(secret.Verifier))
@@ -212,7 +221,7 @@ func grokConnectView(in GatewayGrokConnectIntent) GatewayNativeOAuthConnectResul
 	if state == "exchanging" || state == "erased" {
 		state = "unknown"
 	}
-	out := GatewayNativeOAuthConnectResult{Operation: in.Operation, Account: in.Scope.Account, State: state, Method: "browser"}
+	out := GatewayNativeOAuthConnectResult{Connection: in.Connection, Operation: in.Operation, Account: in.Scope.Account, State: state, Method: "browser"}
 	if in.State == "completed" {
 		out.Outcome = "staged"
 	}
@@ -223,6 +232,9 @@ func (s *GatewayNativeGrokOAuth) ReadConnect(ctx context.Context, scope GatewayN
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadGatewayGrokConnect(ctx, scope, operation)
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
+	}
 	return grokConnectView(in), err
 }
 
@@ -245,7 +257,7 @@ func (s *GatewayNativeGrokOAuth) CompleteOwnerCode(ctx context.Context, scope Ga
 		return empty, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadGatewayGrokConnect(ctx, scope, operation)
-	if err != nil || in.Scope != scope || in.Operation != operation {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) || in.Scope != scope || in.Operation != operation {
 		return empty, ErrGatewayNativeIdentity
 	}
 	switch in.State {
@@ -259,7 +271,7 @@ func (s *GatewayNativeGrokOAuth) CompleteOwnerCode(ctx context.Context, scope Ga
 		return empty, ErrGatewayNativeIdentity
 	}
 	var secret gatewayGrokConnectSecret
-	if s.open(scope, in.Envelope, &secret) != nil || !s.connectSecretValid(secret) || !GatewayNativeOAuthConnectCallbackValid(secret.State, code) {
+	if s.open(scope, in.Envelope, &secret) != nil || !SameGatewayConnectionSelection(secret.Connection, in.Connection) || !s.connectSecretValid(secret) || !GatewayNativeOAuthConnectCallbackValid(secret.State, code) {
 		return empty, ErrGatewayNativeIdentity
 	}
 	digest := sha256.Sum256([]byte(secret.State))
@@ -275,8 +287,8 @@ func (s *GatewayNativeGrokOAuth) CompleteOwnerCallback(ctx context.Context, scop
 		return empty, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadGatewayGrokConnect(ctx, scope, operation)
-	if err != nil {
-		return empty, err
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return empty, ErrGatewayNativeIdentity
 	}
 	digest := sha256.Sum256([]byte(state))
 	if hex.EncodeToString(digest[:]) != in.StateHash {
@@ -293,7 +305,7 @@ func (s *GatewayNativeGrokOAuth) CompleteOwnerCallback(ctx context.Context, scop
 		return empty, err
 	}
 	var secret gatewayGrokConnectSecret
-	if s.open(scope, in.Envelope, &secret) != nil || !s.connectSecretValid(secret) || secret.State != state {
+	if s.open(scope, in.Envelope, &secret) != nil || !SameGatewayConnectionSelection(secret.Connection, in.Connection) || !s.connectSecretValid(secret) || secret.State != state {
 		return empty, ErrGatewayNativeIdentity
 	}
 	bundle, err := s.exchange(ctx, url.Values{"code": {code}, "grant_type": {"authorization_code"}, "client_id": {secret.ClientID}, "redirect_uri": {secret.RedirectURI}, "code_verifier": {secret.Verifier}}, secret.Nonce, nil)
@@ -303,6 +315,7 @@ func (s *GatewayNativeGrokOAuth) CompleteOwnerCallback(ctx context.Context, scop
 	if s.connectEntry(ctx, scope, operation) != nil {
 		return empty, ErrGatewayNativeIdentity
 	}
+	bundle.Connection = in.Connection
 	envelope, err := s.seal(scope, bundle)
 	if err != nil {
 		return empty, err
@@ -328,7 +341,7 @@ func grokToken(value string) bool {
 
 func (s *GatewayNativeGrokOAuth) bundle(scope GatewayNativeCredentialScope, envelope string, p GatewayNativeOAuthPhysical) (gatewayGrokBundle, error) {
 	var b gatewayGrokBundle
-	if !grokPhysicalValid(p, scope, p.Operation, nil) || s.open(scope, envelope, &b) != nil || b.Kind != "grok-oauth/v1" || b.Revision < 1 || b.Revision != p.CredentialRevision || !grokToken(b.AccessToken) || !grokToken(b.RefreshToken) || !grokPrincipal(b.Subject) || !grokPrincipal(b.Team) || b.Subject != p.Subject || b.Team != p.ProviderAccount || p.Issuer != GatewayGrokOAuthIssuer || b.ExpiresAt.IsZero() || len(b.Nonce) != 43 || b.ClientID != s.qualification.ClientID {
+	if !grokPhysicalValid(p, scope, p.Operation, nil) || s.open(scope, envelope, &b) != nil || b.Kind != "grok-oauth/v1" || !SameGatewayConnectionSelection(b.Connection, p.Connection) || b.Revision < 1 || b.Revision != p.CredentialRevision || !grokToken(b.AccessToken) || !grokToken(b.RefreshToken) || !grokPrincipal(b.Subject) || !grokPrincipal(b.Team) || b.Subject != p.Subject || b.Team != p.ProviderAccount || p.Issuer != GatewayGrokOAuthIssuer || b.ExpiresAt.IsZero() || len(b.Nonce) != 43 || b.ClientID != s.qualification.ClientID {
 		return b, ErrGatewayNativeIdentity
 	}
 	if !b.ObservedAt.IsZero() && (!gatewayInfoInstant(b.ObservedAt.UTC().Format(time.RFC3339Nano)) || b.ObservedAt.After(b.ExpiresAt)) {
@@ -456,6 +469,7 @@ func (s *GatewayNativeGrokOAuth) Refresh(ctx context.Context, scope GatewayNativ
 	if err != nil {
 		return GatewayNativeOAuthRefreshOutcome{Operation: refreshOperation, State: "unknown"}, err
 	}
+	b.Connection = previous.Connection
 	next, err := s.seal(scope, b)
 	if err != nil {
 		return GatewayNativeOAuthRefreshOutcome{Operation: refreshOperation, State: "unknown"}, err

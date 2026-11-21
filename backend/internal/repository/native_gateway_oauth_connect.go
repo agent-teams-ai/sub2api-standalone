@@ -22,14 +22,18 @@ func NewGatewayNativeOAuthConnectRepository(db *sql.DB) (service.GatewayNativeOA
 
 const connectColumns = `consumer,owner_ref,account_ref,generation,purpose,operation_ref,client_id,redirect_uri,deadline,state_hash,material_envelope,state,
  COALESCE(outcome_operation,''),COALESCE(outcome_account_id,0),COALESCE(outcome_generation,''),COALESCE(outcome_state,''),
- enrollment_operation,COALESCE(enrollment_mac,''),recovery_denied,method,device_phase,device_revision,COALESCE(device_poll_after,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(device_deadline,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(import_input_mac,''),COALESCE(import_claim_mac,''),COALESCE(import_key_commitment,'')`
+ enrollment_operation,COALESCE(enrollment_mac,''),recovery_denied,method,device_phase,device_revision,COALESCE(device_poll_after,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(device_deadline,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(import_input_mac,''),COALESCE(import_claim_mac,''),COALESCE(import_key_commitment,''),COALESCE(connection_binding::text,'')`
 
 func scanConnect(row *sql.Row) (service.GatewayNativeOAuthConnectIntent, error) {
 	var in service.GatewayNativeOAuthConnectIntent
+	var binding []byte
 	err := row.Scan(&in.Scope.Consumer, &in.Scope.Owner, &in.Scope.Account, &in.Scope.Generation, &in.Scope.Purpose,
 		&in.Operation, &in.ClientID, &in.Redirect, &in.Deadline, &in.StateHash, &in.Envelope, &in.State,
 		&in.Outcome.Operation, &in.Outcome.AccountID, &in.Outcome.Generation, &in.Outcome.State,
-		&in.EnrollmentOperation, &in.EnrollmentMAC, &in.RecoveryDenied, &in.Method, &in.DevicePhase, &in.DeviceRevision, &in.DevicePollAfter, &in.DeviceDeadline, &in.ImportInputMAC, &in.ImportClaimMAC, &in.ImportKeyCommitment)
+		&in.EnrollmentOperation, &in.EnrollmentMAC, &in.RecoveryDenied, &in.Method, &in.DevicePhase, &in.DeviceRevision, &in.DevicePollAfter, &in.DeviceDeadline, &in.ImportInputMAC, &in.ImportClaimMAC, &in.ImportKeyCommitment, &binding)
+	if err == nil {
+		in.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	if err != nil || !service.GatewayNativeOAuthConnectIntentValid(in) {
 		return service.GatewayNativeOAuthConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
@@ -37,7 +41,7 @@ func scanConnect(row *sql.Row) (service.GatewayNativeOAuthConnectIntent, error) 
 }
 
 func connectAuthorized(ctx context.Context, in service.GatewayNativeOAuthConnectIntent) bool {
-	return service.GatewayNativeOAuthConnectIntentValid(in) && service.GatewayNativeOAuthScopeAuthorized(ctx, in.Scope)
+	return service.GatewayNativeOAuthConnectIntentValid(in) && service.GatewayNativeOAuthScopeAuthorized(ctx, in.Scope) && service.GatewayConnectionSelectionAuthorized(ctx, in.Connection)
 }
 
 func (r *gatewayOAuthConnectRepository) PrepareConnect(ctx context.Context, in service.GatewayNativeOAuthConnectIntent) (service.GatewayNativeOAuthConnectIntent, error) {
@@ -47,11 +51,15 @@ func (r *gatewayOAuthConnectRepository) PrepareConnect(ctx context.Context, in s
 	if !connectAuthorized(ctx, in) || in.State != "prepared" || !validEnvelope {
 		return service.GatewayNativeOAuthConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
+	binding, err := service.EncodeGatewayConnectionSelection(in.Connection)
+	if err != nil {
+		return service.GatewayNativeOAuthConnectIntent{}, err
+	}
 	// ON CONFLICT never updates the accepted scope, capability, birth or TTL.
-	_, err := r.db.ExecContext(ctx, `INSERT INTO gateway_oauth_connect_intents
- (consumer,owner_ref,account_ref,generation,purpose,operation_ref,client_id,redirect_uri,deadline,state_hash,material_envelope,enrollment_operation,method,import_input_mac,import_claim_mac,import_key_commitment)
- VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),NULLIF($16,'')) ON CONFLICT (consumer,operation_ref) DO NOTHING`,
-		in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, in.Scope.Purpose, in.Operation, in.ClientID, in.Redirect, in.Deadline, in.StateHash, in.Envelope, in.EnrollmentOperation, connectStoredMethod(in), in.ImportInputMAC, in.ImportClaimMAC, in.ImportKeyCommitment)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO gateway_oauth_connect_intents
+ (consumer,owner_ref,account_ref,generation,purpose,operation_ref,client_id,redirect_uri,deadline,state_hash,material_envelope,enrollment_operation,method,import_input_mac,import_claim_mac,import_key_commitment,connection_binding)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),NULLIF($16,''),NULLIF($17,'')::jsonb) ON CONFLICT (consumer,operation_ref) DO NOTHING`,
+		in.Scope.Consumer, in.Scope.Owner, in.Scope.Account, in.Scope.Generation, in.Scope.Purpose, in.Operation, in.ClientID, in.Redirect, in.Deadline, in.StateHash, in.Envelope, in.EnrollmentOperation, connectStoredMethod(in), in.ImportInputMAC, in.ImportClaimMAC, in.ImportKeyCommitment, binding)
 	if err != nil {
 		return service.GatewayNativeOAuthConnectIntent{}, service.ErrGatewayNativeIdentity
 	}

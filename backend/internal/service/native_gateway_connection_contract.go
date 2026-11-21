@@ -86,8 +86,9 @@ type GatewayConnectionMount struct {
 }
 
 type GatewayConnectionLegacyAlias struct {
-	Kind       string                     `json:"kind"`
-	Connection GatewayConnectionSelection `json:"connection"`
+	Kind         string                     `json:"kind"`
+	Connection   GatewayConnectionSelection `json:"connection"`
+	InputFieldID string                     `json:"inputFieldId,omitempty"`
 }
 
 type GatewayConnectionCapability struct {
@@ -111,11 +112,13 @@ type GatewayAccountCapabilitiesV2 struct {
 	Profiles []GatewayConnectionCapability `json:"profiles"`
 }
 
+var gatewayConnectionSemanticID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,127}$`)
+
 var gatewayConnectionIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 func GatewayConnectionSelectionValid(v GatewayConnectionSelection) bool {
-	return gatewayConnectionIdentifier.MatchString(v.ProfileID) &&
-		gatewayConnectionIdentifier.MatchString(v.MethodID) &&
+	return len(v.ProfileID) <= 64 && gatewayConnectionIdentifier.MatchString(v.ProfileID) &&
+		gatewayConnectionSemanticID.MatchString(v.MethodID) &&
 		v.MethodRevision > 0 && v.MethodRevision <= 1_000_000 &&
 		gatewayConnectionIdentifier.MatchString(v.ConfigurationGeneration)
 }
@@ -137,7 +140,7 @@ func gatewayCredentialPolicyValid(v string) bool {
 }
 
 func gatewayConnectionRequirementSupported(v string) bool {
-	return v == "owner_scoped_custody" || v == "effect_fence" || v == "native_dispatch"
+	return v == "owner_scoped_custody/v1" || v == "effect_fence/v1" || v == "native_dispatch/v1"
 }
 
 func gatewayConnectionTextValid(v string, limit int, empty bool) bool {
@@ -158,8 +161,8 @@ func gatewayConnectionFieldsValid(fields []GatewayConnectionField) bool {
 	}
 	seen := make(map[string]bool, len(fields))
 	for _, f := range fields {
-		if !gatewayConnectionIdentifier.MatchString(f.FieldID) || seen[f.FieldID] ||
-			!gatewayConnectionTextValid(f.Label, 128, false) || !gatewayConnectionTextValid(f.Help, 1024, true) ||
+		if !gatewayConnectionSemanticID.MatchString(f.FieldID) || seen[f.FieldID] ||
+			!gatewayConnectionTextValid(f.Label, 128, false) || !gatewayConnectionTextValid(f.Help, 512, true) ||
 			f.MaxBytes < 1 || f.MaxBytes > GatewayConnectionInputBytes {
 			return false
 		}
@@ -178,7 +181,7 @@ func gatewayConnectionFieldsValid(fields []GatewayConnectionField) bool {
 		}
 		choices := make(map[string]bool, len(f.Choices))
 		for _, c := range f.Choices {
-			if !gatewayConnectionTextValid(c.Value, f.MaxBytes, false) || !gatewayConnectionTextValid(c.Label, 128, false) || choices[c.Value] {
+			if !gatewayConnectionTextValid(c.Value, min(f.MaxBytes, 256), false) || !gatewayConnectionTextValid(c.Label, 128, false) || choices[c.Value] {
 				return false
 			}
 			choices[c.Value] = true
@@ -196,7 +199,7 @@ func GatewayConnectionMethodValid(v GatewayConnectionMethod) bool {
 		len(v.AllowedCredentialPolicies) < 1 || len(v.AllowedCredentialPolicies) > 4 ||
 		len(v.Requirements) < 1 || len(v.Requirements) > 16 ||
 		(v.Availability != "enabled" && v.Availability != "deployment_configuration_required") ||
-		(v.Reason != "" && !gatewayConnectionIdentifier.MatchString(v.Reason)) {
+		(v.Reason != "" && !gatewayConnectionSemanticID.MatchString(v.Reason)) {
 		return false
 	}
 	policies, requirements := map[string]bool{}, map[string]bool{}
@@ -212,7 +215,7 @@ func GatewayConnectionMethodValid(v GatewayConnectionMethod) bool {
 		}
 		requirements[r] = true
 	}
-	if !requirements["owner_scoped_custody"] || !requirements["effect_fence"] || !requirements["native_dispatch"] {
+	if !requirements["owner_scoped_custody/v1"] || !requirements["effect_fence/v1"] || !requirements["native_dispatch/v1"] {
 		return false
 	}
 	i := v.Interaction
@@ -278,7 +281,7 @@ func CanonicalGatewayConnectionInput(selection GatewayConnectionSelection, input
 	}
 	total := 0
 	for name, value := range input {
-		if !gatewayConnectionIdentifier.MatchString(name) || !utf8.ValidString(value) {
+		if !gatewayConnectionSemanticID.MatchString(name) || !utf8.ValidString(value) {
 			return nil, ErrGatewayNativeIdentity
 		}
 		total += len(value)

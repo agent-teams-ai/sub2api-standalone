@@ -269,13 +269,29 @@ func fetchChatGPTSubscriptionExpiresAt(ctx context.Context, clientFactory Privac
 		slog.Debug("chatgpt_subscription_no_active_until", "plan_type", result.PlanType, "has_subscription_id", strings.TrimSpace(result.ID) != "", "will_renew", result.WillRenew)
 		return ""
 	}
-	if _, err := time.Parse(time.RFC3339, activeUntil); err != nil {
-		slog.Debug("chatgpt_subscription_bad_active_until", "active_until", activeUntil, "error", err.Error())
+	if normalized := normalizeChatGPTSubscriptionExpiry(activeUntil); normalized != "" {
+		activeUntil = normalized
+	} else {
+		slog.Debug("chatgpt_subscription_bad_active_until")
 		return ""
 	}
 
 	slog.Info("chatgpt_subscription_success", "plan_type", result.PlanType, "subscription_expires_at", activeUntil, "account_id", accountID)
 	return activeUntil
+}
+
+// The admin enrichment and protected collector use the same exact UTC expiry
+// semantics. A billing period or a malformed date is not subscription expiry.
+func normalizeChatGPTSubscriptionExpiry(raw string) string {
+	at, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	value := at.UTC().Format(time.RFC3339Nano)
+	if !gatewayInfoInstant(value) {
+		return ""
+	}
+	return value
 }
 
 // fillAccountInfo 从单个 account 对象中提取 plan_type 和 subscription_expires_at。

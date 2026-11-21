@@ -94,7 +94,7 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 		return GatewayNativeOAuthRefreshOutcome{Operation: in.Operation, State: "unknown"}, ErrGatewayNativeIdentity
 	}
 	previous, err := s.custody.openOAuthVersion(prepared.Envelope, in.Scope, in.ExpectedVersion)
-	if err != nil {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, previous.Connection) {
 		return unknown()
 	} // invalid AEAD makes zero token/JWKS calls
 	if ctx.Err() != nil || (s.authorizeEntry != nil && s.authorizeEntry(ctx, in.Scope, in.ConnectOperation) != nil) {
@@ -202,7 +202,7 @@ func (s *GatewayNativeOAuthRefresh) exchange(ctx context.Context, refresh, issue
 	if err != nil {
 		return deny()
 	}
-	bundle := GatewayNativeOAuthBundle{AccessToken: access, RefreshToken: nextRefresh, IDToken: id, SensitiveMetadata: metadata}
+	bundle := GatewayNativeOAuthBundle{Connection: gatewayConnectionSelectionFromContext(ctx), AccessToken: access, RefreshToken: nextRefresh, IDToken: id, SensitiveMetadata: metadata}
 	if _, err = bundle.bytes(); err != nil {
 		return deny()
 	}
@@ -276,7 +276,7 @@ func (s *GatewayNativeOAuthRefresh) Maintain(ctx context.Context, scope GatewayN
 		return out, err
 	}
 	previous, err := s.custody.openOAuthVersion(current.Envelope, scope, current.Version)
-	if err != nil {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, previous.Connection) {
 		return out, ErrGatewayNativeIdentity
 	}
 	due, qualified := gatewayOAuthBundleDue(previous, time.Now(), s.custody)

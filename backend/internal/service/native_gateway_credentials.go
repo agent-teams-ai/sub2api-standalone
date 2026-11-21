@@ -327,13 +327,21 @@ func (c *GatewayNativeCredentialCustody) openOAuthBundle(envelope string, scope 
 func gatewayOAuthDecodeBundle(raw []byte) (GatewayNativeOAuthBundle, error) {
 	var bundle GatewayNativeOAuthBundle
 	fields, err := gatewayOAuthJSON(raw)
-	if err != nil || len(fields) != 4 || json.Unmarshal(raw, &bundle) != nil {
+	if err != nil || (len(fields) != 4 && len(fields) != 5) || json.Unmarshal(raw, &bundle) != nil {
 		return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 	}
 	for _, name := range []string{"access_token", "refresh_token", "id_token", "sensitive_metadata"} {
 		if _, ok := fields[name]; !ok {
 			return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 		}
+	}
+	if rawConnection, exists := fields["connection"]; exists {
+		bundle.Connection, err = DecodeGatewayConnectionSelection(rawConnection)
+		if err != nil || bundle.Connection == nil || len(fields) != 5 {
+			return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
+		}
+	} else if len(fields) != 4 {
+		return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 	}
 	if _, err = bundle.bytes(); err != nil {
 		return GatewayNativeOAuthBundle{}, err

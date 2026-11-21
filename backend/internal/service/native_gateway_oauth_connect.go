@@ -110,6 +110,7 @@ func gatewayOAuthReportFailure(err error, in GatewayNativeOAuthConnectIntent) {
 // Server-private persisted intent. Never marshal this as a response or log it.
 // No authorization code or token response is persisted here.
 type GatewayNativeOAuthConnectIntent struct {
+	Connection          *GatewayConnectionSelection  `json:"-"`
 	Scope               GatewayNativeCredentialScope `json:"-"`
 	Operation           string                       `json:"-"`
 	ClientID            string                       `json:"-"`
@@ -150,6 +151,7 @@ type GatewayNativeOAuthConnectReadback interface {
 // Safe public operation view: deliberately omits native row IDs and claims.
 // Only BeginConnect may return the authorize URL to the authenticated owner.
 type GatewayNativeOAuthConnectResult struct {
+	Connection          *GatewayConnectionSelection       `json:"connection,omitempty"`
 	Operation           string                            `json:"operation"`
 	Account             string                            `json:"account_ref"`
 	State               string                            `json:"state"`
@@ -205,12 +207,13 @@ func GatewayNativeOAuthConnectIntentValid(in GatewayNativeOAuthConnectIntent) bo
 		idErr == nil && enrollmentID != uuid.Nil && in.EnrollmentOperation == "connect-"+enrollmentID.String() && in.EnrollmentOperation != in.Operation &&
 		(in.EnrollmentMAC == "" || (macErr == nil && len(mac) == 32 && hex.EncodeToString(mac) == in.EnrollmentMAC)) &&
 		in.ClientID == openai.ClientID && gatewayConnectMethodShapeValid(in) &&
+		(in.Connection == nil || GatewayConnectionSelectionValid(*in.Connection) && in.Connection.ProfileID == GatewayCodexOAuthResponsesProfile && in.Connection.MethodID == connectMethod(in)) &&
 		!in.Deadline.IsZero() && in.Deadline.Equal(in.Deadline.Truncate(time.Microsecond)) &&
 		err == nil && len(hash) == 32 && hex.EncodeToString(hash) == in.StateHash
 }
 
 func SameGatewayNativeOAuthConnectIntent(a, b GatewayNativeOAuthConnectIntent) bool {
-	return a.Scope == b.Scope && a.Operation == b.Operation && a.ClientID == b.ClientID && a.Redirect == b.Redirect && connectMethod(a) == connectMethod(b) && a.ImportInputMAC == b.ImportInputMAC && a.ImportClaimMAC == b.ImportClaimMAC && a.ImportKeyCommitment == b.ImportKeyCommitment
+	return SameGatewayConnectionSelection(a.Connection, b.Connection) && a.Scope == b.Scope && a.Operation == b.Operation && a.ClientID == b.ClientID && a.Redirect == b.Redirect && connectMethod(a) == connectMethod(b) && a.ImportInputMAC == b.ImportInputMAC && a.ImportClaimMAC == b.ImportClaimMAC && a.ImportKeyCommitment == b.ImportKeyCommitment
 }
 
 func connectAAD(in GatewayNativeOAuthConnectIntent) []byte {
@@ -222,7 +225,7 @@ func connectAAD(in GatewayNativeOAuthConnectIntent) []byte {
 	if connectMethod(in) == "device_code" {
 		raw = append(raw, []byte("\x00device_code")...)
 	}
-	return append([]byte("account-gateway/native/oauth-connect-material/v1\x00"), raw...)
+	return gatewayConnectionBoundBytes(append([]byte("account-gateway/native/oauth-connect-material/v1\x00"), raw...), in.Connection)
 }
 
 type connectMaterial struct {
@@ -275,7 +278,7 @@ func connectResult(in GatewayNativeOAuthConnectIntent) GatewayNativeOAuthConnect
 	if GatewayNativeOAuthImportMethodValid(method) {
 		method = "" // Existing receipt contract intentionally has no import enum.
 	}
-	return GatewayNativeOAuthConnectResult{Operation: in.Operation, Account: in.Scope.Account, State: in.State, Outcome: in.Outcome.State, Method: method}
+	return GatewayNativeOAuthConnectResult{Connection: in.Connection, Operation: in.Operation, Account: in.Scope.Account, State: in.State, Outcome: in.Outcome.State, Method: method}
 }
 
 func (s *GatewayNativeOAuthConnect) BeginConnect(ctx context.Context, scope GatewayNativeCredentialScope, operation string) (GatewayNativeOAuthConnectResult, error) {
@@ -286,7 +289,7 @@ func (s *GatewayNativeOAuthConnect) BeginConnectMethod(ctx context.Context, scop
 	if method != "browser" && method != "device_code" {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
-	if s == nil || !GatewayNativeOAuthScopeAuthorized(ctx, scope) || !GatewayNativeCredentialRefValid(operation) {
+	if s == nil || !GatewayNativeOAuthScopeAuthorized(ctx, scope) || !GatewayNativeCredentialRefValid(operation) || !gatewayConnectionMatchesContext(ctx, GatewayCodexOAuthResponsesProfile, method) {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	state, err := openai.GenerateState()
@@ -297,7 +300,7 @@ func (s *GatewayNativeOAuthConnect) BeginConnectMethod(ctx context.Context, scop
 	if err != nil {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
-	in := GatewayNativeOAuthConnectIntent{Scope: scope, Operation: operation, ClientID: openai.ClientID, Redirect: GatewayOAuthConnectRedirect,
+	in := GatewayNativeOAuthConnectIntent{Connection: gatewayConnectionSelectionFromContext(ctx), Scope: scope, Operation: operation, ClientID: openai.ClientID, Redirect: GatewayOAuthConnectRedirect,
 		EnrollmentOperation: "connect-" + uuid.NewString(),
 		// Leave a small margin beneath PostgreSQL's strict ten minute cap.
 		// Independent host/DB clocks can differ by microseconds even locally.
@@ -323,6 +326,9 @@ func (s *GatewayNativeOAuthConnect) BeginConnectMethod(ctx context.Context, scop
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	result := connectResult(saved)
+	if in.Connection != nil && method == "browser" && saved.StateHash != in.StateHash {
+		return result, nil
+	}
 	if saved.State == "prepared" && method == "device_code" {
 		return s.beginDevice(ctx, saved)
 	}
@@ -341,7 +347,7 @@ func (s *GatewayNativeOAuthConnect) ReadConnect(ctx context.Context, scope Gatew
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadConnectIntent(ctx, scope, operation)
-	if err != nil {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err = s.reconcile(ctx, in)
@@ -358,7 +364,11 @@ func connectContext(ctx context.Context, in GatewayNativeOAuthConnectIntent) (co
 	if err != nil {
 		return nil, ErrGatewayNativeIdentity
 	}
-	return WithGatewayNativeOAuthOwner(ctx, in.Scope.Owner)
+	ctx, err = WithGatewayNativeOAuthOwner(ctx, in.Scope.Owner)
+	if err != nil || in.Connection == nil {
+		return ctx, err
+	}
+	return WithGatewayConnectionSelection(ctx, *in.Connection)
 }
 
 // Enrollment and final intent commit are separate transactions. Readback bridges
@@ -436,7 +446,7 @@ func (s *GatewayNativeOAuthConnect) CompleteOwnerCallback(ctx context.Context, s
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadConnectIntent(ctx, scope, operation)
-	if err != nil || !GatewayNativeOAuthConnectIntentValid(in) || in.Scope != scope || in.Operation != operation || in.StateHash != connectStateHash(state) {
+	if err != nil || !GatewayNativeOAuthConnectIntentValid(in) || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) || in.Scope != scope || in.Operation != operation || in.StateHash != connectStateHash(state) {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	return s.CompleteCallback(ctx, state, code)
@@ -497,6 +507,7 @@ func (s *GatewayNativeOAuthConnect) finishEntered(bounded, ownerCtx context.Cont
 	}
 	quarantine := err != nil
 	if err == nil {
+		bundle.Connection = in.Connection
 		enrollment := *s.enrollment
 		enrollment.repository = connectEnrollmentRepository{enrollment.repository, s.repository, &in}
 		out, stageErr := enrollment.Stage(bounded, in.Scope, in.EnrollmentOperation, bundle)

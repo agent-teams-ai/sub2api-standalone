@@ -199,7 +199,7 @@ func gatewayParseCodexImport(method, input string) (string, error) {
 	return refresh, nil
 }
 
-func (s *GatewayNativeOAuthConnect) importCommitments(scope GatewayNativeCredentialScope, operation, method, input, refresh string) (string, string) {
+func (s *GatewayNativeOAuthConnect) importCommitments(scope GatewayNativeCredentialScope, operation, method, input, refresh string, bindings ...*GatewayConnectionSelection) (string, string) {
 	mac := func(domain string, fields ...string) string {
 		framed, _ := json.Marshal(fields)
 		h := hmac.New(sha256.New, s.importKey)
@@ -207,7 +207,12 @@ func (s *GatewayNativeOAuthConnect) importCommitments(scope GatewayNativeCredent
 		_, _ = h.Write(framed)
 		return hex.EncodeToString(h.Sum(nil))
 	}
-	inputMAC := mac("account-gateway/native/oauth-import-input/v1", scope.Consumer, scope.Owner, scope.Account, scope.Generation, scope.Purpose, operation, method, input)
+	inputFields := []string{scope.Consumer, scope.Owner, scope.Account, scope.Generation, scope.Purpose, operation, method, input}
+	if len(bindings) == 1 && bindings[0] != nil {
+		binding, _ := EncodeGatewayConnectionSelection(bindings[0])
+		inputFields = append(inputFields, "native-connection-binding/v1", binding)
+	}
+	inputMAC := mac("account-gateway/native/oauth-import-input/v1", inputFields...)
 	// Intentionally independent of owner, account, operation AND import method.
 	claimMAC := mac("account-gateway/native/oauth-import-claim/v1", GatewayOAuthIssuer, openai.ClientID, refresh)
 	return inputMAC, claimMAC
@@ -215,7 +220,7 @@ func (s *GatewayNativeOAuthConnect) importCommitments(scope GatewayNativeCredent
 
 func gatewayImportAAD(in GatewayNativeOAuthConnectIntent) []byte {
 	raw, _ := json.Marshal([]any{in.Scope, in.Operation, in.EnrollmentOperation, in.Method, in.ClientID, in.Deadline.UTC().Format(time.RFC3339Nano), in.StateHash, in.ImportInputMAC, in.ImportClaimMAC, in.ImportKeyCommitment})
-	return append([]byte("account-gateway/native/oauth-import-material/v1\x00"), raw...)
+	return gatewayConnectionBoundBytes(append([]byte("account-gateway/native/oauth-import-material/v1\x00"), raw...), in.Connection)
 }
 
 func (s *GatewayNativeOAuthConnect) importKeyCommitment() string {
@@ -263,19 +268,19 @@ func (s *GatewayNativeOAuthConnect) openImport(in GatewayNativeOAuthConnectInten
 }
 
 func (s *GatewayNativeOAuthConnect) ImportConnect(ctx context.Context, scope GatewayNativeCredentialScope, operation, method, input string) (GatewayNativeOAuthConnectResult, error) {
-	if s == nil || !GatewayNativeOAuthScopeAuthorized(ctx, scope) || !GatewayNativeCredentialRefValid(operation) || s.authorizeEntry == nil {
+	if s == nil || !GatewayNativeOAuthScopeAuthorized(ctx, scope) || !GatewayNativeCredentialRefValid(operation) || s.authorizeEntry == nil || !gatewayConnectionMatchesContext(ctx, GatewayCodexOAuthResponsesProfile, method) {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	refresh, err := gatewayParseCodexImport(method, input)
 	if err != nil {
 		return GatewayNativeOAuthConnectResult{}, err
 	}
-	inputMAC, claimMAC := s.importCommitments(scope, operation, method, input, refresh)
+	inputMAC, claimMAC := s.importCommitments(scope, operation, method, input, refresh, gatewayConnectionSelectionFromContext(ctx))
 	state, err := openai.GenerateState()
 	if err != nil {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
-	in := GatewayNativeOAuthConnectIntent{Scope: scope, Operation: operation, ClientID: openai.ClientID, Method: method, State: "prepared", EnrollmentOperation: "connect-" + uuid.NewString(), Deadline: s.now().UTC().Truncate(time.Microsecond).Add(GatewayOAuthConnectTTL - time.Second), StateHash: connectStateHash(state), ImportInputMAC: inputMAC, ImportClaimMAC: claimMAC, ImportKeyCommitment: s.importKeyCommitment()}
+	in := GatewayNativeOAuthConnectIntent{Connection: gatewayConnectionSelectionFromContext(ctx), Scope: scope, Operation: operation, ClientID: openai.ClientID, Method: method, State: "prepared", EnrollmentOperation: "connect-" + uuid.NewString(), Deadline: s.now().UTC().Truncate(time.Microsecond).Add(GatewayOAuthConnectTTL - time.Second), StateHash: connectStateHash(state), ImportInputMAC: inputMAC, ImportClaimMAC: claimMAC, ImportKeyCommitment: s.importKeyCommitment()}
 	in.Envelope, err = s.sealImport(in, refresh)
 	if err != nil {
 		return GatewayNativeOAuthConnectResult{}, err

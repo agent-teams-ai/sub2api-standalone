@@ -75,16 +75,15 @@ func runPrivateProviderQuota(ctx context.Context, db *sql.DB, c Config, gateway 
 				accounts, err := oauth.grok.ListQuotaAccounts(consumerCtx)
 				if err == nil {
 					for _, p := range accounts {
-						collectPrivateQuota(ctx, db, p, func(bounded context.Context) (service.GatewayAccountLimitsSnapshotV2, time.Time, error) {
-							var snapshot service.GatewayAccountLimitsSnapshotV2
-							var observed time.Time
+						collectPrivateQuotaInfo(ctx, db, p, func(bounded context.Context) (service.GatewayProviderQuotaObservation, error) {
+							var observation service.GatewayProviderQuotaObservation
 							err := oauth.grok.WithQuotaCredential(bounded, p.Scope, p.Route, func(key []byte, current service.GatewayNativeOAuthPhysical) error {
 								_ = current
 								var e error
-								snapshot, observed, e = collector.FetchObserved(bounded, "grok", key)
+								observation, e = collector.FetchWithAccountInfo(bounded, "grok", key)
 								return e
 							})
-							return snapshot, observed, err
+							return observation, err
 						}, cache)
 					}
 				}

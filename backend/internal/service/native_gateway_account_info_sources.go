@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/tidwall/gjson"
 )
 
@@ -108,6 +109,51 @@ func gatewayQuotaAccountInfo(provider string, body []byte, observed time.Time) G
 		}
 	}
 	return f
+}
+
+// The same native billing normalizer drives the admin and protected views.
+// A monthly limit is evidence for a heuristic, not an asserted provider plan;
+// billing period end is deliberately not relabeled as subscription expiry.
+func gatewayGrokBillingAccountInfo(body []byte, observed time.Time) *GatewayAccountInfoFields {
+	payload, err := xai.ParseBillingPayload(body)
+	if err != nil || payload.Config == nil {
+		return nil
+	}
+	summary := xai.BuildBillingSummary(payload.Config)
+	if summary == nil {
+		return nil
+	}
+	fields := GatewayAccountInfoEmptyFields(GatewayGrokOAuthResponsesProfile)
+	plan := xai.CanonicalGrokPlan(summary.MonthlyLimitCents, "", nil)
+	if gatewayInfoText(plan, 100) {
+		label := summary.Plan
+		if !gatewayInfoText(label, 160) {
+			label = plan
+		}
+		fields.Subscription = gatewayKnownFact(GatewayAccountSubscription{Code: plan, Label: label, Scope: "unknown"}, "inferred", observed)
+	}
+	return &fields
+}
+
+// Called only by native auth/refresh after a provider-confirmed privacy action.
+// Imported account extras and arbitrary user fields never enter this producer.
+func GatewayConfirmedTrainingInfo(profile, nativeMode string, observed time.Time) *GatewayAccountInfoFields {
+	if !gatewayInfoSourceAllowed(profile, "training_settings") || nativeMode != PrivacyModeTrainingOff || observed.IsZero() {
+		return nil
+	}
+	fields := GatewayAccountInfoEmptyFields(profile)
+	fields.TrainingUsage = gatewayKnownFact("disabled", "provider_api", observed)
+	return &fields
+}
+
+// A chosen Google tier is declared context, not a verified subscription claim.
+func GatewayDeclaredSubscriptionInfo(profile, tier string, observed time.Time) *GatewayAccountInfoFields {
+	if !gatewayInfoSourceAllowed(profile, "user_declaration") || !gatewayInfoText(tier, 100) || observed.IsZero() {
+		return nil
+	}
+	fields := GatewayAccountInfoEmptyFields(profile)
+	fields.Subscription = gatewayKnownFact(GatewayAccountSubscription{Code: tier, Label: tier, Scope: "unknown"}, "user_supplied", observed)
+	return &fields
 }
 
 func gatewayCodexCredentialInfo(bundle GatewayNativeOAuthBundle, custody *GatewayNativeCredentialCustody, at time.Time) GatewayAccountInfoFields {

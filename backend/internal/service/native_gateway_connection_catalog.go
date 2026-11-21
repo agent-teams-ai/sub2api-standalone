@@ -13,6 +13,7 @@ type GatewayConnectionMethodDefinition struct {
 	AllowedCredentialPolicies []string
 	ConfigurationRequirements []string
 	LegacyKind                string
+	LegacyInputFieldID        string
 }
 
 type GatewayConnectionProfileDefinition struct {
@@ -49,9 +50,51 @@ func (m GatewayConnectionMethodDefinition) Descriptor(generation string, enabled
 		MethodID: m.MethodID, Revision: m.Revision, ConfigurationGeneration: generation,
 		Label: m.Label, Create: true, Reconnect: true,
 		AllowedCredentialPolicies: append([]string(nil), m.AllowedCredentialPolicies...),
-		Requirements:              []string{"owner_scoped_custody", "effect_fence", "native_dispatch"},
+		Requirements:              []string{"owner_scoped_custody/v1", "effect_fence/v1", "native_dispatch/v1"},
 		Availability:              availability, Reason: reason, Interaction: m.Interaction,
 	}
+}
+
+// LegacyAlias declares the exact old-value projection. Required native input
+// outside that projection cannot be silently discarded by a legacy client.
+func (m GatewayConnectionMethodDefinition) LegacyAlias(connection GatewayConnectionSelection) (GatewayConnectionLegacyAlias, bool) {
+	if !GatewayConnectionSelectionValid(connection) || connection.MethodID != m.MethodID || connection.MethodRevision != m.Revision {
+		return GatewayConnectionLegacyAlias{}, false
+	}
+	if _, ok := gatewayLegacyConnectionMethod(m, true); !ok {
+		return GatewayConnectionLegacyAlias{}, false
+	}
+	alias := GatewayConnectionLegacyAlias{Kind: m.LegacyKind, Connection: connection}
+	switch m.LegacyKind {
+	case "api_key", "credential_import:refresh_token", "credential_import:oauth_auth_json":
+		if m.Interaction.Kind != "credential_form" || !gatewayConnectionSemanticID.MatchString(m.LegacyInputFieldID) {
+			return GatewayConnectionLegacyAlias{}, false
+		}
+		found := false
+		for _, field := range m.Interaction.InputFields {
+			if field.FieldID == m.LegacyInputFieldID {
+				found = field.Kind == "secret" || field.Kind == "document"
+			} else if field.Required {
+				return GatewayConnectionLegacyAlias{}, false
+			}
+		}
+		if !found {
+			return GatewayConnectionLegacyAlias{}, false
+		}
+		alias.InputFieldID = m.LegacyInputFieldID
+	case "browser", "device_code":
+		if m.LegacyInputFieldID != "" {
+			return GatewayConnectionLegacyAlias{}, false
+		}
+		for _, field := range m.Interaction.PreflightFields {
+			if field.Required {
+				return GatewayConnectionLegacyAlias{}, false
+			}
+		}
+	default:
+		return GatewayConnectionLegacyAlias{}, false
+	}
+	return alias, true
 }
 
 func gatewayConnectionField(id, label, kind string, required bool, maxBytes int) GatewayConnectionField {
@@ -95,15 +138,18 @@ func gatewayConnectionProfile(id, platform, providerID, providerLabel, productID
 func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 	key := gatewayConnectionKey("api_key", "API key", "provider_key")
 	key.LegacyKind = "api_key"
+	key.LegacyInputFieldID = "api_key"
 	manual := gatewayConnectionBrowser("browser", "Sign in", "manual", "authorization_code")
 	manual.LegacyKind = "browser"
 	automatic := gatewayConnectionBrowser("browser", "Sign in", "automatic", "callback_url")
 	automatic.LegacyKind = "browser"
 	refresh := gatewayConnectionRefreshToken()
 	refresh.LegacyKind = "credential_import:refresh_token"
+	refresh.LegacyInputFieldID = "refresh_token"
 	authJSON := gatewayConnectionForm("auth_json", "Codex auth.json (refreshable)", "subscription_session",
 		gatewayConnectionField("content", "auth.json", "document", true, GatewayConnectionInputBytes))
 	authJSON.LegacyKind = "credential_import:oauth_auth_json"
+	authJSON.LegacyInputFieldID = "content"
 	mobile := gatewayConnectionRefreshToken()
 	mobile.MethodID, mobile.Label = "mobile_refresh_token", "Mobile refresh token"
 	session := gatewayConnectionForm("codex_session", "Codex session or auth.json", "subscription_session",
@@ -195,6 +241,7 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 		}
 		method := gatewayConnectionKey("api_key", "API key", "provider_key")
 		method.LegacyKind = "api_key"
+		method.LegacyInputFieldID = "api_key"
 		if spec.platform == PlatformZhipu {
 			method.Interaction.InputFields = append(method.Interaction.InputFields,
 				gatewayConnectionField("organization", "Organization (optional)", "text", false, 128),
@@ -213,8 +260,10 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 		switch p.ProfileID {
 		case GatewayCodexOAuthResponsesProfile:
 			p.MetadataSources = []string{"verified_claims", "account_check", "credential", "training_settings", "subscription_status"}
-		case GatewayClaudeOAuthMessagesProfile, GatewayGrokOAuthResponsesProfile:
+		case GatewayClaudeOAuthMessagesProfile:
 			p.MetadataSources = []string{"account_check", "credential"}
+		case GatewayGrokOAuthResponsesProfile:
+			p.MetadataSources = []string{"account_check", "credential", "plan_quota"}
 		case GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile:
 			p.MetadataSources = []string{"plan_quota"}
 		case "gemini-google-one-responses-oauth-v1", "gemini-code-assist-responses-oauth-v1", "gemini-ai-studio-responses-oauth-v1":

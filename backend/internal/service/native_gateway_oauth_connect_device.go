@@ -203,7 +203,7 @@ func (s *GatewayNativeOAuthConnect) PollDeviceConnect(ctx context.Context, scope
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadConnectIntent(ctx, scope, operation)
-	if err != nil || !GatewayNativeOAuthConnectIntentValid(in) || in.Scope != scope || in.Operation != operation || connectMethod(in) != "device_code" {
+	if err != nil || !GatewayNativeOAuthConnectIntentValid(in) || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) || in.Scope != scope || in.Operation != operation || connectMethod(in) != "device_code" {
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err = s.reconcile(ctx, in)

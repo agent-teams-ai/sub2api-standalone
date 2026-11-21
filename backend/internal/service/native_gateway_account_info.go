@@ -130,6 +130,7 @@ func GatewayAccountInfoRouteValid(route GatewayNativeRoute, in GatewayAccountLim
 func GatewayAccountInfoPrincipal(p GatewayNativeOAuthPhysical) string {
 	values := []any{p.Scope.Consumer, p.Scope.Owner, p.Scope.Account, p.Scope.Generation, p.Scope.Purpose, p.Route.AccountID, p.Route.CreatedAt.UTC().Format(time.RFC3339Nano), p.Route.Profile, p.Route.BaseURL, p.Route.Model, p.Issuer, p.Subject, p.ProviderAccount}
 	raw, _ := json.Marshal(values)
+	raw = gatewayConnectionBoundBytes(raw, p.Connection)
 	digest := sha256.Sum256(append([]byte("account-info/principal/v1\x00"), raw...))
 	return hex.EncodeToString(digest[:])
 }
@@ -298,7 +299,15 @@ func GatewayAccountInfoProject(profile string, stored GatewayAccountInfoStored, 
 			}
 			f.AccountLabel = gatewayInfoRefresh(o.Fields.AccountLabel, 24*time.Hour, o.ValidUntil, now)
 			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
-		case "plan_quota", "subscription_status":
+		case "plan_quota":
+			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
+		case "subscription_status":
+			if checked, present := stored.Sources["account_check"]; present && checked.Order >= o.Order {
+				base := checked.Fields.Subscription
+				if base.Status != "known" || base.Value == nil || base.Value.EndsAt != nil || o.Fields.Subscription.Value != nil && base.Value.Code != o.Fields.Subscription.Value.Code {
+					continue
+				}
+			}
 			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
 		case "training_settings":
 			f.TrainingUsage = gatewayInfoRefresh(o.Fields.TrainingUsage, 24*time.Hour, o.ValidUntil, now)
