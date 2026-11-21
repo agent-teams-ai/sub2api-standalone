@@ -1,11 +1,12 @@
 # Sub2API standalone repository: safe CI experiment and cutover
 
-**Status: experiment prepared, not executed.** Do not deprecate or archive `agent-teams-ai/sub2api` until the new repository has passed full exact-source qualification and consumers have migrated.
+**Status: executed on 2026-11-21.** `agent-teams-ai/sub2api-standalone` was created by the probe below (`fork: false`), received `main` at `14f500eb4db78b47b5d028a8a811ec62b348ac92` and the sync branch at `791d466202eb0980f748e2e92d84e5041d7071e0` with unchanged SHAs and Git tree, and ordinary `push` and `pull_request` workflows run there. The sync continues as [sub2api-standalone#1](https://github.com/agent-teams-ai/sub2api-standalone/pull/1), which links back to [sub2api#106](https://github.com/agent-teams-ai/sub2api/pull/106). Do not archive or rename `agent-teams-ai/sub2api`: it stays readable for history, old PRs and branches.
 
 ## Why test this
 
 - The existing `agent-teams-ai/sub2api` repository is a GitHub fork of `Wei-Shaw/sub2api` (`fork: true`). GitHub documents that Actions on newly forked repositories require explicit enablement.
 - The fork **previously ran** ordinary Actions until 2026-11-04. Therefore `fork: true` alone is **not proof** of the cause of missing runs since that date. Check Actions policies and workflow enablement if the experiment fails.
+- Verified cause (2026-11-21): the fork's Actions page shows the GitHub notice "Workflows are not currently being run on this fork due to the scale of GitHub Actions usage. A repository maintainer can choose to re-enable these." The REST API still reports Actions enabled, every workflow `active`, and the organization policy allows all actions, so the pause is a fork-only state that is only visible in the web UI. No other repository in the organization lost its runs, and the new non-fork repository ran `push` and `pull_request` workflows immediately.
 - `agent-teams-ai/account-gateway` is non-fork and runs Actions successfully, but its previously qualified native source is not the exact current PR #106 HEAD.
 
 ## Trial identity and immutable history

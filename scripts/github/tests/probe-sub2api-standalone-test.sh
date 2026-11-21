@@ -5,9 +5,12 @@ ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
 mkdir -p "$ROOT/github.com/agent-teams-ai" "$ROOT/mockbin"
 export ROOT
-export GIT_CONFIG_COUNT=1
+# push.followTags mimics a developer config that would otherwise carry tags along.
+export GIT_CONFIG_COUNT=2
 export GIT_CONFIG_KEY_0="url.file://$ROOT/github.com/.insteadOf"
 export GIT_CONFIG_VALUE_0='https://github.com/'
+export GIT_CONFIG_KEY_1=push.followTags
+export GIT_CONFIG_VALUE_1=true
 export PATH="$ROOT/mockbin:$PATH"
 sourcegit="$ROOT/github.com/agent-teams-ai/sub2api.git"
 destgit="$ROOT/github.com/agent-teams-ai/sub2api-standalone.git"
@@ -17,7 +20,8 @@ git init -q "$ROOT/seed"
  cd "$ROOT/seed"
  git config user.name Test; git config user.email test@example.com
  echo base > base; git add base; git commit -qm 'base'
- git branch -M main; git remote add source "$sourcegit"; git push -q source main
+ git tag -a v0.0.1-test -m 'chore: release tag that must stay behind'
+ git branch -M main; git remote add source "$sourcegit"; git push -q source main v0.0.1-test
  echo feature > feature; git add feature; git commit -qm 'feature'
  git branch sync/wei-shaw-upstream-20261120
  git push -q source sync/wei-shaw-upstream-20261120
@@ -92,7 +96,9 @@ bash "$PROBE" >"$ROOT/resume.log" 2>&1
 [[ -f "$ROOT/pr-created" ]] && [[ $(wc -l <"$ROOT/create-calls") == 1 ]] || { echo 'FAIL resume side effects'; cat "$ROOT/resume.log"; exit 2; }
 [[ $(git --git-dir="$destgit" rev-parse refs/heads/main) == $(git --git-dir="$sourcegit" rev-parse refs/heads/main) ]]
 [[ $(git --git-dir="$destgit" rev-parse refs/heads/sync/wei-shaw-upstream-20261120) == $(git --git-dir="$sourcegit" rev-parse refs/heads/sync/wei-shaw-upstream-20261120) ]]
+[[ -z "$(git --git-dir="$destgit" tag -l)" ]] || { echo 'FAIL release tag reached the destination'; exit 2; }
 echo 'PASS interrupted standalone repo resumed exact refs and PR without recreation'
+echo 'PASS release tags are not migrated even with push.followTags'
 # 3: Rerun reuses open PR.
 bash "$PROBE" >"$ROOT/rerun.log" 2>&1
 [[ $(wc -l <"$ROOT/pr-calls") == 1 ]] || { echo 'FAIL duplicate PR'; exit 2; }

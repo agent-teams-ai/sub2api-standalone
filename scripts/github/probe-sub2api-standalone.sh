@@ -24,7 +24,7 @@ EXPECTED_HEAD="$(gh pr view 106 --repo "$SOURCE" --json headRefOid --jq '.headRe
 workdir="$(mktemp -d)"
 trap 'rm -rf -- "$workdir"' EXIT
 mirror="$workdir/source.git"
-git clone --bare "https://github.com/$SOURCE.git" "$mirror"
+git clone --bare --no-tags "https://github.com/$SOURCE.git" "$mirror"
 [[ "$(git --git-dir="$mirror" rev-parse refs/heads/main)" == "$EXPECTED_MAIN" ]] || fail 'Source main moved; rerun on fresh source'
 [[ "$(git --git-dir="$mirror" rev-parse "refs/heads/$BRANCH")" == "$EXPECTED_HEAD" ]] || fail 'Source PR head moved; rerun on fresh source'
 git --git-dir="$mirror" merge-base --is-ancestor "$EXPECTED_MAIN" "$EXPECTED_HEAD" || fail 'PR head does not contain source main'
@@ -60,13 +60,14 @@ else
 fi
 
 git --git-dir="$mirror" remote add standalone "$remote"
-git --git-dir="$mirror" push standalone refs/heads/main:refs/heads/main
+git --git-dir="$mirror" push --no-follow-tags standalone refs/heads/main:refs/heads/main
 gh repo edit "$DEST" --default-branch main
-git --git-dir="$mirror" push standalone "refs/heads/$BRANCH:refs/heads/$BRANCH"
+git --git-dir="$mirror" push --no-follow-tags standalone "refs/heads/$BRANCH:refs/heads/$BRANCH"
 
 [[ "$(gh repo view "$DEST" --json isFork --jq '.isFork')" == false ]] || fail 'Destination unexpectedly reports fork=true'
 [[ "$(git ls-remote "$remote" refs/heads/main | cut -f1)" == "$EXPECTED_MAIN" ]] || fail 'Destination main SHA mismatch'
 [[ "$(git ls-remote "$remote" "refs/heads/$BRANCH" | cut -f1)" == "$EXPECTED_HEAD" ]] || fail 'Destination PR SHA mismatch'
+[[ -z "$(git ls-remote --tags "$remote")" ]] || fail 'Destination unexpectedly has tags; release tags must not be migrated yet'
 REMOTE_TREE="$(gh api "repos/$DEST/git/commits/$EXPECTED_HEAD" --jq '.tree.sha')"
 [[ "$LOCAL_TREE" == "$REMOTE_TREE" ]] || fail 'Destination tree differs from source'
 
