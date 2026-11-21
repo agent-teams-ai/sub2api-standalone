@@ -610,7 +610,7 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 				return
 			}
 			management.ServeHTTP(w, r)
-		case oauth != nil && (oauth.info != nil && r.URL.Path == "/private/native/v1/account-info/read" || oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh" || oauth.models != nil && r.URL.Path == "/private/native/v1/account-models/read" || oauth.limits != nil && (r.URL.Path == "/private/native/v1/account-limits/read" || r.URL.Path == "/private/native/v1/account-admission/read") || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/read"):
+		case oauth != nil && (oauth.info != nil && (r.URL.Path == "/private/native/v1/account-info/read" || r.URL.Path == "/private/native/v2/account-info/read") || oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh" || oauth.models != nil && r.URL.Path == "/private/native/v1/account-models/read" || oauth.limits != nil && (r.URL.Path == "/private/native/v1/account-limits/read" || r.URL.Path == "/private/native/v1/account-admission/read") || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/read"):
 			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
 				http.Error(w, "private native bootstrap denied", 400)
 				return

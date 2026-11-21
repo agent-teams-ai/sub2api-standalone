@@ -86,7 +86,7 @@ func readGatewayAccountInfoTx(ctx context.Context, tx *sql.Tx, p service.Gateway
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
-	if err != nil || len(raw) > 32768 || json.Unmarshal(raw, &out.Sources) != nil || out.Sources == nil || out.Revision < 1 || out.Revision > 9007199254740991 || len(out.Sources) > 4 {
+	if err != nil || len(raw) > 32768 || json.Unmarshal(raw, &out.Sources) != nil || out.Sources == nil || out.Revision < 1 || out.Revision > 9007199254740991 || len(out.Sources) > service.GatewayAccountInfoMaxSources {
 		return service.GatewayAccountInfoStored{}, service.ErrGatewayNativeIdentity
 	}
 	for key, o := range out.Sources {
@@ -124,7 +124,7 @@ func (r *accountRepository) StoreGatewayAccountInfo(ctx context.Context, p servi
 	return NewGatewayAccountInfoRepository(db).StoreGatewayAccountInfo(ctx, p, initialize, observations...)
 }
 func (r *gatewayAccountInfoRepository) StoreGatewayAccountInfo(ctx context.Context, p service.GatewayNativeOAuthPhysical, initialize bool, observations ...service.GatewayAccountInfoObservation) error {
-	if len(observations) < 1 || len(observations) > 4 {
+	if len(observations) < 1 || len(observations) > service.GatewayAccountInfoMaxSources {
 		return service.ErrGatewayNativeIdentity
 	}
 	sources := make(map[string]bool, len(observations))
