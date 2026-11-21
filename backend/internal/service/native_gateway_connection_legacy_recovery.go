@@ -158,18 +158,22 @@ func (s *GatewayNativeGrokOAuth) retainedConnectionBundle(ctx context.Context, s
 	if !grokPhysicalValid(physical, scope, operation, route) || !GatewayConnectionSelectionAuthorized(ctx, physical.Connection) {
 		return empty, time.Time{}, ErrGatewayNativeIdentity
 	}
+	saved, err := s.retainedBundle(scope, envelope, physical)
+	if err != nil {
+		return empty, time.Time{}, ErrGatewayNativeIdentity
+	}
+	return physical, saved.ExpiresAt, nil
+}
+
+func (s *GatewayNativeGrokOAuth) retainedBundle(scope GatewayNativeCredentialScope, envelope string, physical GatewayNativeOAuthPhysical) (gatewayGrokBundle, error) {
 	var saved gatewayGrokBundle
 	if s.open(scope, envelope, &saved) != nil || !grokPrincipal(saved.ClientID) {
-		return empty, time.Time{}, ErrGatewayNativeIdentity
+		return gatewayGrokBundle{}, ErrGatewayNativeIdentity
 	}
 	// This client identity comes from authenticated, scope-bound sealed custody.
 	// It is used only to reuse the existing validator; no current configuration,
 	// browser continuation, refresh or dispatch capability is manufactured.
 	retained := *s
 	retained.qualification = GatewayNativeGrokOAuthQualification{ClientID: saved.ClientID}
-	saved, err = retained.bundle(scope, envelope, physical)
-	if err != nil {
-		return empty, time.Time{}, ErrGatewayNativeIdentity
-	}
-	return physical, saved.ExpiresAt, nil
+	return retained.bundle(scope, envelope, physical)
 }

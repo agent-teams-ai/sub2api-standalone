@@ -1146,7 +1146,14 @@ func responsesToolsToChatTools(tools []ResponsesTool) ([]ChatTool, error) {
 				continue
 			}
 			toolSearchDeclared = true
-			out = append(out, toolSearchProxyChatTool())
+			proxy := toolSearchProxyChatTool()
+			if tool.Execution == "client" {
+				proxy.Function.Description = tool.Description
+				if len(tool.Parameters) > 0 {
+					proxy.Function.Parameters = tool.Parameters
+				}
+			}
+			out = append(out, proxy)
 		case "namespace":
 			flattened, err := namespaceChildrenToChatTools(tool, topLevel, flatOwner)
 			if err != nil {

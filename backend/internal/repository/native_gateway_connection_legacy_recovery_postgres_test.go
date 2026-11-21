@@ -82,6 +82,96 @@ func nativeLegacyDispatchAfterClassification(t *testing.T, parent context.Contex
 	require.NotEmpty(t, nativeConnectionCompletedOutput(t, recorder.Body.String()))
 }
 
+// The facade reads models before accepting a Responses request. These retained
+// rows must supply their authenticated native anchor through V2; the old V1
+// closed source enum deliberately continues to report unsupported.
+func nativeLegacyModelsBeforeDispatch(t *testing.T, parent context.Context, native *service.GatewayNativeConnections, source *service.GatewayLegacyOAuthAccountModels,
+	in service.GatewayNativeConnectionScope, route service.GatewayNativeRoute, refresh func() error, requests *atomic.Int32) func() {
+	t.Helper()
+	ctx, err := service.WithGatewayNativeConsumer(parent, in.Scope.Consumer)
+	require.NoError(t, err)
+	input := service.GatewayAccountModelsInput{GatewayAccountLimitsInput: service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: route.Profile, ExpectedAuthorizationEpoch: 1}}
+	authorize := func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+		return route, nil
+	}
+	legacy, err := service.NewGatewayAccountModelsReader(nil, nil, authorize)
+	require.NoError(t, err)
+	reader, err := service.NewGatewayAccountModelsReaderV2(native, legacy, authorize, source)
+	require.NoError(t, err)
+	before := requests.Load()
+	first := reader.Read(ctx, input)
+	require.Equal(t, "snapshot", first.Status, "a retained legacy browser must be executable after the facade's account-model admission")
+	require.Equal(t, route.Profile, first.SourceID)
+	require.Equal(t, route.Profile, first.ProfileID)
+	require.Equal(t, in.Scope.Generation, first.PhysicalGeneration)
+	require.Len(t, first.PrincipalVersion, 64)
+	require.Equal(t, service.GatewayNativeConnectionModels(route.Profile, route.Model), *first.Models)
+	require.Equal(t, "qualified_anchor", first.Admission.UnavailableFallback)
+	require.Equal(t, "unsupported", legacy.Read(ctx, input).Status, "V1 cannot invent a new member of its closed source enum")
+	input.ForceRefresh = true
+	require.Equal(t, "snapshot", reader.Read(ctx, input).Status, "fixed native anchors do not need provider HTTP, including forceRefresh")
+	wrong := input
+	wrong.OwnerRef = "foreign-owner"
+	require.Equal(t, "unavailable", reader.Read(ctx, wrong).Status)
+	wrong = input
+	wrong.AccountRef = uuid.NewString()
+	require.Equal(t, "unavailable", reader.Read(ctx, wrong).Status)
+	foreign, err := service.WithGatewayNativeConsumer(ctx, "foreign-consumer")
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", reader.Read(foreign, input).Status)
+	selection := in.Connection
+	selection.ConfigurationGeneration = "different-stored-selection"
+	foreign, err = service.WithGatewayConnectionSelection(ctx, selection)
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", reader.Read(foreign, input).Status)
+	wrongBirth := route
+	wrongBirth.CreatedAt = route.CreatedAt.Add(time.Microsecond)
+	wrongReader, err := service.NewGatewayAccountModelsReaderV2(native, legacy, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+		return wrongBirth, nil
+	}, source)
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", wrongReader.Read(ctx, input).Status)
+	ownerCalls := 0
+	revoked, err := service.NewGatewayAccountModelsReaderV2(native, legacy, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+		ownerCalls++
+		if ownerCalls == 2 {
+			return service.GatewayNativeRoute{}, service.ErrGatewayNativeIdentity
+		}
+		return route, nil
+	}, source)
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", revoked.Read(ctx, input).Status)
+	require.Equal(t, 2, ownerCalls)
+	require.Equal(t, before, requests.Load(), "model reads and rejected selectors perform zero provider HTTP")
+	// Rotate through the existing durable refresh writer during the final owner
+	// callback. The model read must discard the old authenticated revision and
+	// must not hold its physical SQL lock while calling the owner authority.
+	ownerCalls = 0
+	afterRefreshRequests := before
+	rotating, err := service.NewGatewayAccountModelsReaderV2(native, legacy, func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+		ownerCalls++
+		if ownerCalls == 2 {
+			require.NoError(t, refresh())
+			afterRefreshRequests = requests.Load()
+		}
+		return route, nil
+	}, source)
+	require.NoError(t, err)
+	require.Equal(t, "unavailable", rotating.Read(ctx, input).Status)
+	require.Equal(t, 2, ownerCalls)
+	require.Greater(t, afterRefreshRequests, before, "the fixture performed an actual source refresh")
+	current := reader.Read(ctx, input)
+	require.Equal(t, "snapshot", current.Status)
+	require.NotEqual(t, first.PrincipalVersion, current.PrincipalVersion)
+	require.Equal(t, first.Models, current.Models)
+	require.Equal(t, afterRefreshRequests, requests.Load(), "reading the refreshed source never refreshes it again")
+	return func() {
+		before := requests.Load()
+		require.Equal(t, "unavailable", reader.Read(ctx, input).Status, "erasing the exact old birth revokes its retained model snapshot")
+		require.Equal(t, before, requests.Load())
+	}
+}
+
 func nativeLegacyRecoveryAssertions(t *testing.T, ctx context.Context, adapter service.GatewayNativeConnectionAdapter, in service.GatewayNativeConnectionScope, expected *service.GatewayNativeRoute, requests *atomic.Int32) {
 	t.Helper()
 	before := requests.Load()
@@ -156,6 +246,8 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 	require.NoError(t, err)
 	materialKey := bytes.Repeat([]byte{0x7a}, 32)
 	custody, err := service.NewGatewayNativeCredentialCustody("legacy-recovery-fixture", map[string][]byte{"legacy-recovery-fixture": materialKey})
+	require.NoError(t, err)
+	legacyModels, err := service.NewGatewayLegacyOAuthAccountModels(claudeRepo, grokRepo, custody)
 	require.NoError(t, err)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -253,6 +345,7 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 				return service.GatewayNativeOAuthCleanupAuthority{Owner: in.Scope.Owner, LeaseExpiresAt: time.Now().Add(time.Minute), Native: route}, nil
 			}
 			var recovery service.GatewayNativeConnectionAdapter
+			var modelsAfterErase func()
 			if provider == "codex" {
 				subscription.Store(nil)
 				fixture := &nativeCodexImportFixture{t: t, method: method, clientID: openai.ClientID, access: "fixture-old-access-" + uuid.NewString(), refresh: "fixture-old-refresh-" + uuid.NewString(), account: uuid.NewString(), key: rsaKey}
@@ -309,6 +402,12 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					descriptor, err := current.Descriptor(selectedCtx, in.Scope, in.Operation)
 					require.NoError(t, err)
 					route = descriptor.Native
+					modelsAfterErase = nativeLegacyModelsBeforeDispatch(t, ctx, native, legacyModels, in, *route, func() error {
+						result, err := current.Refresh(selectedCtx, in.Scope, in.Operation, "models-refresh-"+uuid.NewString())
+						require.Equal(t, "completed", result.State)
+						require.EqualValues(t, 2, result.Version)
+						return err
+					}, &requests)
 					nativeLegacyDispatchAfterClassification(t, ctx, native, custody, gateway, in, *route, func(ctx context.Context, route service.GatewayNativeRoute, account string) (context.Context, error) {
 						return current.BindApproved(ctx, route, account, 1, 1<<20, 16384)
 					}, &fixture.calls)
@@ -331,10 +430,10 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					connected, err := active.Submit(ownerCtx, candidate, map[string]string{"completion": fixture.completionCode})
 					require.NoError(t, err)
 					require.Equal(t, "completed", connected.State)
-					require.EqualValues(t, 2, fixture.grant.Load())
+					require.EqualValues(t, 3, fixture.grant.Load())
 					_, err = active.Submit(ownerCtx, candidate, map[string]string{"completion": fixture.completionCode})
 					require.NoError(t, err)
-					require.EqualValues(t, 2, fixture.grant.Load(), "committed reconnect readback cannot replay its one-use source grant")
+					require.EqualValues(t, 3, fixture.grant.Load(), "committed reconnect readback cannot replay its one-use source grant")
 					candidateDescriptor, err := current.Descriptor(selectedCtx, candidate.Scope, candidate.Operation)
 					require.NoError(t, err)
 					require.NotNil(t, candidateDescriptor.Native)
@@ -358,7 +457,7 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					require.NoError(t, err)
 					require.Equal(t, "unknown", unknown.State)
 					require.Nil(t, unknown.Credential)
-					require.EqualValues(t, 3, fixture.grant.Load())
+					require.EqualValues(t, 4, fixture.grant.Load())
 					// A separately authenticated owner also cannot take the original
 					// logical account's provider principal. Its source grant is valid;
 					// the permanent native SQL claim rejects the ownership change.
@@ -383,8 +482,9 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					fixture.completionCode, fixture.codeChallenge = "fresh-code-"+uuid.NewString(), authorize.Query().Get("code_challenge")
 					_, err = foreignCurrent.CompleteOwnerCallback(foreignCtx, foreign.Scope, foreign.Operation, fixture.state, fixture.completionCode)
 					require.Error(t, err)
-					require.EqualValues(t, 4, fixture.grant.Load())
+					require.EqualValues(t, 5, fixture.grant.Load())
 					nativeLegacyRecoveryAssertions(t, ownerCtx, recovery, in, route, &requests)
+					modelsAfterErase()
 					_, err = current.RetainedCustody(selectedCtx, candidate.Scope, candidate.Operation, *candidateDescriptor.Native)
 					require.NoError(t, err, "erasing the old birth cannot erase or retarget fresh custody")
 					route = candidateDescriptor.Native
@@ -406,6 +506,12 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					descriptor, err := current.Descriptor(selectedCtx, in.Scope, in.Operation)
 					require.NoError(t, err)
 					route = descriptor.Native
+					modelsAfterErase = nativeLegacyModelsBeforeDispatch(t, ctx, native, legacyModels, in, *route, func() error {
+						result, err := current.Refresh(selectedCtx, in.Scope, in.Operation, "models-refresh-"+uuid.NewString())
+						require.Equal(t, "completed", result.State)
+						require.EqualValues(t, 2, result.Version)
+						return err
+					}, &requests)
 					nativeLegacyDispatchAfterClassification(t, ctx, native, custody, gateway, in, *route, func(ctx context.Context, route service.GatewayNativeRoute, account string) (context.Context, error) {
 						scope, operation, err := current.ResolveApproved(ctx, route, account)
 						if err != nil {
@@ -420,6 +526,9 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 				require.NotNil(t, route)
 			}
 			nativeLegacyRecoveryAssertions(t, ownerCtx, recovery, in, route, &requests)
+			if modelsAfterErase != nil {
+				modelsAfterErase()
+			}
 		})
 	}
 }

@@ -35,13 +35,21 @@ type GatewayAccountModelsReaderV2 struct {
 	native    *GatewayNativeConnections
 	legacy    *GatewayAccountModelsReader
 	authorize GatewayAccountLimitsAuthorizer
+	oauth     *GatewayLegacyOAuthAccountModels
 }
 
-func NewGatewayAccountModelsReaderV2(native *GatewayNativeConnections, legacy *GatewayAccountModelsReader, authorize GatewayAccountLimitsAuthorizer) (*GatewayAccountModelsReaderV2, error) {
-	if authorize == nil || native == nil && legacy == nil {
+func NewGatewayAccountModelsReaderV2(native *GatewayNativeConnections, legacy *GatewayAccountModelsReader, authorize GatewayAccountLimitsAuthorizer, oauth ...*GatewayLegacyOAuthAccountModels) (*GatewayAccountModelsReaderV2, error) {
+	if authorize == nil || len(oauth) > 1 {
 		return nil, ErrGatewayNativeIdentity
 	}
-	return &GatewayAccountModelsReaderV2{native, legacy, authorize}, nil
+	var retained *GatewayLegacyOAuthAccountModels
+	if len(oauth) == 1 {
+		retained = oauth[0]
+	}
+	if native == nil && legacy == nil && retained == nil {
+		return nil, ErrGatewayNativeIdentity
+	}
+	return &GatewayAccountModelsReaderV2{native: native, legacy: legacy, authorize: authorize, oauth: retained}, nil
 }
 
 func projectGatewayAccountModelsV2(profile string, result GatewayAccountModelsResult) GatewayAccountModelsResultV2 {
@@ -87,6 +95,9 @@ func (s *GatewayAccountModelsReaderV2) Read(ctx context.Context, in GatewayAccou
 			}
 			return result
 		}
+	}
+	if in.ProfileID == GatewayClaudeOAuthMessagesProfile || in.ProfileID == GatewayGrokOAuthResponsesProfile {
+		return s.oauth.read(ctx, in, before, s.authorize)
 	}
 	if s.legacy == nil {
 		return unavailable

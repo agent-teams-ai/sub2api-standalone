@@ -226,11 +226,6 @@ func Run(ctx context.Context, options Options) error {
 		tcfg.ClaudeOAuth = oauth.claude
 		tcfg.Claude = c.claudeProfile()
 	}
-	if oauth != nil {
-		if composePrivateModels(oauth, oauth.owners, gateway) != nil {
-			return ErrDenied
-		}
-	}
 	if oauth == nil {
 		owners := options.OAuthOwnerAuthority
 		if owners == nil {
@@ -242,6 +237,9 @@ func Run(ctx context.Context, options Options) error {
 		if authority, ok := oauth.owners.(NativeOAuthCleanupAuthority); ok {
 			oauth.cleanup = authority.AuthorizeNativeOAuthCleanup
 		}
+	}
+	if composePrivateModels(oauth, oauth.owners, gateway, db, custody) != nil {
+		return ErrDenied
 	}
 	defer func() {
 		if oauth.gemini != nil {
@@ -893,6 +891,7 @@ type privateOAuth struct {
 	limitsRefresh     *service.GatewayAccountLimitsRefresher
 	limits            *service.GatewayAccountLimitsReader
 	models            *service.GatewayAccountModelsReader
+	legacyModels      *service.GatewayLegacyOAuthAccountModels
 	claude            *service.GatewayNativeClaudeOAuth
 	grok              *service.GatewayNativeGrokOAuth
 	limitsV2          *service.GatewayAccountLimitsReaderV2
@@ -1075,7 +1074,7 @@ func composePrivateClaude(out *privateOAuth, repo service.AccountRepository, db 
 
 // The same logical owner+epoch authority fences metadata reads across providers.
 // Profiles without a supported catalogue retain the explicit unsupported union.
-func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, gateway *service.OpenAIGatewayService) error {
+func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, gateway *service.OpenAIGatewayService, db *sql.DB, custody *service.GatewayNativeCredentialCustody) error {
 	if out == nil {
 		return ErrDenied
 	}
@@ -1083,7 +1082,18 @@ func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, g
 	if !ok {
 		return nil
 	}
-	var err error
+	claude, err := repository.NewGatewayNativeClaudeRepository(db)
+	if err != nil {
+		return ErrDenied
+	}
+	grok, err := repository.NewGatewayNativeGrokRepository(db)
+	if err != nil {
+		return ErrDenied
+	}
+	out.legacyModels, err = service.NewGatewayLegacyOAuthAccountModels(claude, grok, custody)
+	if err != nil {
+		return ErrDenied
+	}
 	out.models, err = service.NewGatewayAccountModelsReader(out.dispatch, gateway, func(ctx context.Context, in service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
 		consumer, e := service.GatewayNativeConsumer(ctx)
 		if e != nil {

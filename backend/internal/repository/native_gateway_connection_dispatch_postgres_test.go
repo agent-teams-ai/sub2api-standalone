@@ -37,6 +37,21 @@ type nativeConnectionWireCase struct {
 
 type nativeConnectionTLSUpstream struct{ client *http.Client }
 
+const nativeConnectionSearchParameters = `{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"},"limit":{"type":"integer"}},"required":["query"]}`
+
+func nativeConnectionSearchTool() map[string]any {
+	return map[string]any{"type": "tool_search", "execution": "client", "description": "Find client tools for review", "parameters": json.RawMessage(nativeConnectionSearchParameters)}
+}
+
+func nativeConnectionCopyRequest(t *testing.T, request map[string]any) map[string]any {
+	t.Helper()
+	encoded, err := json.Marshal(request)
+	require.NoError(t, err)
+	var copied map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &copied))
+	return copied
+}
+
 func (u *nativeConnectionTLSUpstream) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 	return u.client.Do(request)
 }
@@ -114,6 +129,11 @@ func nativeConnectionWriteProtocol(t *testing.T, w http.ResponseWriter, row *nat
 		var output any = []any{map[string]any{"type": "function_call", "id": "fc_review", "status": "completed", "call_id": "call_review", "name": "read_source", "arguments": `{"path":"file.go"}`}}
 		if second {
 			output = []any{map[string]any{"type": "message", "id": "msg_review", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": `{"findings":[]}`, "annotations": []any{}}}}}
+		}
+		if row.phase.Load() == 4 {
+			output = []any{map[string]any{"type": "function_call", "id": "fc_search", "status": "completed", "call_id": "call_search", "name": "tool_search", "arguments": `{"query":"source","limit":2}`}}
+		} else if row.phase.Load() == 5 {
+			output = []any{map[string]any{"type": "function_call", "id": "fc_discovered", "status": "completed", "call_id": "call_discovered", "name": "discovered__inspect", "arguments": `{"path":"file.go"}`}}
 		}
 		payload, err := json.Marshal(map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp_review", "status": "completed", "model": row.model, "output": output, "usage": map[string]int{"input_tokens": 5, "output_tokens": 3}}})
 		require.NoError(t, err)
@@ -194,7 +214,7 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 		if request.Host == "openrouter.ai" && request.URL.Path == "/api/v1/models" {
 			assert.Empty(row.t, request.Header.Get("Authorization"), "public model discovery receives no credential")
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q,"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["tools","tool_choice"]}]}`, row.model)
+			_, _ = fmt.Fprintf(w, `{"data":[{"id":%q,"architecture":{"input_modalities":["text"],"output_modalities":["text"]},"supported_parameters":["tools","tool_choice","reasoning","response_format","structured_outputs"],"reasoning":{"supported_efforts":["medium"],"default_effort":"medium"}}]}`, row.model)
 			return
 		}
 		row.calls.Add(1)
@@ -221,9 +241,46 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":{"message":"provider-private-body-must-not-leak"}}`)
 			return
 		}
-		second := row.phase.Load() == 2
+		var declarations []map[string]json.RawMessage
+		require.NoError(row.t, json.Unmarshal(body["tools"], &declarations))
+		searches := 0
+		for _, declaration := range declarations {
+			if row.protocol == service.APIProtocolChatCompletions {
+				var function map[string]json.RawMessage
+				require.NoError(row.t, json.Unmarshal(declaration["function"], &function))
+				declaration = function
+			}
+			if string(declaration["name"]) != `"tool_search"` {
+				continue
+			}
+			searches++
+			parameters := declaration["parameters"]
+			if row.protocol == service.APIProtocolAnthropic {
+				parameters = declaration["input_schema"]
+			}
+			assert.JSONEq(row.t, nativeConnectionSearchParameters, string(parameters), "the native source receives the exact caller-owned search schema")
+			assert.JSONEq(row.t, `"Find client tools for review"`, string(declaration["description"]))
+		}
+		assert.Equal(row.t, 1, searches)
+		if row.phase.Load() == 4 {
+			assert.JSONEq(row.t, `{"type":"function","name":"tool_search"}`, string(body["tool_choice"]))
+		}
+		if row.phase.Load() == 5 || row.phase.Load() == 6 {
+			assert.Contains(row.t, string(body["tools"]), `"discovered__inspect"`)
+			assert.Contains(row.t, string(body["input"]), `"function_call_output"`)
+			assert.Contains(row.t, string(body["input"]), `"call_search"`)
+			assert.NotContains(row.t, string(body["input"]), `"tool_search_call"`)
+			assert.NotContains(row.t, string(body["input"]), `"tool_search_output"`)
+			if row.phase.Load() == 6 {
+				assert.Contains(row.t, string(body["input"]), `"name":"discovered__inspect"`)
+				assert.Contains(row.t, string(body["input"]), "search-selected source contents")
+			}
+		}
+		second := row.phase.Load() == 2 || row.phase.Load() == 6
 		if second {
-			assert.Contains(row.t, string(raw), "synthetic file contents")
+			if row.phase.Load() == 2 {
+				assert.Contains(row.t, string(raw), "synthetic file contents")
+			}
 			if row.profile == service.GatewayGeminiAPIKeyProfile {
 				assert.Contains(row.t, string(raw), "fixture-google-signature")
 			}
@@ -325,7 +382,39 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 				}
 				return recorder, entered, callErr
 			}
-			request := map[string]any{"model": row.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
+			request := map[string]any{"model": row.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}, nativeConnectionSearchTool()}}
+			if row.profile == service.GatewayOpenRouterResponsesProfile {
+				request["reasoning"] = map[string]any{"effort": "medium"}
+				request["include"] = []string{"reasoning.encrypted_content"}
+				request["parallel_tool_calls"] = true
+				request["tool_choice"] = "auto"
+				request["prompt_cache_key"] = uuid.NewString()
+				request["client_metadata"] = map[string]string{"x-codex-installation-id": uuid.NewString()}
+				request["text"] = map[string]any{"format": map[string]any{"type": "json_schema", "name": "codex_output_schema", "strict": true,
+					"schema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"findings"}, "properties": map[string]any{"findings": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}}}}
+				request["tools"] = append(request["tools"].([]any), map[string]any{"type": "namespace", "name": "source", "tools": []any{
+					map[string]any{"type": "function", "name": "inspect", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}},
+				}})
+			}
+			if row.profile == service.GatewayOpenRouterResponsesProfile {
+				for name, modify := range map[string]func(map[string]any){
+					"server-search":        func(tool map[string]any) { tool["execution"] = "server" },
+					"implicit-search":      func(tool map[string]any) { delete(tool, "execution") },
+					"unknown-search-field": func(tool map[string]any) { tool["search_context_size"] = "high" },
+					"non-object-schema":    func(tool map[string]any) { tool["parameters"] = map[string]any{"type": "array"} },
+				} {
+					t.Run(name, func(t *testing.T) {
+						invalid := nativeConnectionCopyRequest(t, request)
+						modify(invalid["tools"].([]any)[1].(map[string]any))
+						body, err := json.Marshal(invalid)
+						require.NoError(t, err)
+						_, entered, err := call(in, *route, body)
+						require.ErrorIs(t, err, service.ErrGatewayNativeIdentity)
+						require.False(t, entered)
+					})
+				}
+				require.Zero(t, row.calls.Load(), "unsupported search cannot perform provider HTTP")
+			}
 			body, err := json.Marshal(request)
 			require.NoError(t, err)
 			row.phase.Store(1)
@@ -376,12 +465,95 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			require.True(t, entered)
 			require.NotEmpty(t, nativeConnectionCompletedOutput(t, third.Body.String()))
 			require.EqualValues(t, 3, row.calls.Load())
+			expectedCalls := int32(3)
+			if row.profile == service.GatewayOpenRouterResponsesProfile {
+				searchRequest := nativeConnectionCopyRequest(t, request)
+				searchRequest["input"] = "Find the source inspection tool"
+				searchRequest["tool_choice"] = map[string]string{"type": "tool_search"}
+				body, err = json.Marshal(searchRequest)
+				require.NoError(t, err)
+				row.phase.Store(4)
+				searched, entered, err := call(in, *route, body)
+				require.NoError(t, err)
+				require.True(t, entered)
+				searchOutput := nativeConnectionCompletedOutput(t, searched.Body.String())
+				require.Len(t, searchOutput, 1)
+				require.JSONEq(t, `{"type":"tool_search_call","id":"tsc_search","status":"completed","call_id":"call_search","execution":"client","arguments":{"query":"source","limit":2}}`, string(searchOutput[0]))
+				discoveries := []any{map[string]any{"type": "namespace", "name": "discovered", "tools": []any{map[string]any{
+					"type": "function", "name": "inspect", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}},
+				}}}}
+				searchResult, err := json.Marshal(map[string]any{"type": "tool_search_output", "id": "tso_search", "status": "completed", "call_id": "call_search", "execution": "client", "tools": discoveries})
+				require.NoError(t, err)
+				searchRequest["input"] = append(searchOutput, searchResult)
+				searchRequest["tool_choice"] = "auto"
+				for name, modify := range map[string]func(map[string]any){
+					"server-search-choice": func(request map[string]any) {
+						request["tool_choice"] = map[string]string{"type": "tool_search", "execution": "server"}
+					},
+					"unknown-search-choice": func(request map[string]any) {
+						request["tool_choice"] = map[string]string{"type": "tool_search", "name": "unbound-search"}
+					},
+					"undeclared-history": func(request map[string]any) { request["tools"] = []any{request["tools"].([]any)[0]} },
+					"duplicate-search": func(request map[string]any) {
+						request["tools"] = append(request["tools"].([]any), nativeConnectionSearchTool())
+					},
+					"reserved-function": func(request map[string]any) {
+						request["tools"] = append(request["tools"].([]any), map[string]any{"type": "function", "name": "tool_search", "parameters": map[string]string{"type": "object"}})
+					},
+					"server-history": func(request map[string]any) { request["input"].([]any)[0].(map[string]any)["execution"] = "server" },
+					"server-discovery": func(request map[string]any) {
+						request["input"].([]any)[1].(map[string]any)["tools"] = []any{map[string]string{"type": "web_search"}}
+					},
+					"null-discovery": func(request map[string]any) {
+						request["input"].([]any)[1].(map[string]any)["tools"] = nil
+					},
+					"nested-search": func(request map[string]any) {
+						request["input"].([]any)[1].(map[string]any)["tools"] = []any{nativeConnectionSearchTool()}
+					},
+					"too-many-effective-tools": func(request map[string]any) {
+						tools := make([]any, 128)
+						for i := range tools {
+							tools[i] = map[string]any{"type": "function", "name": fmt.Sprintf("found_%d", i), "parameters": map[string]string{"type": "object"}}
+						}
+						request["input"].([]any)[1].(map[string]any)["tools"] = tools
+					},
+				} {
+					t.Run(name, func(t *testing.T) {
+						invalid := nativeConnectionCopyRequest(t, searchRequest)
+						modify(invalid)
+						body, err := json.Marshal(invalid)
+						require.NoError(t, err)
+						_, entered, err := call(in, *route, body)
+						require.ErrorIs(t, err, service.ErrGatewayNativeIdentity)
+						require.False(t, entered)
+					})
+				}
+				require.EqualValues(t, 4, row.calls.Load(), "invalid search history cannot perform provider HTTP")
+				body, err = json.Marshal(searchRequest)
+				require.NoError(t, err)
+				row.phase.Store(5)
+				discovered, entered, err := call(in, *route, body)
+				require.NoError(t, err)
+				require.True(t, entered)
+				discoveredCall := nativeConnectionCompletedOutput(t, discovered.Body.String())
+				require.Len(t, discoveredCall, 1)
+				require.JSONEq(t, `{"type":"function_call","id":"fc_discovered","status":"completed","call_id":"call_discovered","namespace":"discovered","name":"inspect","arguments":"{\"path\":\"file.go\"}"}`, string(discoveredCall[0]))
+				searchRequest["input"] = append(append(searchRequest["input"].([]json.RawMessage), discoveredCall...), json.RawMessage(`{"type":"function_call_output","call_id":"call_discovered","output":"search-selected source contents"}`))
+				body, err = json.Marshal(searchRequest)
+				require.NoError(t, err)
+				row.phase.Store(6)
+				completed, entered, err := call(in, *route, body)
+				require.NoError(t, err)
+				require.True(t, entered)
+				require.NotEmpty(t, nativeConnectionCompletedOutput(t, completed.Body.String()))
+				expectedCalls = 6
+			}
 			row.phase.Store(3)
 			failure, entered, err := call(in, *route, body)
 			require.ErrorIs(t, err, service.ErrGatewayNativeEffectUnknown)
 			require.True(t, entered)
 			require.NotContains(t, failure.Body.String(), "provider-private-body-must-not-leak")
-			require.EqualValues(t, 4, row.calls.Load(), "there is no automatic provider/protocol fallback after effect entry")
+			require.EqualValues(t, expectedCalls+1, row.calls.Load(), "there is no automatic provider/protocol fallback after effect entry")
 			foreign := in
 			foreign.Scope.Owner = "foreign-owner"
 			_, err = native.Custody(ownerCtx, foreign, *published.Native)
@@ -391,7 +563,7 @@ func TestGatewayNativeConnectionPostgresProtocolMatrix(t *testing.T) {
 			_, entered, err = call(in, *route, body)
 			require.Error(t, err)
 			require.False(t, entered)
-			require.EqualValues(t, 4, row.calls.Load(), "an erased physical birth cannot dispatch")
+			require.EqualValues(t, expectedCalls+1, row.calls.Load(), "an erased physical birth cannot dispatch")
 			var durable string
 			require.NoError(t, db.QueryRowContext(ctx, `SELECT jsonb_build_object('account',(SELECT to_jsonb(a) FROM accounts a WHERE id=$1),'intent',(SELECT to_jsonb(i) FROM gateway_oauth_connect_intents i WHERE operation_ref=$2))::text`, route.AccountID, in.Operation).Scan(&durable))
 			require.NotContains(t, durable, row.secret)

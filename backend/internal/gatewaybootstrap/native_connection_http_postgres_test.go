@@ -314,7 +314,7 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	native, err := service.NewGatewayNativeConnections(nativeDependencies)
 	require.NoError(t, err)
 	oauth.nativeConnections = native
-	require.NoError(t, composePrivateModels(oauth, owners, gateway))
+	require.NoError(t, composePrivateModels(oauth, owners, gateway, db, custody))
 	require.NoError(t, composePrivateLimitsV2(oauth, db, owners))
 	require.NoError(t, composePrivateAccountInfo(oauth, db, owners))
 	peers := authorize(cfg.Peers)
@@ -484,7 +484,7 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 			native, err = service.NewGatewayNativeConnections(replacementDependencies)
 			require.NoError(t, err)
 			nextOAuth.nativeConnections = native
-			require.NoError(t, composePrivateModels(&nextOAuth, owners, gateway))
+			require.NoError(t, composePrivateModels(&nextOAuth, owners, gateway, db, custody))
 			require.NoError(t, composePrivateLimitsV2(&nextOAuth, db, owners))
 			require.NoError(t, composePrivateAccountInfo(&nextOAuth, db, owners))
 			nextOAuth.connections, err = composePrivateConnectionBindings(cfg, profiles, enrollment, &nextOAuth, custody, peers, privateNativeConnectionRecoveryAdapters(native, dispatchers)...)
@@ -594,8 +594,7 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 			require.Positive(t, counts["thinkingRequests"].(int64), row.ID)
 		}
 	}
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM accounts WHERE credentials <> '{}'::jsonb`).Scan(&count))
-	require.Zero(t, count, "retirement erased every native physical credential")
+	requireNativeConnectionJoinedErasure(t, ctx, db)
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_oauth_connect_intents WHERE material_envelope <> ''`).Scan(&count))
 	require.Zero(t, count, "terminal enrollment and cleanup erased every saved input envelope")
 }

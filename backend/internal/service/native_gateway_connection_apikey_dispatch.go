@@ -134,7 +134,7 @@ func gatewayNativeAPIKeyConnectionBody(profile string, body []byte, limit int64)
 		return nil, apicompat.ResponsesClientToolMapping{}, ErrGatewayNativeIdentity
 	}
 	canonical, mapping, err := adaptResponsesClientToolsForFunctionUpstream(body, "OpenRouter")
-	if err != nil || int64(len(canonical)) > limit || !gatewayNativeProviderNamespaceReferences(fields["input"], fields["tool_choice"], mapping) {
+	if err != nil || int64(len(canonical)) > limit || !gatewayNativeProviderToolReferences(fields["input"], fields["tool_choice"], mapping) || !gatewayNativeProviderLoweredToolsBounded(canonical) {
 		return nil, apicompat.ResponsesClientToolMapping{}, ErrGatewayNativeIdentity
 	}
 	return canonical, mapping, nil

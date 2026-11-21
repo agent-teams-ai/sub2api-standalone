@@ -40,8 +40,8 @@ func registerPrivateConnectionAccountRoutes(router *gin.Engine, oauth *privateOA
 		raw, err := io.ReadAll(io.LimitReader(request.Body, 4097))
 		return raw, err == nil && len(raw) <= 4096
 	}
-	if oauth.nativeConnections != nil || oauth.models != nil {
-		models, err := service.NewGatewayAccountModelsReaderV2(oauth.nativeConnections, oauth.models, authorizeRead)
+	if oauth.nativeConnections != nil || oauth.models != nil || oauth.legacyModels != nil {
+		models, err := service.NewGatewayAccountModelsReaderV2(oauth.nativeConnections, oauth.models, authorizeRead, oauth.legacyModels)
 		if err != nil {
 			return err
 		}

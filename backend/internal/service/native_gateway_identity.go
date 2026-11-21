@@ -321,7 +321,7 @@ func (s *OpenAIGatewayService) ForwardGatewayRoute(ctx context.Context, c *gin.C
 			return nil, false, ErrGatewayNativeIdentity
 		}
 		prepared, mapping, prepareErr := adaptResponsesClientToolsForFunctionUpstream(body, "OpenRouter")
-		if prepareErr != nil || len(prepared) > 4<<20 {
+		if prepareErr != nil || len(prepared) > 4<<20 || !gatewayNativeProviderToolReferences(fields["input"], fields["tool_choice"], mapping) || !gatewayNativeProviderLoweredToolsBounded(prepared) {
 			gatewayNativeAdmissionDiagnostic(gatewayAdmissionMapping)
 			return nil, false, ErrGatewayNativeIdentity
 		}
