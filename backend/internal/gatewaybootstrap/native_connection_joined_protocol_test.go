@@ -31,7 +31,8 @@ type nativeConnectionJoinedTool struct {
 
 type nativeConnectionJoinedProtocol struct {
 	thinking, thinkingSignature                                            string
-	expectedSchema                                                         string
+	responsesReasoning                                                     string
+	expectedSchema, expectedAnthropicSchema                                string
 	customDeclarations                                                     int64
 	mu                                                                     sync.Mutex
 	pending                                                                map[string]nativeConnectionJoinedTool
@@ -204,6 +205,20 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 		thinkingRequested = true
 		s.thinkingRequests++
 	}
+	responsesReasoningRequested := protocol == "responses" && peer.Row.ReviewProof != nil
+	if responsesReasoningRequested {
+		var reasoning map[string]json.RawMessage
+		var effort string
+		var maximum int
+		var include []string
+		if json.Unmarshal(body["reasoning"], &reasoning) != nil || len(reasoning) != 1 ||
+			json.Unmarshal(reasoning["effort"], &effort) != nil || effort != peer.Row.ReviewProof.ReasoningEffort ||
+			json.Unmarshal(body["max_output_tokens"], &maximum) != nil || maximum != peer.Row.ReviewProof.MaxOutputTokens ||
+			json.Unmarshal(body["include"], &include) != nil || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+			return fail("responses_reasoning_request")
+		}
+		s.thinkingRequests++
+	}
 	var schema json.RawMessage
 	switch protocol {
 	case "responses":
@@ -240,7 +255,11 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 		return fail("protocol")
 	}
 	if nativeConnectionJoinedReviewSchema(schema) {
-		if s.expectedSchema == "" || nativeConnectionJoinedSchemaDigest(schema) != s.expectedSchema {
+		expectedSchema := s.expectedSchema
+		if protocol == "anthropic" {
+			expectedSchema = s.expectedAnthropicSchema
+		}
+		if expectedSchema == "" || nativeConnectionJoinedSchemaDigest(schema) != expectedSchema {
 			return fail("review_schema_identity")
 		}
 		s.schemaRequests++
@@ -250,6 +269,7 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 	tools, calls, outputs := []nativeConnectionJoinedTool{}, map[string]nativeConnectionJoinedTool{}, map[string]bool{}
 	actualTextSignature := ""
 	actualThinking, actualThinkingSignature := "", ""
+	actualResponsesReasoning := ""
 	if protocol == "responses" {
 		var valid bool
 		tools, valid = nativeConnectionJoinedResponsesTools(body["tools"], "")
@@ -267,6 +287,7 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 					Type, Name, Namespace, Arguments, Input string
 					CallID                                  string          `json:"call_id"`
 					Output                                  json.RawMessage `json:"output"`
+					EncryptedContent                        string          `json:"encrypted_content"`
 				}
 				if json.Unmarshal(rawItem, &item) != nil {
 					return fail("responses_item")
@@ -285,6 +306,11 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 						return fail("responses_output")
 					}
 					outputs[item.CallID] = true
+				} else if item.Type == "reasoning" && responsesReasoningRequested {
+					if actualResponsesReasoning != "" || item.EncryptedContent == "" {
+						return fail("responses_reasoning_item")
+					}
+					actualResponsesReasoning = item.EncryptedContent
 				}
 			}
 		}
@@ -424,6 +450,12 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 	continuation := s.pending != nil
 	selected := map[string]nativeConnectionJoinedTool{}
 	if continuation {
+		if responsesReasoningRequested {
+			if s.responsesReasoning == "" || actualResponsesReasoning != s.responsesReasoning {
+				return fail("responses_reasoning_continuation")
+			}
+			s.signatureChecks++
+		}
 		if len(calls) != len(s.pending) || len(outputs) != len(s.pending) {
 			return fail("continuation_count")
 		}
@@ -462,6 +494,9 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 		if len(calls) != 0 || len(outputs) != 0 {
 			return fail("unexpected_continuation")
 		}
+		if responsesReasoningRequested && actualResponsesReasoning != "" {
+			return fail("unexpected_reasoning_continuation")
+		}
 		for _, tool := range tools {
 			if tool.Kind == "custom" || strings.HasSuffix(tool.Name, "apply_patch") {
 				s.customDeclarations++
@@ -489,16 +524,20 @@ func (s *nativeConnectionJoinedProtocol) serve(w http.ResponseWriter, r *http.Re
 		}
 		s.pending = selected
 		s.thinking, s.thinkingSignature = "", ""
+		s.responsesReasoning = ""
 		if thinkingRequested {
 			s.thinking = "Controlled provider reasoning before the declared tool."
 			s.thinkingSignature = base64.StdEncoding.EncodeToString([]byte("native-claude-signature-" + uuid.NewString()))
+		}
+		if responsesReasoningRequested {
+			s.responsesReasoning = base64.RawURLEncoding.EncodeToString([]byte("native-responses-reasoning-" + uuid.NewString()))
 		}
 		s.functionCalls++
 		if selected["joined-call-custom"].Name != "" {
 			s.customCalls++
 		}
 	}
-	return nativeConnectionJoinedEmitProtocol(w, peer, protocol, wrapped, continuation, selected, s.textSignature, s.thinking, s.thinkingSignature)
+	return nativeConnectionJoinedEmitProtocol(w, peer, protocol, wrapped, continuation, selected, s.textSignature, s.thinking, s.thinkingSignature, s.responsesReasoning)
 }
 
 func nativeConnectionJoinedBedrockFrame(data []byte) []byte {
@@ -521,7 +560,7 @@ func nativeConnectionJoinedBedrockFrame(data []byte) []byte {
 	return out.Bytes()
 }
 
-func nativeConnectionJoinedEmitProtocol(w http.ResponseWriter, peer *nativeConnectionJoinedPeer, protocol string, wrapped, continuation bool, selected map[string]nativeConnectionJoinedTool, textSignature, thinking, thinkingSignature string) error {
+func nativeConnectionJoinedEmitProtocol(w http.ResponseWriter, peer *nativeConnectionJoinedPeer, protocol string, wrapped, continuation bool, selected map[string]nativeConnectionJoinedTool, textSignature, thinking, thinkingSignature, responsesReasoning string) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	if peer.Protocol == "bedrock" {
 		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
@@ -575,7 +614,16 @@ func nativeConnectionJoinedEmitProtocol(w http.ResponseWriter, peer *nativeConne
 			_ = emit("response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": 0, "item": item})
 			output = append(output, item)
 		} else {
+			offset := 0
+			if responsesReasoning != "" {
+				offset = 1
+				item := map[string]any{"id": "joined-reasoning", "type": "reasoning", "status": "completed", "summary": []any{}, "encrypted_content": responsesReasoning}
+				_ = emit("response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": 0, "item": map[string]any{"id": "joined-reasoning", "type": "reasoning", "status": "in_progress", "summary": []any{}}})
+				_ = emit("response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": 0, "item": item})
+				output = append(output, item)
+			}
 			for index, id := range ids {
+				index += offset
 				tool := selected[id]
 				kind, field, event := "function_call", "arguments", "response.function_call_arguments"
 				if tool.Kind == "custom" {

@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,13 +20,67 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// The real private HTTP composition asks the generic classifier first even
+// for retained legacy rows. Prove that it yields to the legacy decoder without
+// weakening that decoder's exact physical/account/generation/consumer fences.
+func nativeLegacyDispatchAfterClassification(t *testing.T, parent context.Context, native *service.GatewayNativeConnections, custody *service.GatewayNativeCredentialCustody, gateway *service.OpenAIGatewayService,
+	in service.GatewayNativeConnectionScope, route service.GatewayNativeRoute, bind func(context.Context, service.GatewayNativeRoute, string) (context.Context, error), calls *atomic.Int32) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	ctx, err := service.WithGatewayNativeConsumer(ctx, in.Scope.Consumer)
+	require.NoError(t, err)
+	life, err := service.NewGatewayNativeLifetime(ctx, cancel, func() {}, 1<<20)
+	require.NoError(t, err)
+	life.BindAccount(in.Scope.Consumer, in.Scope.Account, in.Scope.Generation)
+	require.True(t, life.Admit(time.Now().Add(5*time.Second)))
+	ctx = service.WithGatewayNativeLifetime(service.WithGatewayNativeCustody(ctx, custody), life)
+	bound, handled, err := native.BindRoute(ctx, route, in.Scope.Account, 1, 1<<20, 16384)
+	require.NoError(t, err, "legacy generations use their own stored keys")
+	require.False(t, handled)
+	bound, err = bind(bound, route, in.Scope.Account)
+	require.NoError(t, err)
+	before := calls.Load()
+	wrong := route
+	wrong.Generation = uuid.NewString()
+	_, err = bind(ctx, wrong, in.Scope.Account)
+	require.Error(t, err)
+	_, err = bind(ctx, route, uuid.NewString())
+	require.Error(t, err)
+	foreign, err := service.WithGatewayNativeConsumer(ctx, "foreign-consumer")
+	require.NoError(t, err)
+	_, err = bind(foreign, route, in.Scope.Account)
+	require.Error(t, err)
+	wrong = route
+	wrong.CreatedAt = wrong.CreatedAt.Add(time.Microsecond)
+	_, _, err = native.BindRoute(ctx, wrong, in.Scope.Account, 1, 1<<20, 16384)
+	require.Error(t, err)
+	require.Equal(t, before, calls.Load(), "rejected tuples must not enter source HTTP")
+	reasoning := ""
+	if route.Profile == service.GatewayClaudeOAuthMessagesProfile {
+		reasoning = `,"reasoning":{"effort":"medium"}`
+	}
+	body := []byte(fmt.Sprintf(`{"model":%q,"input":"Review source","stream":true,"store":false,"max_output_tokens":8192,"tools":[{"type":"function","name":"read_source","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}]%s}`, route.Model, reasoning))
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	_, entered, err := gateway.ForwardGatewayRoute(bound, c, route, body)
+	require.NoError(t, err)
+	require.True(t, entered)
+	require.Equal(t, before+1, calls.Load())
+	require.True(t, life.Snapshot().Completed)
+	require.NotEmpty(t, nativeConnectionCompletedOutput(t, recorder.Body.String()))
+}
 
 func nativeLegacyRecoveryAssertions(t *testing.T, ctx context.Context, adapter service.GatewayNativeConnectionAdapter, in service.GatewayNativeConnectionScope, expected *service.GatewayNativeRoute, requests *atomic.Int32) {
 	t.Helper()
@@ -144,13 +199,16 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 	transport.TLSClientConfig.ServerName = "example.com"
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		switch address {
-		case "auth.openai.com:443", "chatgpt.com:443", "platform.claude.com:443", "auth.x.ai:443":
+		case "auth.openai.com:443", "chatgpt.com:443", "platform.claude.com:443", "auth.x.ai:443", "api.anthropic.com:443", "cli-chat-proxy.grok.com:443":
 		default:
 			return nil, service.ErrGatewayNativeIdentity
 		}
 		return (&net.Dialer{Timeout: time.Second}).DialContext(ctx, network, server.Listener.Addr().String())
 	}
 	defer transport.CloseIdleConnections()
+	upstream, err := service.NewGatewayNativeLifetimeUpstream(&nativeConnectionTLSUpstream{client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
+	require.NoError(t, err)
+	gateway := service.NewOpenAIGatewayService(accounts, nil, nil, nil, nil, nil, nil, &config.Config{}, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
 	verifier := service.NewGatewayNativeOAuthVerifier(transport)
 	enrollment, err := service.NewGatewayNativeOAuthEnrollment(verifier, custody, stage, materialKey)
 	require.NoError(t, err)
@@ -169,6 +227,13 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 		return nil
 	}
 	require.NoError(t, connect.SetEntryAuthorizer(owner))
+	physical, ok := accounts.(service.GatewayNativeConnectionRepository)
+	require.True(t, ok)
+	native, err := service.NewGatewayNativeConnections(service.GatewayNativeConnectionsDependencies{Journal: journal, Repository: physical, Custody: custody, MaterialKey: materialKey,
+		Connect: owner, Refresh: owner, Cleanup: func(context.Context, service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error) {
+			return service.GatewayNativeOAuthCleanupAuthority{}, service.ErrGatewayNativeIdentity
+		}})
+	require.NoError(t, err)
 	for _, name := range []string{"codex/browser", "codex/device_code", "codex/refresh_token", "codex/auth_json", "claude/browser", "grok/browser"} {
 		t.Run(name, func(t *testing.T) {
 			provider, method, _ := strings.Cut(name, "/")
@@ -226,7 +291,7 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					route = qualified.Native
 				}
 			} else {
-				fixture := &nativeSubscriptionWire{t: t, provider: provider, method: "browser", subject: uuid.NewString(), team: uuid.NewString(), key: ecKey}
+				fixture := &nativeSubscriptionWire{t: t, provider: provider, method: "browser", input: "unused-browser-material-" + uuid.NewString(), subject: uuid.NewString(), team: uuid.NewString(), key: ecKey}
 				subscription.Store(fixture)
 				if provider == "claude" {
 					current, err := service.NewGatewayNativeClaudeOAuth(claudeRepo, custody, transport)
@@ -244,6 +309,9 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					descriptor, err := current.Descriptor(selectedCtx, in.Scope, in.Operation)
 					require.NoError(t, err)
 					route = descriptor.Native
+					nativeLegacyDispatchAfterClassification(t, ctx, native, custody, gateway, in, *route, func(ctx context.Context, route service.GatewayNativeRoute, account string) (context.Context, error) {
+						return current.BindApproved(ctx, route, account, 1, 1<<20, 16384)
+					}, &fixture.calls)
 					recovery, err = service.NewGatewayNativeClaudeRecoveryConnectionAdapter(claudeRepo, custody, cleanup)
 					require.NoError(t, err)
 					// Actual facade reconnect must stage a fresh native generation
@@ -338,6 +406,13 @@ func TestGatewayNativeConnectionPostgresLegacyRecoveryWithoutMount(t *testing.T)
 					descriptor, err := current.Descriptor(selectedCtx, in.Scope, in.Operation)
 					require.NoError(t, err)
 					route = descriptor.Native
+					nativeLegacyDispatchAfterClassification(t, ctx, native, custody, gateway, in, *route, func(ctx context.Context, route service.GatewayNativeRoute, account string) (context.Context, error) {
+						scope, operation, err := current.ResolveApproved(ctx, route, account)
+						if err != nil {
+							return nil, err
+						}
+						return service.WithGatewayNativeGrokDispatch(ctx, current, scope, operation, 1<<20, 16384)
+					}, &fixture.calls)
 					// No current qualification/client is passed to retained recovery.
 					recovery, err = service.NewGatewayNativeGrokRecoveryConnectionAdapter(grokRepo, custody, cleanup)
 					require.NoError(t, err)

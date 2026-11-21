@@ -119,14 +119,18 @@ jobs:
           GATEWAY_NATIVE_CLOUD_CONNECTION_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_cloud_connection_test_ci?sslmode=disable
           GATEWAY_NATIVE_GEMINI_CONNECTION_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_gemini_connection_test_ci?sslmode=disable
           GATEWAY_NATIVE_LEGACY_RECOVERY_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_legacy_recovery_test_ci?sslmode=disable
+          GATEWAY_NATIVE_EXTENSION_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_extension_test_ci?sslmode=disable
           GATEWAY_NATIVE_LIMITS_V2_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_limits_v2_test_ci?sslmode=disable
         run: |
           set -o pipefail
-          for db in native_connection_test_ci native_observations_test_ci native_dispatch_test_ci native_codex_connection_test_ci native_subscription_test_ci native_cloud_connection_test_ci native_gemini_connection_test_ci native_legacy_recovery_test_ci gateway_limits_v2_test_ci; do
+          for db in native_connection_test_ci native_observations_test_ci native_dispatch_test_ci native_codex_connection_test_ci native_subscription_test_ci native_cloud_connection_test_ci native_gemini_connection_test_ci native_legacy_recovery_test_ci native_extension_test_ci gateway_limits_v2_test_ci; do
             docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test "$db"
           done
-          go test -tags unit ./internal/service ./internal/pkg/apicompat -run '^(TestGatewayConnection|TestGatewayNativeCloud|TestGemini)' -count=1 -v | tee "$RUNNER_TEMP/native-method-contracts.log"
+          go test -tags unit ./internal/service ./internal/pkg/apicompat -run '^(TestGatewayConnection|TestGatewayNativeCloud|TestGemini|TestPrepareBedrockRequestBody_PreservesStructuredOutput|TestPrepareBedrockSonnet55PreservesEffort)' -count=1 -v | tee "$RUNNER_TEMP/native-method-contracts.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-method-contracts.log"; then exit 1; fi
+          for critical in TestPrepareBedrockRequestBody_PreservesStructuredOutput TestPrepareBedrockSonnet55PreservesEffort; do
+            test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-method-contracts.log")" -eq 1
+          done
           go test -tags gatewaycustody ./internal/repository -run '^TestGatewayNativeConnectionPostgres(LifecycleAndLostACK|Observations|ProtocolMatrix|CodexVariants|SubscriptionMethods|CloudSigningAndStreams|GeminiAndAntigravity|LegacyRecoveryWithoutMount)$|^TestGatewayAccountLimitsV2KeyPostgres$' -count=1 -v -timeout 300s | tee "$RUNNER_TEMP/native-method-postgres.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-method-postgres.log"; then exit 1; fi
           for critical in \
@@ -141,6 +145,14 @@ jobs:
             TestGatewayAccountLimitsV2KeyPostgres; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-method-postgres.log")" -eq 1
           done
+          go test -tags gatewaycustody ./internal/gatewaybootstrap -run '^TestNativeConnectionJoined(SchemaOracleRetainsConstraints|OpenRouterReasoningReplay)$' -count=1 -v | tee "$RUNNER_TEMP/native-schema-oracle.log"
+          for critical in TestNativeConnectionJoinedSchemaOracleRetainsConstraints TestNativeConnectionJoinedOpenRouterReasoningReplay; do
+            test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-schema-oracle.log")" -eq 1
+          done
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-schema-oracle.log"; then exit 1; fi
+          go test -tags gatewaycustody,gatewayextension ./internal/repository -run '^TestGatewayNativeExtensionPostgresStreamAndQuota$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-extension-postgres.log"
+          test "$(grep -c '^--- PASS: TestGatewayNativeExtensionPostgresStreamAndQuota ' "$RUNNER_TEMP/native-extension-postgres.log")" -eq 1
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-extension-postgres.log"; then exit 1; fi
 
       - name: OAuth joined descriptor wire and PostgreSQL connect lifecycle
         working-directory: backend

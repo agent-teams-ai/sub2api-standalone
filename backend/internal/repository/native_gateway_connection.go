@@ -228,9 +228,13 @@ func (r *accountRepository) GatewayNativeConnectionRouteMarked(ctx context.Conte
 	}
 	var marked bool
 	if db.QueryRowContext(ctx, `SELECT COALESCE(extra->'gateway_native_connection_v1'='true'::jsonb,false)
- FROM accounts WHERE id=$1 AND created_at=$2 AND extra->>'gateway_generation_v1'=$3 AND deleted_at IS NULL`, route.AccountID, route.CreatedAt, route.Generation).Scan(&marked) != nil {
+ FROM accounts WHERE id=$1 AND created_at=$2 AND deleted_at IS NULL`, route.AccountID, route.CreatedAt).Scan(&marked) != nil {
 		return false, service.ErrGatewayNativeIdentity
 	}
+	// This only chooses the stored decoder. Legacy Claude/Grok rows use their
+	// own generation keys; the selected canonical resolver must validate the
+	// complete consumer/account/generation/physical tuple before any entry.
+	// A marked row with a wrong generation remains marked and cannot fall back.
 	return marked, nil
 }
 

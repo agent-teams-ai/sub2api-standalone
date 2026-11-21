@@ -89,6 +89,9 @@ func newNativeConnectionJoinedAPIKeyFamily(t *testing.T, _ *Config) nativeConnec
 		if spec.protocol == "systemone" {
 			peer.Row.Blocker = "native_systemone_protocol"
 		}
+		if spec.profile == service.GatewayOpenRouterResponsesProfile {
+			peer.Row.ReviewProof = &nativeConnectionJoinedReviewProof{ReasoningEffort: "medium", MaxOutputTokens: 8192}
+		}
 		peer.InferenceAuth = func(r *http.Request) bool {
 			if r.Method != http.MethodPost || "https://"+r.Host+r.URL.RequestURI() != endpoint || r.Header.Get("Cookie") != "" || r.Header.Get("X-Codex-Turn-State") != "" {
 				return false
@@ -112,9 +115,18 @@ func newNativeConnectionJoinedAPIKeyFamily(t *testing.T, _ *Config) nativeConnec
 			}
 			catalogs.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{"id": spec.model,
+			model := map[string]any{"id": spec.model,
 				"architecture":         map[string]any{"input_modalities": []string{"text"}, "output_modalities": []string{"text"}},
-				"supported_parameters": []string{"tools", "tool_choice", "response_format", "structured_outputs"}}}})
+				"supported_parameters": []string{"tools", "tool_choice", "response_format", "structured_outputs"}}
+			if spec.profile == service.GatewayOpenRouterResponsesProfile {
+				// Exact reasoning controls advertised for this anchor by
+				// https://openrouter.ai/api/v1/models on 2026-11-21. The native
+				// model reader still owns the projection and request admission.
+				model["supported_parameters"] = []string{"include_reasoning", "max_completion_tokens", "max_tokens", "reasoning", "reasoning_effort", "response_format", "seed", "structured_outputs", "tool_choice", "tools", "verbosity"}
+				model["reasoning"] = map[string]any{"mandatory": false, "default_enabled": false,
+					"supported_efforts": []string{"xhigh", "high", "medium", "low", "none"}, "default_effort": "medium"}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{model}})
 			return true
 		}
 		peer.Counters = func() map[string]int64 { return map[string]int64{"catalogs": catalogs.Load()} }

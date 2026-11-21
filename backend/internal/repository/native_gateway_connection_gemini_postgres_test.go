@@ -141,6 +141,11 @@ func (f *nativeGeminiWireFixture) serve(w http.ResponseWriter, r *http.Request) 
 		write(`{"candidates":[{"content":{"role":"model","parts":[{"text":"partial only"}]}}]}`)
 		return // A clean network EOF without provider finish must fail.
 	}
+	if f.phase.Load() == 4 {
+		write(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"native_review","name":"read_source","args":{"path":"file.go"}},"thoughtSignature":"real-native-function-signature"}]}}]}`)
+		write(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"forbidden_second_call","name":"read_source","args":{"path":"other.go"}}}]},"finishReason":"STOP"}]}`)
+		return
+	}
 	if f.phase.Load() == 2 {
 		write(`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"{\"findings\":[]}"},{"text":"","thoughtSignature":"real-native-text-signature"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3}}`)
 	} else {
@@ -280,7 +285,7 @@ func TestGatewayNativeConnectionPostgresGeminiAndAntigravity(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, published.Native)
 			route = &published.Native.GatewayNativeRoute
-			request := map[string]any{"model": f.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
+			request := map[string]any{"model": f.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "parallel_tool_calls": false, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
 			body, err := json.Marshal(request)
 			require.NoError(t, err)
 			f.phase.Store(1)
@@ -333,6 +338,15 @@ func TestGatewayNativeConnectionPostgresGeminiAndAntigravity(t *testing.T) {
 				require.True(t, entered)
 				require.NotContains(t, failed.Body.String(), `"type":"response.completed"`)
 				require.EqualValues(t, 3, f.inference.Load(), "no retry or protocol fallback after a truncated native stream")
+			}
+			if variant == "vertex_api_key_project" {
+				f.phase.Store(4)
+				failed, entered, err := nativeConnectionForwardFixture(t, ownerCtx, custody, native, gateway, in, *route, body)
+				require.ErrorIs(t, err, service.ErrGatewayNativeEffectUnknown)
+				require.True(t, entered)
+				require.NotContains(t, failed.Body.String(), "forbidden_second_call")
+				require.NotContains(t, failed.Body.String(), `"type":"response.completed"`)
+				require.EqualValues(t, 4, f.inference.Load(), "parallel_tool_calls=false cannot replay or silently truncate a provider's second call")
 			}
 			_, err = native.Cleanup(ownerCtx, in, service.GatewayNativeOAuthCleanupRequest{Scope: in.Scope, Operation: in.Operation, Action: "erase", CleanupRef: "google-cleanup", CleanupToken: "google-cleanup-token"})
 			require.NoError(t, err)

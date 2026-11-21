@@ -362,16 +362,25 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = transcript.Close() }()
 	scanner := bufio.NewScanner(io.TeeReader(stdout, transcript))
-	scanner.Buffer(make([]byte, 4096), 65536)
+	scanner.Buffer(make([]byte, 4096), 128<<10)
 	require.True(t, scanner.Scan(), "Gateway startup frame missing")
-	var ready struct{ Phase, CallbackOrigin, ReviewSchemaSHA256 string }
+	var ready struct {
+		Phase, CallbackOrigin, ReviewSchemaSHA256 string
+		ReviewSchema                              json.RawMessage
+	}
 	require.NoError(t, json.Unmarshal(scanner.Bytes(), &ready))
 	require.Equal(t, "ready", ready.Phase)
 	schemaDigest, err := hex.DecodeString(ready.ReviewSchemaSHA256)
 	require.NoError(t, err)
 	require.Len(t, schemaDigest, sha256.Size, "pinned Action review schema proof is required")
+	require.NotEmpty(t, ready.ReviewSchema)
+	require.LessOrEqual(t, len(ready.ReviewSchema), 64<<10)
+	require.Equal(t, ready.ReviewSchemaSHA256, nativeConnectionJoinedSchemaDigest(ready.ReviewSchema), "source oracle must use the exact pinned Action schema")
+	anthropicSchema := nativeConnectionJoinedAnthropicSchemaDigest(ready.ReviewSchema)
+	require.NotEmpty(t, anthropicSchema, "independent Anthropic schema oracle must preserve the original constraints")
 	for _, protocol := range protocols {
 		protocol.expectedSchema = ready.ReviewSchemaSHA256
+		protocol.expectedAnthropicSchema = anthropicSchema
 	}
 	a, err := newAuthority(AuthorityConfig{Origin: ready.CallbackOrigin, Credential: callback}, nil)
 	require.NoError(t, err)

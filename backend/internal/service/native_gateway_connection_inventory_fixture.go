@@ -178,9 +178,9 @@ func NewGatewayNativeExtensionFixtureDispatcher(gateway *OpenAIGatewayService) (
 			}
 			now := time.Now().UTC()
 			at, resetAt := now.Format(time.RFC3339Nano), reset.UTC().Format(time.RFC3339)
-			used, duration, label := float64(limit-remaining)*100/float64(limit), int64(60), "Requests"
+			used, duration := float64(limit-remaining)*100/float64(limit), int64(60)
 			snapshot := GatewayAccountLimitsSnapshotV2{Scope: "account", Windows: []GatewayAccountLimitWindowV2{{ID: "request_rate", Provider: GatewayNativeExtensionFixtureProvider, Dimension: "rate_limit", Unit: "requests",
-				Period: GatewayAccountLimitPeriodV2{Kind: "duration", DurationSeconds: &duration}, Label: &label, UsedPercent: &used, ObservedAt: &at, ResetAt: &resetAt}}}
+				Period: GatewayAccountLimitPeriodV2{Kind: "duration", DurationSeconds: &duration}, UsedPercent: &used, ObservedAt: &at, ResetAt: &resetAt}}}
 			bounded, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 			defer stop()
 			if err := repository.StoreGatewayNativeConnectionQuota(bounded, state.physical, GatewayProviderQuotaObservation{Limits: snapshot, ObservedAt: now}, 0); err != nil {

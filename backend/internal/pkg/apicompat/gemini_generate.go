@@ -132,8 +132,10 @@ func restoreGeminiNativeParts(chat *ChatCompletionsRequest, parts []GeminiGenera
 // ChatCompletionsToGeminiGenerateContent runs only after the common Responses
 // grammar and authenticated Gemini continuation restore. It preserves JSON
 // schemas and rejects an unsupported option instead of silently dropping it.
+// GenerateContent has no disable-parallel wire field: the matching stream
+// decoder enforces ParallelToolCalls=false before publishing a second call.
 func ChatCompletionsToGeminiGenerateContent(chat *ChatCompletionsRequest) ([]byte, error) {
-	if chat == nil || len(chat.Messages) == 0 || !chat.Stream || chat.ReasoningEffort != "" || chat.ParallelToolCalls != nil && !*chat.ParallelToolCalls {
+	if chat == nil || len(chat.Messages) == 0 || !chat.Stream || chat.ReasoningEffort != "" {
 		return nil, ErrGeminiContinuation
 	}
 	var contents []geminiGenerateContent
@@ -302,11 +304,16 @@ type GeminiGenerateStream struct {
 	Finished bool
 	parts    []GeminiGeneratePart
 	calls    int
+	maxCalls int
 	callIDs  map[string]bool
 }
 
-func NewGeminiGenerateStream(model string) *GeminiGenerateStream {
-	return &GeminiGenerateStream{ID: generateChatCmplID(), Model: model, Created: time.Now().Unix(), callIDs: map[string]bool{}}
+func NewGeminiGenerateStream(model string, parallelToolCalls *bool) *GeminiGenerateStream {
+	maxCalls := geminiContinuationMaxCalls
+	if parallelToolCalls != nil && !*parallelToolCalls {
+		maxCalls = 1
+	}
+	return &GeminiGenerateStream{ID: generateChatCmplID(), Model: model, Created: time.Now().Unix(), maxCalls: maxCalls, callIDs: map[string]bool{}}
 }
 
 func (s *GeminiGenerateStream) NativeParts() []GeminiGeneratePart { return s.parts }
@@ -387,7 +394,7 @@ func (s *GeminiGenerateStream) Push(raw []byte) (*ChatCompletionsChunk, error) {
 							return nil, ErrGeminiContinuation
 						}
 					}
-					if s.calls >= geminiContinuationMaxCalls || s.calls == 0 && part.ThoughtSignature == "" {
+					if s.calls >= s.maxCalls || s.calls == 0 && part.ThoughtSignature == "" {
 						return nil, ErrGeminiContinuation
 					}
 					id := part.FunctionCall.ID

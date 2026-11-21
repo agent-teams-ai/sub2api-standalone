@@ -210,7 +210,7 @@ func (s *OpenAIGatewayService) forwardGatewayNativeGemini(ctx context.Context, c
 		(response.Header.Get("Content-Encoding") != "" && response.Header.Get("Content-Encoding") != "identity") {
 		return nil, ErrGatewayNativeEffectUnknown
 	}
-	response.Body = newGatewayGeminiGenerateBody(response.Body, input.Model, wrapped, cancel)
+	response.Body = newGatewayGeminiGenerateBody(response.Body, input.Model, wrapped, input.ParallelToolCalls, cancel)
 	result, err := s.streamChatCompletionsAsResponses(c, response, input.Model, apicompat.CustomToolNames(tools), apicompat.FunctionToolNames(tools),
 		apicompat.HasToolSearchTool(tools), apicompat.NamespaceToolNames(tools), input.Model, input.Model, nil, nil, start)
 	if result != nil {
@@ -235,12 +235,12 @@ type gatewayGeminiGenerateBody struct {
 	done    bool
 }
 
-func newGatewayGeminiGenerateBody(source io.ReadCloser, model string, wrapped bool, cancel func()) *gatewayGeminiGenerateBody {
+func newGatewayGeminiGenerateBody(source io.ReadCloser, model string, wrapped bool, parallelToolCalls *bool, cancel func()) *gatewayGeminiGenerateBody {
 	idle := &gatewayNativeIdleReader{reader: source, idle: GatewayNativeProviderReadIdle, cancel: cancel}
 	scanner := bufio.NewScanner(idle)
 	scanner.Split(gatewayNativeRawSSELine)
 	scanner.Buffer(make([]byte, 4096), gatewayNativeSSEFrameLimit+1)
-	return &gatewayGeminiGenerateBody{source: source, scanner: scanner, state: apicompat.NewGeminiGenerateStream(model), wrapped: wrapped}
+	return &gatewayGeminiGenerateBody{source: source, scanner: scanner, state: apicompat.NewGeminiGenerateStream(model, parallelToolCalls), wrapped: wrapped}
 }
 
 func (r *gatewayGeminiGenerateBody) GeminiNativeParts() []apicompat.GeminiGeneratePart {
