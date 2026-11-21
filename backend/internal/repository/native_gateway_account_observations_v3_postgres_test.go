@@ -88,10 +88,14 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 		}
 		return nil
 	}
+	var cleanupRoute *service.GatewayNativeRoute
 	dependencies := service.GatewayNativeConnectionsDependencies{Journal: journal, Repository: rows, Custody: custody,
 		MaterialKey: bytes.Repeat([]byte{0x53}, 32), Methods: methods, Connect: owner, Refresh: owner,
 		Cleanup: func(context.Context, service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error) {
-			return service.GatewayNativeOAuthCleanupAuthority{}, service.ErrGatewayNativeIdentity
+			if cleanupRoute == nil {
+				return service.GatewayNativeOAuthCleanupAuthority{}, service.ErrGatewayNativeIdentity
+			}
+			return service.GatewayNativeOAuthCleanupAuthority{Owner: "observations-owner", LeaseExpiresAt: time.Now().Add(time.Minute), Native: cleanupRoute}, nil
 		}, Dispatchers: dispatchers, Gateway: gateway}
 	native, err := service.NewGatewayNativeConnections(dependencies)
 	require.NoError(t, err)
@@ -190,18 +194,27 @@ func TestGatewayNativeConnectionPostgresObservations(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "snapshot", recoveryModels.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]}).Status)
 
-	// A valid new credential revision committed during the owner recheck must
-	// discard the old snapshot. A later read binds the new revision/principal.
+	// Native cleanup committed during the owner recheck must discard the old
+	// snapshot. Reconnect binds a distinct birth/principal. No direct credential
+	// UPDATE bypasses the database's custody/refresh guards for this race.
 	route := routes[inputs[0].AccountRef]
-	rotated, err := custody.SealConnection(scopes[0].Scope, route.Publication, 2, json.RawMessage(`{"api_key":"rotated-observation-synthetic-secret"}`))
-	require.NoError(t, err)
+	cleanupRoute = &route.GatewayNativeRoute
 	authorityCalls = 0
 	afterAuthority = func() {
-		_, err := db.ExecContext(ctx, `UPDATE accounts SET credentials=jsonb_set(jsonb_set(credentials,'{connection_revision}',to_jsonb('2'::text)),'{connection_bundle}',to_jsonb($2::text)) WHERE id=$1`, route.AccountID, rotated)
+		_, err := native.Cleanup(ownerCtx, scopes[0], service.GatewayNativeOAuthCleanupRequest{Scope: scopes[0].Scope, Operation: scopes[0].Operation, Action: "erase", CleanupRef: "observation-cleanup", CleanupToken: "observation-cleanup-token"})
 		require.NoError(t, err)
 	}
 	require.Equal(t, "unavailable", models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]}).Status)
 	afterAuthority = nil
+	reconnected := scopes[0]
+	reconnected.Scope.Generation, reconnected.Operation = uuid.NewString(), "observation-reconnect-"+uuid.NewString()
+	created, err := native.Begin(ownerCtx, reconnected, map[string]string{"api_key": "rotated-observation-synthetic-secret"})
+	require.NoError(t, err)
+	require.Equal(t, "completed", created.State)
+	replacement, err := native.Describe(ownerCtx, reconnected)
+	require.NoError(t, err)
+	require.NotNil(t, replacement.Native)
+	routes[inputs[0].AccountRef] = *replacement.Native
 	current := models.Read(ownerCtx, service.GatewayAccountModelsInput{GatewayAccountLimitsInput: inputs[0]})
 	require.Equal(t, "snapshot", current.Status)
 	require.NotEqual(t, deepseek.PrincipalVersion, current.PrincipalVersion)

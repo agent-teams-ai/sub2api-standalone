@@ -16,6 +16,22 @@ func privateAccountCapabilitiesForProfiles(profiles []gatewaytransport.Qualified
 	info := oauth != nil && oauth.info != nil
 	imports := oauth != nil && oauth.connect != nil && oauth.dispatch != nil
 	for _, p := range profiles {
+		// A qualified mount does not by itself provide the control-plane
+		// lifecycle. V1 callers must only see methods with concrete routes.
+		switch p.Profile {
+		case service.GatewayCodexOAuthResponsesProfile:
+			if !imports {
+				continue
+			}
+		case service.GatewayClaudeOAuthMessagesProfile:
+			if oauth == nil || oauth.claude == nil {
+				continue
+			}
+		case service.GatewayGrokOAuthResponsesProfile:
+			if oauth == nil || oauth.grok == nil {
+				continue
+			}
+		}
 		// V1 only names mounts understood by its existing concrete routes. New
 		// native forms are projected through explicit V2 legacy aliases, never
 		// advertised to an old consumer with an unusable credential endpoint.

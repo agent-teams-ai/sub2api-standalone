@@ -820,15 +820,20 @@ type ChatStreamOptions struct {
 
 // ChatMessage is a single message in the Chat Completions conversation.
 type ChatMessage struct {
-	Role             string            `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
-	Content          json.RawMessage   `json:"content,omitempty"`
-	Refusal          string            `json:"refusal,omitempty"`
-	ReasoningContent string            `json:"reasoning_content,omitempty"`
-	Reasoning        string            `json:"reasoning,omitempty"`
-	Name             string            `json:"name,omitempty"`
-	ToolCalls        []ChatToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID       string            `json:"tool_call_id,omitempty"`
-	ExtraContent     *ChatExtraContent `json:"extra_content,omitempty"`
+	// Native GenerateContent replay is kept only inside the authenticated
+	// continuation codec. It is never serialized onto a Chat Completions wire.
+	GeminiNativeParts   []GeminiGeneratePart `json:"-"`
+	GeminiNativeSkip    bool                 `json:"-"`
+	GeminiNativeCallIDs map[string]string    `json:"-"`
+	Role                string               `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
+	Content             json.RawMessage      `json:"content,omitempty"`
+	Refusal             string               `json:"refusal,omitempty"`
+	ReasoningContent    string               `json:"reasoning_content,omitempty"`
+	Reasoning           string               `json:"reasoning,omitempty"`
+	Name                string               `json:"name,omitempty"`
+	ToolCalls           []ChatToolCall       `json:"tool_calls,omitempty"`
+	ToolCallID          string               `json:"tool_call_id,omitempty"`
+	ExtraContent        *ChatExtraContent    `json:"extra_content,omitempty"`
 
 	// Legacy function calling
 	FunctionCall *ChatFunctionCall `json:"function_call,omitempty"`

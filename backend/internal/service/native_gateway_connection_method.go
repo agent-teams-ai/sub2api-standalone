@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,10 +47,40 @@ type GatewayNativeConnectionMethodAdapter struct {
 	DispatchFamily          string
 	AccountType             string
 	Mount                   GatewayConnectionMount
-	Prepare                 func(map[string]string) (GatewayNativeConnectionPrepared, error)
-	Complete                func(context.Context, GatewayNativeConnectionScope, json.RawMessage, map[string]string) (GatewayNativeConnectionCredential, error)
-	RefreshNeeded           func(json.RawMessage, time.Time) (bool, error)
-	Refresh                 func(context.Context, GatewayNativeConnectionScope, json.RawMessage) (GatewayNativeConnectionCredential, error)
+	// Definition may supply choices for an inventory-declared configured
+	// select. It cannot change the primitive, fields or credential policy.
+	Definition    *GatewayConnectionMethodDefinition
+	Prepare       func(map[string]string) (GatewayNativeConnectionPrepared, error)
+	Complete      func(context.Context, GatewayNativeConnectionScope, json.RawMessage, map[string]string) (GatewayNativeConnectionCredential, error)
+	RefreshNeeded func(json.RawMessage, time.Time) (bool, error)
+	Refresh       func(context.Context, GatewayNativeConnectionScope, json.RawMessage) (GatewayNativeConnectionCredential, error)
+}
+
+func (a GatewayNativeConnectionMethodAdapter) definition() (GatewayConnectionMethodDefinition, error) {
+	definition, err := gatewayConnectionDefinition(GatewayNativeConnectionScope{Connection: a.Selection()})
+	if err != nil || a.Definition == nil {
+		return definition, err
+	}
+	configured := *a.Definition
+	if len(configured.Interaction.InputFields) != len(definition.Interaction.InputFields) || len(configured.Interaction.PreflightFields) != len(definition.Interaction.PreflightFields) {
+		return GatewayConnectionMethodDefinition{}, ErrGatewayNativeIdentity
+	}
+	definition.Interaction.InputFields = append([]GatewayConnectionField(nil), definition.Interaction.InputFields...)
+	definition.Interaction.PreflightFields = append([]GatewayConnectionField(nil), definition.Interaction.PreflightFields...)
+	for i, field := range definition.Interaction.InputFields {
+		if field.Kind == "select" && len(field.Choices) == 0 {
+			definition.Interaction.InputFields[i].Choices = append([]GatewayConnectionFieldChoice(nil), configured.Interaction.InputFields[i].Choices...)
+		}
+	}
+	for i, field := range definition.Interaction.PreflightFields {
+		if field.Kind == "select" && len(field.Choices) == 0 {
+			definition.Interaction.PreflightFields[i].Choices = append([]GatewayConnectionFieldChoice(nil), configured.Interaction.PreflightFields[i].Choices...)
+		}
+	}
+	if !reflect.DeepEqual(configured, definition) || !GatewayConnectionMethodValid(definition.Descriptor(a.ConfigurationGeneration, true)) {
+		return GatewayConnectionMethodDefinition{}, ErrGatewayNativeIdentity
+	}
+	return definition, nil
 }
 
 func (a GatewayNativeConnectionMethodAdapter) Selection() GatewayConnectionSelection {

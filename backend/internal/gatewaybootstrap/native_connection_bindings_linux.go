@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/gatewaytransport"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -50,6 +52,33 @@ func connectionConfigurationGeneration(c Config, profile gatewaytransport.Qualif
 		authorization = c.OAuth
 	case service.GatewayGrokOAuthResponsesProfile:
 		authorization = c.Grok
+	case "antigravity-responses-oauth-v1":
+		if fingerprint, err := antigravity.OAuthConfigurationFingerprint(); err == nil {
+			authorization = fingerprint
+		} else {
+			authorization = "deployment_configuration_required"
+		}
+	case "gemini-google-one-responses-oauth-v1", "gemini-code-assist-responses-oauth-v1", "gemini-ai-studio-responses-oauth-v1":
+		kind := "google_one"
+		if profile.Profile == "gemini-code-assist-responses-oauth-v1" {
+			kind = "code_assist"
+		} else if profile.Profile == "gemini-ai-studio-responses-oauth-v1" {
+			kind = "ai_studio"
+		}
+		input := geminicli.OAuthConfig{}
+		if c.GeminiOAuth != nil {
+			input.Scopes = c.GeminiOAuth.Scopes
+			if kind == "ai_studio" {
+				input.ClientID, input.ClientSecret = c.GeminiOAuth.ClientID, c.GeminiOAuth.ClientSecret
+			}
+		}
+		if effective, err := geminicli.EffectiveOAuthConfig(input, kind); err == nil {
+			authorization = effective
+		} else {
+			// A missing deployment dependency is an unavailable method. Its
+			// descriptor remains stable and carries no effective client material.
+			authorization = c.GeminiOAuth
+		}
 	}
 	raw, err := json.Marshal(struct {
 		Profile       gatewaytransport.QualifiedProfile
@@ -147,6 +176,9 @@ func composePrivateConnectionBindings(c Config, profiles []gatewaytransport.Qual
 				}
 				if _, duplicate := methods[method.MethodID]; duplicate {
 					return nil, ErrDenied
+				}
+				if configured, exists := adapter.MethodDefinitions[method.MethodID]; exists {
+					method = configured
 				}
 				methods[method.MethodID] = privateConnectionBinding{selection: selection, adapter: adapter}
 			}

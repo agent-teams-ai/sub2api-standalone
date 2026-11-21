@@ -32,6 +32,7 @@ type GatewayNativeConnections struct {
 	cleanup     GatewayNativeOAuthCleanupAuthorizer
 	dispatchers map[string]GatewayNativeConnectionDispatchAdapter
 	gateway     *OpenAIGatewayService
+	codex       *GatewayNativeOAuthDispatch
 }
 
 type GatewayNativeConnectionsDependencies struct {
@@ -45,6 +46,7 @@ type GatewayNativeConnectionsDependencies struct {
 	Cleanup     GatewayNativeOAuthCleanupAuthorizer
 	Dispatchers map[string]GatewayNativeConnectionDispatchAdapter
 	Gateway     *OpenAIGatewayService
+	Codex       *GatewayNativeOAuthDispatch
 }
 
 func NewGatewayNativeConnections(d GatewayNativeConnectionsDependencies) (*GatewayNativeConnections, error) {
@@ -66,6 +68,11 @@ func NewGatewayNativeConnections(d GatewayNativeConnectionsDependencies) (*Gatew
 	_, _ = derive.Write([]byte("account-gateway/native/oauth-import-mac-key/v1"))
 	s := &GatewayNativeConnections{journal: d.Journal, repository: d.Repository, custody: d.Custody, aead: aead, macKey: derive.Sum(nil),
 		methods: map[GatewayConnectionSelection]GatewayNativeConnectionMethodAdapter{}, connect: d.Connect, refresh: d.Refresh, cleanup: d.Cleanup, dispatchers: map[string]GatewayNativeConnectionDispatchAdapter{}, gateway: d.Gateway}
+	s.codex = d.Codex
+	if s.codex == nil {
+		client, headers := newGatewayCodexAccountCheckClient(nil)
+		s.codex = &GatewayNativeOAuthDispatch{client: client, accountCheckHeaders: headers, modelVersions: NewGatewayCodexVersionResolver(nil)}
+	}
 	for family, dispatch := range d.Dispatchers {
 		if !gatewayConnectionSemanticID.MatchString(family) || dispatch.Forward == nil || dispatch.ValidateRequest == nil {
 			return nil, ErrGatewayNativeIdentity
@@ -82,8 +89,12 @@ func NewGatewayNativeConnections(d GatewayNativeConnectionsDependencies) (*Gatew
 		if _, exists := s.methods[selection]; exists {
 			return nil, ErrGatewayNativeIdentity
 		}
-		if _, err := gatewayConnectionDefinition(GatewayNativeConnectionScope{Connection: selection}); err != nil {
+		definition, err := method.definition()
+		if err != nil {
 			return nil, err
+		}
+		if method.Definition != nil {
+			method.Definition = &definition
 		}
 		s.methods[selection] = method
 	}
@@ -113,7 +124,9 @@ func (s *GatewayNativeConnections) keyCommitment() string {
 }
 
 func nativeConnectionMaterialAAD(in GatewayNativeOAuthConnectIntent) []byte {
-	raw, _ := json.Marshal([]any{in.Scope, in.Operation, in.EnrollmentOperation, in.ClientID, in.Deadline, in.StateHash,
+	// PostgreSQL may return the same instant in the session's configured zone.
+	// Ciphertext identity binds the instant, not its presentation offset.
+	raw, _ := json.Marshal([]any{in.Scope, in.Operation, in.EnrollmentOperation, in.ClientID, in.Deadline.UTC(), in.StateHash,
 		in.ImportInputMAC, in.ImportClaimMAC, in.ImportKeyCommitment, in.Connection, in.NativeMount, in.NativeDispatchFamily, in.NativePlatform, in.NativeAccountType})
 	return append([]byte("account-gateway/native/connection-material/gcm1\x00"), raw...)
 }
@@ -166,9 +179,10 @@ func (s *GatewayNativeConnections) readIntent(ctx context.Context, in GatewayNat
 	}
 	if !time.Now().Before(saved.Deadline) {
 		state := ""
-		if saved.State == "prepared" {
+		switch saved.State {
+		case "prepared":
 			state = "expired"
-		} else if saved.State == "entered" {
+		case "entered":
 			state = "unknown"
 		}
 		if state != "" {
@@ -193,7 +207,8 @@ func (s *GatewayNativeConnections) Begin(ctx context.Context, in GatewayNativeCo
 		return GatewayNativeConnectionResult{}, err
 	}
 	method, found := s.methods[in.Connection]
-	if !found || gatewayConnectionInputFor(in, fields, false) != nil {
+	definition, definitionErr := method.definition()
+	if !found || definitionErr != nil || gatewayConnectionDefinitionInput(definition, fields, false) != nil {
 		return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
 	}
 	prepared, err := method.Prepare(fields)
@@ -202,8 +217,7 @@ func (s *GatewayNativeConnections) Begin(ctx context.Context, in GatewayNativeCo
 	}
 	defer clear(prepared.Material)
 	defer clear(prepared.EntryClaim)
-	definition, err := gatewayConnectionDefinition(in)
-	if err != nil || !GatewayCredentialAttestationValid(prepared.Credential) || !gatewayConnectionSemanticID.MatchString(prepared.AuthFamily) ||
+	if !GatewayCredentialAttestationValid(prepared.Credential) || !gatewayConnectionSemanticID.MatchString(prepared.AuthFamily) ||
 		len(prepared.EntryClaim) > GatewayConnectionInputBytes || len(prepared.Material) > GatewayConnectionInputBytes ||
 		(definition.Interaction.Kind == "credential_form" && len(prepared.EntryClaim) == 0) {
 		return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
@@ -269,12 +283,9 @@ func (s *GatewayNativeConnections) Submit(ctx context.Context, in GatewayNativeC
 		return GatewayNativeConnectionResult{}, err
 	}
 	method, found := s.methods[in.Connection]
-	if !found || gatewayConnectionInputFor(in, fields, true) != nil {
+	definition, definitionErr := method.definition()
+	if !found || definitionErr != nil || gatewayConnectionDefinitionInput(definition, fields, true) != nil {
 		return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
-	}
-	definition, err := gatewayConnectionDefinition(in)
-	if err != nil {
-		return GatewayNativeConnectionResult{}, err
 	}
 	if definition.Interaction.Kind == "credential_form" {
 		return s.Begin(ctx, in, fields)
@@ -300,7 +311,14 @@ func (s *GatewayNativeConnections) complete(ctx context.Context, in GatewayNativ
 		return s.Read(ctx, in)
 	}
 	saved.State = "entered"
-	bounded, cancel := context.WithTimeout(ctx, 20*time.Second)
+	// Native grants include bounded device polling (for example Grok SSO).
+	// Preserve the caller and durable intent deadlines while permitting the
+	// native grant's existing maximum instead of cutting it off mid-exchange.
+	deadline := time.Now().Add(90 * time.Second)
+	if saved.Deadline.Before(deadline) {
+		deadline = saved.Deadline
+	}
+	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	credential, effectErr := method.Complete(bounded, in, material, fields)
 	defer clear(credential.Document)
@@ -419,11 +437,15 @@ func (s *GatewayNativeConnections) Cleanup(ctx context.Context, in GatewayNative
 // from today's catalog. Only new Begin/Submit resolves a current exact binding.
 func (s *GatewayNativeConnections) RecoveryAdapter(profile string) GatewayNativeConnectionAdapter {
 	adapter := GatewayNativeConnectionAdapter{ProfileID: profile, Purpose: GatewayOAuthBundlePurpose,
-		Begin: s.Begin, Read: s.Read, Submit: s.Submit, Describe: s.Describe, Refresh: s.Maintain, Custody: s.Custody, Cleanup: s.Cleanup}
+		Begin: s.Begin, Read: s.Read, Submit: s.Submit, Describe: s.Describe, Refresh: s.Maintain, Custody: s.Custody, Cleanup: s.Cleanup,
+		MethodDefinitions: map[string]GatewayConnectionMethodDefinition{}}
 	for selection, method := range s.methods {
 		if selection.ProfileID == profile {
 			adapter.MethodIDs = append(adapter.MethodIDs, selection.MethodID)
 			adapter.DispatchFamily = method.DispatchFamily
+			if method.Definition != nil {
+				adapter.MethodDefinitions[selection.MethodID] = *method.Definition
+			}
 		}
 	}
 	if definition, found := LookupGatewayConnectionProfile(profile); found {

@@ -92,13 +92,6 @@ func runPrivateProviderQuota(ctx context.Context, db *sql.DB, c Config, gateway 
 		timer.Reset(time.Minute)
 	}
 }
-func collectPrivateQuota(ctx context.Context, db *sql.DB, p service.GatewayNativeOAuthPhysical, fetch func(context.Context) (service.GatewayAccountLimitsSnapshotV2, time.Time, error), cache service.GatewayAccountLimitsRepositoryV2) {
-	collectPrivateQuotaInfo(ctx, db, p, func(ctx context.Context) (service.GatewayProviderQuotaObservation, error) {
-		s, at, e := fetch(ctx)
-		return service.GatewayProviderQuotaObservation{Limits: s, ObservedAt: at}, e
-	}, cache)
-}
-
 func collectPrivateQuotaInfo(ctx context.Context, db *sql.DB, p service.GatewayNativeOAuthPhysical, fetch func(context.Context) (service.GatewayProviderQuotaObservation, error), cache service.GatewayAccountLimitsRepositoryV2) {
 	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()

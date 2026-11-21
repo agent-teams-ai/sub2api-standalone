@@ -248,6 +248,11 @@ func Run(ctx context.Context, options Options) error {
 			oauth.cleanup = authority.AuthorizeNativeOAuthCleanup
 		}
 	}
+	defer func() {
+		if oauth.gemini != nil {
+			oauth.gemini.Stop()
+		}
+	}()
 	connectionAdapters, err := composePrivateNativeConnections(c, repo, db, custody, gateway, oauth, tcfg.QualifiedProfiles())
 	if err != nil {
 		return ErrDenied
@@ -654,7 +659,8 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 				return
 			}
 			controller := http.NewResponseController(w)
-			if controller.SetReadDeadline(time.Now().Add(5*time.Second)) != nil || controller.SetWriteDeadline(time.Now().Add(15*time.Second)) != nil {
+			deadline := time.Now().Add(privateConnectionTimeout(strings.TrimPrefix(r.URL.Path, privateConnectionPrefix)) + 5*time.Second)
+			if controller.SetReadDeadline(time.Now().Add(5*time.Second)) != nil || controller.SetWriteDeadline(deadline) != nil {
 				http.Error(w, "private native bootstrap denied", http.StatusServiceUnavailable)
 				return
 			}
@@ -887,6 +893,7 @@ type privateOAuth struct {
 	info              *service.GatewayAccountInfoReader
 	connections       *privateConnections
 	nativeConnections *service.GatewayNativeConnections
+	gemini            *service.GeminiOAuthService
 }
 
 func composePrivateOAuth(repo service.AccountRepository, db *sql.DB, custody *service.GatewayNativeCredentialCustody, cfg *OAuthConfig, owners NativeOAuthOwnerAuthority) (*privateOAuth, error) {

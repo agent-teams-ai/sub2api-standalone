@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -35,6 +36,15 @@ func gatewayCodexImportLive(account *Account, now time.Time) bool {
 
 func gatewayCodexImportRequestHeaders(ctx context.Context, account *Account, request *http.Request) error {
 	if !GatewayNativeConnectionAccountAuthorized(ctx, account) || !gatewayCodexImportLive(account, time.Now()) {
+		return ErrGatewayNativeIdentity
+	}
+	return gatewayCodexImportSetHeaders(account, request)
+}
+
+// Pure native signing is reused by the separately authorized models read. The
+// caller owns the exact scope/version lock and fixed transport target.
+func gatewayCodexImportSetHeaders(account *Account, request *http.Request) error {
+	if request == nil || !gatewayCodexImportLive(account, time.Now()) {
 		return ErrGatewayNativeIdentity
 	}
 	if account.IsOpenAIAgentIdentity() {
@@ -99,7 +109,8 @@ func gatewayCodexImportRequestValid(request *http.Request, account *Account, nat
 		return false
 	}
 	signature, err := base64.StdEncoding.Strict().DecodeString(envelope["signature"])
-	return err == nil && ed25519.Verify(key.privateKey.Public().(ed25519.PublicKey), []byte(key.runtimeID+":"+key.taskID+":"+envelope["timestamp"]), signature)
+	publicKey, valid := key.privateKey.Public().(ed25519.PublicKey)
+	return err == nil && valid && ed25519.Verify(publicKey, []byte(key.runtimeID+":"+key.taskID+":"+envelope["timestamp"]), signature)
 }
 
 func (s *OpenAIGatewayService) forwardGatewayNativeCodexImport(ctx context.Context, c *gin.Context, account *Account, route GatewayNativeRoute, body []byte) (*OpenAIForwardResult, error) {
@@ -113,4 +124,36 @@ func (s *OpenAIGatewayService) forwardGatewayNativeCodexImport(ctx context.Conte
 		return nil, ErrGatewayNativeIdentity
 	}
 	return s.forwardGatewayNativeResponses(ctx, c, account, providerBody)
+}
+
+// A provider-confirmed task rejection prepares the existing refresh journal.
+// It never registers a new task or repeats inference in this invocation. After
+// its ordinary lease, an explicit Maintain can enter the saved refresh once.
+func gatewayCodexImportPrepareTaskRecovery(ctx context.Context, account *Account, response *http.Response) {
+	state, _ := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState)
+	if state == nil || state.account != account || !state.entered.Load() || response == nil || response.Body == nil ||
+		response.StatusCode != http.StatusUnauthorized || state.binding.native.Publication.AuthFamily != "codex_agent_identity" ||
+		response.Header.Get("Content-Encoding") != "" && response.Header.Get("Content-Encoding") != "identity" {
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 16385))
+	closeErr := response.Body.Close() // releases the original physical dispatch lock
+	response.Body = io.NopCloser(strings.NewReader(""))
+	defer clear(raw)
+	if err != nil || closeErr != nil || len(raw) > 16384 || !isAgentIdentityTaskInvalidHTTPResponse(response.StatusCode, raw) {
+		return
+	}
+	bounded, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer stop()
+	binding := state.binding
+	if binding.service == nil || !GatewayNativeConnectionAccountAuthorized(bounded, account) || binding.service.refresh(bounded, binding.in.Scope, binding.in.Operation) != nil {
+		return
+	}
+	physical := state.physical
+	publication := physical.Native.Publication
+	attempt := gatewayOAuthRotation(binding.in.Scope, physical.Native.AccountID, physical.Native.CreatedAt, physical.CredentialVersion)
+	attempt.ConnectOperation, attempt.NativePublication = binding.in.Operation, &publication
+	// A missing acknowledgement is never permission to enter; the next explicit
+	// maintenance reads this exact version/operation and its persisted state.
+	_, _ = binding.service.repository.PrepareGatewayNativeOAuthRefresh(bounded, attempt)
 }

@@ -35,9 +35,10 @@ type geminiContinuationItem struct {
 }
 
 type geminiContinuation struct {
-	Version  int                      `json:"version"`
-	Position string                   `json:"position"`
-	Items    []geminiContinuationItem `json:"items"`
+	Version     int                      `json:"version"`
+	Position    string                   `json:"position"`
+	Items       []geminiContinuationItem `json:"items"`
+	NativeParts []GeminiGeneratePart     `json:"nativeParts,omitempty"`
 }
 
 func geminiSignature(extra *ChatExtraContent) (string, error) {
@@ -123,7 +124,7 @@ func AttachGeminiContinuation(out *ResponsesResponse, source ChatMessage, codec 
 	return attachGeminiContinuation(out, source, codec, "after")
 }
 
-func attachGeminiContinuation(out *ResponsesResponse, source ChatMessage, codec GeminiContinuationCodec, position string) error {
+func attachGeminiContinuation(out *ResponsesResponse, source ChatMessage, codec GeminiContinuationCodec, position string, parts ...[]GeminiGeneratePart) error {
 	if out == nil || codec == nil || len(source.ToolCalls) > geminiContinuationMaxCalls {
 		return ErrGeminiContinuation
 	}
@@ -145,10 +146,14 @@ func attachGeminiContinuation(out *ResponsesResponse, source ChatMessage, codec 
 		}
 		signatures[call.ID] = sig
 	}
-	if len(signatures) == 0 && messageSignature == "" {
+	var nativeParts []GeminiGeneratePart
+	if len(parts) > 0 {
+		nativeParts = parts[0]
+	}
+	if len(signatures) == 0 && messageSignature == "" && !geminiGeneratePartsSigned(nativeParts) {
 		return nil
 	}
-	payload := geminiContinuation{Version: 1, Position: position, Items: []geminiContinuationItem{}}
+	payload := geminiContinuation{Version: 1, Position: position, Items: []geminiContinuationItem{}, NativeParts: nativeParts}
 	messageSeen := false
 	for _, item := range out.Output {
 		sig, include := signatures[item.CallID]
@@ -290,6 +295,7 @@ func RestoreGeminiContinuation(input json.RawMessage, chat *ChatCompletionsReque
 				group[left], group[right] = group[right], group[left]
 			}
 		}
+		nativeIndices := make(map[int]bool)
 		for offset, entry := range payload.Items {
 			if len(entry.Digest) != 64 || len(entry.CallID) > 512 {
 				return ErrGeminiContinuation
@@ -318,9 +324,14 @@ func RestoreGeminiContinuation(input json.RawMessage, chat *ChatCompletionsReque
 					}
 				}
 			}
-			if err := restoreGeminiItem(chat, item, entry.Signature, occurrence); err != nil {
+			messageIndex, err := restoreGeminiItem(chat, item, entry.Signature, occurrence)
+			if err != nil {
 				return err
 			}
+			nativeIndices[messageIndex] = true
+		}
+		if len(payload.NativeParts) > 0 && restoreGeminiNativeParts(chat, payload.NativeParts, nativeIndices) != nil {
+			return ErrGeminiContinuation
 		}
 	}
 	for _, message := range chat.Messages {
@@ -334,8 +345,9 @@ func RestoreGeminiContinuation(input json.RawMessage, chat *ChatCompletionsReque
 	return nil
 }
 
-func restoreGeminiItem(chat *ChatCompletionsRequest, item ResponsesOutput, signature string, occurrence int) error {
+func restoreGeminiItem(chat *ChatCompletionsRequest, item ResponsesOutput, signature string, occurrence int) (int, error) {
 	matched := 0
+	messageIndex := -1
 	for mi := range chat.Messages {
 		message := &chat.Messages[mi]
 		if message.Role != "assistant" {
@@ -355,10 +367,10 @@ func restoreGeminiItem(chat *ChatCompletionsRequest, item ResponsesOutput, signa
 					continue
 				}
 				if message.ExtraContent != nil {
-					return ErrGeminiContinuation
+					return -1, ErrGeminiContinuation
 				}
 				message.ExtraContent = geminiExtra(signature)
-				return nil
+				return mi, nil
 			}
 			continue
 		}
@@ -366,27 +378,38 @@ func restoreGeminiItem(chat *ChatCompletionsRequest, item ResponsesOutput, signa
 			call := &message.ToolCalls[ti]
 			if call.ID == item.CallID {
 				if call.ExtraContent != nil {
-					return ErrGeminiContinuation
+					return -1, ErrGeminiContinuation
 				}
 				call.ExtraContent = geminiExtra(signature)
 				matched++
+				messageIndex = mi
 			}
 		}
 	}
 	if matched != 1 {
-		return ErrGeminiContinuation
+		return -1, ErrGeminiContinuation
 	}
-	return nil
+	return messageIndex, nil
 }
 
 // GeminiContinuationStream retains only bounded opaque extension bytes. The
 // existing Chat stream state remains the sole owner of call IDs/arguments/text.
 type GeminiContinuationStream struct {
-	message string
-	calls   map[int]string
-	bytes   int
-	state   *ChatCompletionsToResponsesStreamState
-	itemID  string
+	nativeParts []GeminiGeneratePart
+	message     string
+	calls       map[int]string
+	bytes       int
+	state       *ChatCompletionsToResponsesStreamState
+	itemID      string
+}
+
+// SetNativeParts retains exact GenerateContent part boundaries, including
+// signature-only parts. The same AEAD carrier binds them to the public output;
+// concatenating text must never move a signature to another provider part.
+func (s *GeminiContinuationStream) SetNativeParts(parts []GeminiGeneratePart) {
+	if s != nil {
+		s.nativeParts = parts
+	}
 }
 
 func NewGeminiContinuationStream(state *ChatCompletionsToResponsesStreamState) *GeminiContinuationStream {
@@ -479,7 +502,7 @@ func (s *GeminiContinuationStream) Finalize(state *ChatCompletionsToResponsesStr
 	}
 	response := events[len(events)-1].Response
 	before := len(response.Output)
-	if err := attachGeminiContinuation(response, message, codec, "before"); err != nil {
+	if err := attachGeminiContinuation(response, message, codec, "before", s.nativeParts); err != nil {
 		return nil, err
 	}
 	carrier := ResponsesOutput{Type: "reasoning", ID: s.itemID, Status: "completed", Summary: []ResponsesSummary{}}

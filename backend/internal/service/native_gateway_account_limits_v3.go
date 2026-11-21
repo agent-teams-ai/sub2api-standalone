@@ -152,9 +152,10 @@ func projectGatewayAccountLimitsV1V3(profile string, old GatewayAccountLimitsRes
 		if previous.DurationSeconds != nil && previous.Basis == "duration" {
 			window.Period = GatewayAccountLimitPeriodV2{Kind: "duration", DurationSeconds: previous.DurationSeconds}
 			label := ""
-			if *previous.DurationSeconds == 5*60*60 {
+			switch *previous.DurationSeconds {
+			case 5 * 60 * 60:
 				label = "5h"
-			} else if *previous.DurationSeconds == 7*24*60*60 {
+			case 7 * 24 * 60 * 60:
 				label = "Week"
 			}
 			if label != "" {

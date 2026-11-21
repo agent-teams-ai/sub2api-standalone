@@ -257,7 +257,7 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 	}
 	calls, outputs := map[string]bool{}, map[string]bool{}
 	for _, rawItem := range items {
-		item, ok := gatewayClaudeObject(rawItem, "type", "role", "content", "call_id", "name", "arguments", "output")
+		item, ok := gatewayClaudeObject(rawItem, "type", "role", "content", "call_id", "name", "arguments", "output", "id", "status")
 		if !ok {
 			return false
 		}
@@ -267,11 +267,14 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 		}
 		switch kind {
 		case "", "message":
-			if _, valid := gatewayClaudeObject(rawItem, "type", "role", "content"); !valid {
+			if _, valid := gatewayClaudeObject(rawItem, "type", "role", "content", "id", "status"); !valid {
 				return false
 			}
 			var role string
 			if json.Unmarshal(item["role"], &role) != nil || (role != "user" && role != "assistant" && role != "system" && role != "developer") {
+				return false
+			}
+			if !gatewayClaudeOutputMetadata(item, role == "assistant") {
 				return false
 			}
 			if json.Unmarshal(item["content"], &text) == nil {
@@ -285,12 +288,22 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 				return false
 			}
 			for _, rawPart := range parts {
-				part, valid := gatewayClaudeObject(rawPart, "type", "text")
+				part, valid := gatewayClaudeObject(rawPart, "type", "text", "annotations", "logprobs")
 				var typ string
 				if !valid || json.Unmarshal(part["type"], &typ) != nil || (typ != "input_text" && typ != "output_text" && typ != "text") ||
 					role == "user" && typ == "output_text" || role == "assistant" && typ == "input_text" ||
 					json.Unmarshal(part["text"], &text) != nil || strings.TrimSpace(text) == "" {
 					return false
+				}
+				// The native Responses encoder includes these empty output fields.
+				// Nonempty values carry unsupported semantics and cannot be dropped.
+				for _, name := range []string{"annotations", "logprobs"} {
+					if value := part[name]; value != nil {
+						var entries []json.RawMessage
+						if role != "assistant" || typ != "output_text" || json.Unmarshal(value, &entries) != nil || len(entries) != 0 {
+							return false
+						}
+					}
 				}
 			}
 		case "function_call", "function_call_output":
@@ -299,7 +312,7 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 				return false
 			}
 			if kind == "function_call" {
-				if _, valid := gatewayClaudeObject(rawItem, "type", "call_id", "name", "arguments"); !valid {
+				if _, valid := gatewayClaudeObject(rawItem, "type", "call_id", "name", "arguments", "id", "status"); !valid || !gatewayClaudeOutputMetadata(item, true) {
 					return false
 				}
 				var name, arguments string
@@ -325,6 +338,24 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 	}
 	for id := range calls {
 		if !outputs[id] {
+			return false
+		}
+	}
+	return true
+}
+
+// A completed Responses output can be replayed as history without making its
+// item ID a server-side lookup or accepting an incomplete provider result.
+func gatewayClaudeOutputMetadata(item map[string]json.RawMessage, output bool) bool {
+	if raw := item["id"]; raw != nil {
+		var id string
+		if !output || json.Unmarshal(raw, &id) != nil || !gatewayConnectionTextValid(id, 512, false) {
+			return false
+		}
+	}
+	if raw := item["status"]; raw != nil {
+		var status string
+		if !output || json.Unmarshal(raw, &status) != nil || status != "completed" {
 			return false
 		}
 	}

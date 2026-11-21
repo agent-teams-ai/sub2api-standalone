@@ -67,7 +67,7 @@ func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuati
 
 func gatewayNativeConnectionGeminiProfile(profile string) bool {
 	definition, found := LookupGatewayConnectionProfile(profile)
-	return found && (definition.DispatchFamily == "gemini_chat" || definition.DispatchFamily == "vertex_gemini" || definition.DispatchFamily == "gemini_oauth")
+	return found && (definition.DispatchFamily == "gemini_chat" || definition.DispatchFamily == "vertex_gemini" || definition.DispatchFamily == "gemini_oauth" || definition.DispatchFamily == "antigravity")
 }
 
 func (c *gatewayGeminiContinuationCodec) aad(id string) []byte {

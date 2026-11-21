@@ -36,6 +36,10 @@ func gatewayConnectionInputFor(in GatewayNativeConnectionScope, input map[string
 	if err != nil {
 		return err
 	}
+	return gatewayConnectionDefinitionInput(method, input, completion)
+}
+
+func gatewayConnectionDefinitionInput(method GatewayConnectionMethodDefinition, input map[string]string, completion bool) error {
 	fields := method.Interaction.InputFields
 	if method.Interaction.Kind != "credential_form" {
 		fields = method.Interaction.PreflightFields

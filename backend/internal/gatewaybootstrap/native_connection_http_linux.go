@@ -15,6 +15,15 @@ import (
 
 const privateConnectionPrefix = "/private/native/v2/connections/"
 
+func privateConnectionTimeout(action string) time.Duration {
+	if action == "begin" || action == "submit" {
+		// Includes the native grant's bounded 90-second device conversion and
+		// its authority/readback work. The same source journal owns one entry.
+		return 95 * time.Second
+	}
+	return 15 * time.Second
+}
+
 // ServeHTTP is mounted behind the existing bounded management/cleanup lanes.
 // It delegates every lifecycle operation to native ports and retains no state.
 func (s *privateConnections) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +64,7 @@ func (s *privateConnections) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	bounded, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	bounded, cancel := context.WithTimeout(r.Context(), privateConnectionTimeout(action))
 	defer cancel()
 	scope := service.GatewayNativeConnectionScope{Scope: service.GatewayNativeCredentialScope{
 		Consumer: peer.ConsumerID, Owner: request.Owner, Account: request.Account, Generation: request.Generation, Purpose: adapter.Purpose,

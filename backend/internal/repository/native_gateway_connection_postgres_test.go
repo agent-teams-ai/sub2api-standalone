@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -37,9 +38,16 @@ func (r *connectionLostStageACK) StageGatewayNativeConnection(ctx context.Contex
 // replaces an upstream dispatch with a successful stub.
 func TestGatewayNativeConnectionPostgresLifecycleAndLostACK(t *testing.T) {
 	dsn := custodyPGDSN(t, "GATEWAY_NATIVE_CONNECTION_TEST_DSN", "native_connection_test_")
+	// The durable ciphertext must survive a database timestamp offset that
+	// differs from the UTC preparation instant, including after restart.
+	endpoint, err := url.Parse(dsn)
+	require.NoError(t, err)
+	query := endpoint.Query()
+	query.Set("TimeZone", "Asia/Shanghai")
+	endpoint.RawQuery = query.Encode()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	db, accounts := custodyPGOpen(t, ctx, dsn)
+	db, accounts := custodyPGOpen(t, ctx, endpoint.String())
 	rows, ok := accounts.(service.GatewayNativeConnectionRepository)
 	require.True(t, ok)
 	journal, err := NewGatewayNativeOAuthConnectRepository(db)

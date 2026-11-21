@@ -414,7 +414,11 @@ func (r *accountRepository) CompleteGatewayNativeOAuthRefresh(ctx context.Contex
 		if nativeErr != nil || physical.CredentialVersion != in.ExpectedVersion+1 || physical.Native.Publication != *in.NativePublication {
 			return empty, service.ErrGatewayNativeIdentity
 		}
-		if err := storeGatewayRefreshAccountInfoTx(ctx, tx, service.GatewayNativeConnectionInfoPhysical(physical), in.NativeAccountInfoObservations()); err != nil {
+		observations, err := nativeConnectionAccountInfoObservations(ctx, tx, physical.CredentialVersion, in.NativeAccountInfoObservations())
+		if err != nil {
+			return empty, err
+		}
+		if err := storeGatewayRefreshAccountInfoTx(ctx, tx, service.GatewayNativeConnectionInfoPhysical(physical), observations); err != nil {
 			return empty, err
 		}
 	}

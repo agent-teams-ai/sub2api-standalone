@@ -8,7 +8,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strconv"
 	"time"
 )
 
@@ -191,7 +190,7 @@ func GatewayNativeConnectionObservationPrincipal(p GatewayNativeConnectionPhysic
 }
 
 func gatewayConnectionOpenRouterPrincipal(p GatewayNativeConnectionPhysical) string {
-	return gatewayConnectionModelPrincipal(p.Scope, p.Native.Publication.Connection) + ":" + strconv.FormatInt(p.CredentialVersion, 10)
+	return GatewayNativeConnectionObservationPrincipal(p)
 }
 
 func (s *GatewayNativeConnections) ReadModels(ctx context.Context, in GatewayAccountModelsInput) GatewayAccountModelsResultV2 {
@@ -206,7 +205,9 @@ func (s *GatewayNativeConnections) ReadModels(ctx context.Context, in GatewayAcc
 		return GatewayAccountModelsResultV2{Status: "unsupported"}
 	}
 	var result GatewayAccountModelsResult
-	if p.Native.Profile == GatewayOpenRouterResponsesProfile {
+	if p.Native.Publication.DispatchFamily == "codex_responses" {
+		result = s.codexImportModels(ctx, p, in.ForceRefresh)
+	} else if p.Native.Profile == GatewayOpenRouterResponsesProfile {
 		if s.gateway == nil || s.gateway.gatewayOpenRouterModels == nil {
 			return GatewayAccountModelsResultV2{Status: "unavailable"}
 		}
@@ -287,7 +288,9 @@ func (s *GatewayNativeConnections) GatewayNativeConnectionModelAllowed(ctx conte
 		return false
 	}
 	models := GatewayNativeConnectionModels(native.Profile, native.Model)
-	if native.Profile == GatewayOpenRouterResponsesProfile {
+	if native.Publication.DispatchFamily == "codex_responses" {
+		models = s.cachedCodexImportModels(p)
+	} else if native.Profile == GatewayOpenRouterResponsesProfile {
 		if s.gateway == nil || s.gateway.gatewayOpenRouterModels == nil {
 			return false
 		}

@@ -72,6 +72,7 @@ type GatewayNativeConnectionAdapter struct {
 	// Recovery is independent from today's enabled creation methods. Saved
 	// operations keep their immutable receipts when a mount is removed.
 	RecoveryMethodIDs []string
+	MethodDefinitions map[string]GatewayConnectionMethodDefinition
 	DispatchFamily    string
 	AuthFamily        string
 	Begin             func(context.Context, GatewayNativeConnectionScope, map[string]string) (GatewayNativeConnectionResult, error)

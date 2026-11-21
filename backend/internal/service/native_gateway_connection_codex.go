@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 // The native mobile importer uses this fixed client. Input never selects an
 // issuer, audience, token endpoint or a different OAuth application.
 const gatewayCodexMobileClientID = "app_LlGpXReQgckcGGUo2JrYvtJK"
+
+var gatewayCodexIdentityID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$`)
 
 func gatewayCodexImportDocument(method string, input map[string]string) (map[string]any, GatewayCredentialAttestation, string, []byte, error) {
 	deny := func() (map[string]any, GatewayCredentialAttestation, string, []byte, error) {
@@ -45,7 +48,7 @@ func gatewayCodexImportDocument(method string, input map[string]string) (map[str
 			return deny()
 		}
 		var value any = content
-		if strings.HasPrefix(content, "{") || strings.HasPrefix(content, "[") {
+		if strings.HasPrefix(content, "{") || strings.HasPrefix(content, "[") || strings.HasPrefix(content, `"`) {
 			// Validate duplicates/depth/one complete JSON document before selecting
 			// the one record accepted by this owner-scoped operation.
 			wrapped := append([]byte(`{"entry":`), []byte(content)...)
@@ -74,8 +77,8 @@ func gatewayCodexImportDocument(method string, input map[string]string) (map[str
 			return deny()
 		}
 		if parsed.IsAgentIdentity {
-			if !GatewayNativeCredentialRefValid(parsed.AgentRuntimeID) || !GatewayNativeCredentialRefValid(parsed.AccountID) || !GatewayNativeCredentialRefValid(parsed.UserID) ||
-				parsed.AgentTaskID != "" && !GatewayNativeCredentialRefValid(parsed.AgentTaskID) {
+			if !gatewayCodexIdentityID.MatchString(parsed.AgentRuntimeID) || !gatewayCodexIdentityID.MatchString(parsed.AccountID) || !gatewayCodexIdentityID.MatchString(parsed.UserID) ||
+				parsed.AgentTaskID != "" && !gatewayCodexIdentityID.MatchString(parsed.AgentTaskID) {
 				return deny()
 			}
 			document["auth_mode"], document["agent_runtime_id"], document["agent_private_key"] = OpenAIAuthModeAgentIdentity, parsed.AgentRuntimeID, parsed.AgentPrivateKey
@@ -84,20 +87,39 @@ func gatewayCodexImportDocument(method string, input map[string]string) (map[str
 			// A supplied task ID is not trusted as an active provider task. Native
 			// registers the runtime once, inside the already entered operation.
 			credential = GatewayCredentialAttestation{CredentialKind: "native", CredentialPolicy: "delegated_identity", RefreshPolicy: "native"}
-			family, claim = "codex_agent_identity", []byte(parsed.AgentPrivateKey)
+			key, err := agentIdentityPrivateKey(&Account{Credentials: map[string]any{"agent_private_key": parsed.AgentPrivateKey}})
+			if err != nil {
+				return deny()
+			}
+			// Equivalent PKCS#8/base64 spellings are the same secret. The
+			// one-entry MAC must not change when the import adds line breaks.
+			family, claim = "codex_agent_identity", key.Seed()
+			clear(key)
 		} else {
 			if !gatewayImportTokenValid(parsed.AccessToken) || strings.HasPrefix(parsed.AccessToken, "at-") || parsed.RefreshToken != "" && !gatewayImportTokenValid(parsed.RefreshToken) {
 				return deny()
 			}
 			document["access_token"], claim = parsed.AccessToken, []byte(parsed.AccessToken)
-			if claims, err := openai.DecodeIDToken(parsed.AccessToken); err == nil && claims.Exp > 0 {
-				expiry := time.Unix(claims.Exp, 0).UTC()
+			var expiry time.Time
+			if parsed.TokenExpiresAt != nil {
+				expiry = *parsed.TokenExpiresAt
 				if !expiry.After(time.Now()) {
+					return deny()
+				}
+			}
+			if claims, err := openai.DecodeIDToken(parsed.AccessToken); err == nil && claims.Exp > 0 {
+				jwtExpiry := time.Unix(claims.Exp, 0).UTC()
+				if expiry.IsZero() || jwtExpiry.Before(expiry) {
+					expiry = jwtExpiry
+				}
+			}
+			if !expiry.IsZero() {
+				if !expiry.After(time.Now()) || expiry.Year() < 1 || expiry.Year() > 9999 {
 					return deny()
 				}
 				// An unverified expiry is only a local denial bound, never display
 				// metadata or an authenticated provider identity.
-				document["expires_at"] = expiry.Format(time.RFC3339Nano)
+				document["expires_at"] = expiry.UTC().Format(time.RFC3339Nano)
 			}
 			if parsed.RefreshToken != "" {
 				document["refresh_token"], document["client_id"] = parsed.RefreshToken, openai.ClientID
@@ -201,6 +223,7 @@ func NewGatewayNativeCodexImportMethods(generation string, mount GatewayConnecti
 					return empty, ErrGatewayNativeIdentity
 				}
 				document = (&OpenAIOAuthService{}).BuildAccountCredentials(info)
+				defer clear(document)
 				fields := GatewayAccountInfoEmptyFields(GatewayCodexOAuthResponsesProfile)
 				at := time.Now().UTC()
 				if gatewayInfoText(info.Email, 320) {
@@ -212,7 +235,7 @@ func NewGatewayNativeCodexImportMethods(generation string, mount GatewayConnecti
 				observations = append(observations, GatewayAccountInfoObservation{Source: "account_check", Fields: fields})
 			case "codex_agent_identity":
 				task, err := registerAgentIdentityTaskWithClient(ctx, account, client)
-				if err != nil || !GatewayNativeCredentialRefValid(task) {
+				if err != nil || !gatewayCodexIdentityID.MatchString(task) {
 					return empty, ErrGatewayNativeIdentity
 				}
 				document["task_id"] = task

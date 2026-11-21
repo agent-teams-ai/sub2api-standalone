@@ -575,6 +575,8 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a {
 		if state.binding.native.Publication.DispatchFamily == "codex_responses" {
 			target, err = GatewayCodexOAuthBaseURL+"/responses", nil
+		} else if state.binding.native.Profile == GatewayGrokOAuthResponsesProfile && a.Type == AccountTypeOAuth {
+			target, err = GatewayGrokOAuthBaseURL+"/v1/responses", nil
 		} else {
 			_, target, err = s.gatewayNativeAPIKeyConnectionTarget(a, state.binding.native.Profile, state.requestedModel)
 		}
@@ -604,6 +606,11 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 	}
 	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a && state.binding.native.Publication.DispatchFamily == "codex_responses" {
 		if err := gatewayCodexImportRequestHeaders(ctx, a, request); err != nil {
+			return nil, err
+		}
+	}
+	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a && state.binding.native.Profile == GatewayGrokOAuthResponsesProfile && a.Type == AccountTypeOAuth {
+		if err := gatewayGrokImportRequestHeaders(ctx, a, request); err != nil {
 			return nil, err
 		}
 	}
@@ -709,6 +716,7 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 		captureGatewayGrokPassiveLimits(ctx, resp.Header)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		gatewayCodexImportPrepareTaskRecovery(ctx, a, resp)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			diagnostic := gatewayNativeRateLimitEvidence(resp.Body, resp.Header)
 			rateLimit = &diagnostic

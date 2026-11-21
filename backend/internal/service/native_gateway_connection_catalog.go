@@ -275,6 +275,8 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 			p.MetadataSources = []string{"plan_quota"}
 		case "gemini-google-one-responses-oauth-v1", "gemini-code-assist-responses-oauth-v1", "gemini-ai-studio-responses-oauth-v1":
 			p.MetadataSources = []string{"account_check", "credential", "user_declaration"}
+		case "antigravity-responses-oauth-v1":
+			p.MetadataSources = []string{"credential"}
 		}
 		switch p.ProfileID {
 		case GatewayCodexOAuthResponsesProfile, GatewayClaudeOAuthMessagesProfile:

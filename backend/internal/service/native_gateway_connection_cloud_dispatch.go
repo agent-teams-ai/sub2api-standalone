@@ -3,8 +3,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -15,14 +17,42 @@ import (
 // These adapters reuse the native signing, cloud request shaping, EventStream
 // decoder and strict Messages-to-Responses consumer. Only the existing owned
 // upstream can make the inference request, through its final physical fence.
-func NewGatewayNativeCloudDispatchers(gateway *OpenAIGatewayService) (map[string]GatewayNativeConnectionDispatchAdapter, error) {
+func NewGatewayNativeCloudDispatchers(gateway *OpenAIGatewayService, transports ...http.RoundTripper) (map[string]GatewayNativeConnectionDispatchAdapter, error) {
 	if gateway == nil || gateway.httpUpstream == nil {
 		return nil, ErrGatewayNativeIdentity
 	}
+	client, err := newGatewayNativeCloudTokenClient(transports...)
+	if err != nil {
+		return nil, err
+	}
+	forward := func(ctx context.Context, c *gin.Context, account *Account, route GatewayNativeRoute, body []byte) (*OpenAIForwardResult, error) {
+		return gateway.forwardGatewayNativeCloud(context.WithValue(ctx, gatewayNativeCloudTokenClientKey{}, client), c, account, route, body)
+	}
 	return map[string]GatewayNativeConnectionDispatchAdapter{
-		"bedrock_messages": {Forward: gateway.forwardGatewayNativeCloud, ValidateRequest: gatewayCloudRequestValid},
-		"vertex_messages":  {Forward: gateway.forwardGatewayNativeCloud, ValidateRequest: gatewayCloudRequestValid},
+		"bedrock_messages": {Forward: forward, ValidateRequest: gatewayCloudRequestValid},
+		"vertex_messages":  {Forward: forward, ValidateRequest: gatewayCloudRequestValid},
 	}, nil
+}
+
+type gatewayNativeCloudTokenClientKey struct{}
+
+// Composition owns token transport; neither the submitted SA JSON nor an
+// ordinary account cache can select a proxy, redirect or token endpoint.
+func newGatewayNativeCloudTokenClient(transports ...http.RoundTripper) (*http.Client, error) {
+	if len(transports) > 1 {
+		return nil, ErrGatewayNativeIdentity
+	}
+	var transport http.RoundTripper
+	if len(transports) == 1 {
+		transport = transports[0]
+	}
+	if transport == nil {
+		transport = &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext, TLSHandshakeTimeout: 5 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second, MaxResponseHeaderBytes: 16 << 10, MaxConnsPerHost: 2,
+			DisableKeepAlives: true, DisableCompression: true}
+	}
+	return &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
 func gatewayCloudRequestValid(request *http.Request, account *Account, native GatewayNativePublishedRoute, model string) bool {

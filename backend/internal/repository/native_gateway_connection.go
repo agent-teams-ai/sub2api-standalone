@@ -99,7 +99,11 @@ func (r *accountRepository) StageGatewayNativeConnection(ctx context.Context, en
 		return empty, service.ErrGatewayOAuthConflict
 	}
 	physical := service.GatewayNativeConnectionPhysical{Scope: saved.Scope, Operation: saved.Operation, Native: service.GatewayNativePublishedRoute{GatewayNativeRoute: route, Publication: enrollment.Publication}, CredentialVersion: 1}
-	for _, observation := range enrollment.Observations {
+	observations, err := nativeConnectionAccountInfoObservations(ctx, tx, physical.CredentialVersion, enrollment.Observations)
+	if err != nil {
+		return empty, err
+	}
+	for _, observation := range observations {
 		if err := storeGatewayAccountInfoTx(ctx, tx, service.GatewayNativeConnectionInfoPhysical(physical), observation, false); err != nil {
 			return empty, err
 		}
@@ -108,6 +112,31 @@ func (r *accountRepository) StageGatewayNativeConnection(ctx context.Context, en
 		return empty, service.ErrGatewayNativeIdentity
 	}
 	return physical.Native, nil
+}
+
+// Native method ports report provider facts; the journal owns their committed
+// credential revision and sequence. The first birth has no concurrent readers,
+// and refresh owns the next revision exclusively until this transaction commits.
+// Existing producers that already reserved a source order keep that order.
+func nativeConnectionAccountInfoObservations(ctx context.Context, tx *sql.Tx, revision int64, input []service.GatewayAccountInfoObservation) ([]service.GatewayAccountInfoObservation, error) {
+	if len(input) > service.GatewayAccountInfoMaxSources || revision < 1 {
+		return nil, service.ErrGatewayNativeIdentity
+	}
+	observations := append([]service.GatewayAccountInfoObservation(nil), input...)
+	var order int64
+	for i := range observations {
+		observation := &observations[i]
+		if observation.CredentialRevision == 0 {
+			observation.CredentialRevision = revision
+		}
+		if observation.Order == 0 {
+			if order == 0 && (tx.QueryRowContext(ctx, `SELECT nextval('gateway_account_info_source_order')`).Scan(&order) != nil || order < 1 || order > 9007199254740991) {
+				return nil, service.ErrGatewayNativeIdentity
+			}
+			observation.Order = order
+		}
+	}
+	return observations, nil
 }
 
 func nativeConnectionPhysicalTx(ctx context.Context, tx *sql.Tx, scope service.GatewayNativeCredentialScope, operation string, erased bool) (service.GatewayNativeConnectionPhysical, error) {

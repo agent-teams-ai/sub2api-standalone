@@ -306,6 +306,12 @@ func claudeToken(value string) bool {
 }
 
 func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string]any, previous *gatewayClaudeBundle) (gatewayClaudeBundle, error) {
+	return s.exchangeWithPolicy(ctx, body, previous, false)
+}
+
+// Setup-token grants can return an inference-only access token. The original
+// browser/refresh path keeps its stricter refreshable, ninety-day policy.
+func (s *GatewayNativeClaudeOAuth) exchangeWithPolicy(ctx context.Context, body map[string]any, previous *gatewayClaudeBundle, allowAccessOnly bool) (gatewayClaudeBundle, error) {
 	var empty gatewayClaudeBundle
 	var infoOrder int64
 	if source, ok := s.repository.(interface {
@@ -360,7 +366,13 @@ func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string
 			UUID string `json:"uuid"`
 		} `json:"organization"`
 	}
-	if json.Unmarshal(response, &token) != nil || !claudeToken(token.AccessToken) || !claudeToken(token.RefreshToken) || !strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > 90*24*60*60 {
+	maximumExpiry := int64(90 * 24 * 60 * 60)
+	if allowAccessOnly {
+		maximumExpiry = 366 * 24 * 60 * 60
+	}
+	if json.Unmarshal(response, &token) != nil || !claudeToken(token.AccessToken) ||
+		(!allowAccessOnly || token.RefreshToken != "") && !claudeToken(token.RefreshToken) ||
+		!strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > maximumExpiry {
 		return empty, ErrGatewayNativeIdentity
 	}
 	hasInference := false
@@ -392,7 +404,10 @@ func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string
 	if !claudeUUID(b.Account) || !claudeUUID(b.Organization) {
 		return empty, ErrGatewayNativeIdentity
 	}
-	if infoOrder > 0 {
+	if infoOrder > 0 || s.repository == nil {
+		// Generic native imports call this bounded exchange without an ordinary
+		// repository. Their existing connection journal assigns observation order
+		// while staging the credential and its authenticated account facts.
 		// A refresh may omit the entire optional account object. That partial
 		// response cannot erase facts from an earlier authenticated account read.
 		if token.Account != nil {

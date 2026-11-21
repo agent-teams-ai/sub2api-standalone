@@ -129,6 +129,7 @@ func (s *GatewayNativeOAuthDispatch) RetainedCustody(ctx context.Context, scope 
 		return out, ErrGatewayNativeIdentity
 	}
 	bundle, err := s.custody.openOAuthVersion(a.GetCredential("oauth_bundle"), persistedScope, version)
+	defer clear(bundle.SensitiveMetadata)
 	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, bundle.Connection) {
 		return out, ErrGatewayNativeIdentity
 	}
