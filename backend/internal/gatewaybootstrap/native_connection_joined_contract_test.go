@@ -24,6 +24,7 @@ type nativeConnectionJoinedRow struct {
 	Completion          []nativeConnectionJoinedCompletion `json:"completion,omitempty"`
 	ReconnectFields     map[string]string                  `json:"reconnectFields,omitempty"`
 	ReconnectCompletion []nativeConnectionJoinedCompletion `json:"reconnectCompletion,omitempty"`
+	ReconnectCustody    bool                               `json:"reconnectCustody,omitempty"`
 	CredentialKind      string                             `json:"credentialKind"`
 	CredentialPolicy    string                             `json:"credentialPolicy"`
 	RefreshPolicy       string                             `json:"refreshPolicy"`

@@ -407,7 +407,8 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 	defer func() { _ = transport.Stop(context.Background()) }()
 	handler.install(privateHandler(cfg.Profile, adminSvc, gateway, custody, transport, peers, oauth))
 	require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "continue"}))
-	var terminal struct{ Phase, Contract, RowID string }
+	var terminal struct{ Phase, Contract, RowID, AccountRef, Generation string }
+	reconnectCustody, reconnectErasure := map[string]bool{}, map[string]bool{}
 	var nativeServiceRecompositions int
 	var withdrawnCapabilities *service.GatewayAccountCapabilitiesV2
 	var nativeSecretScans int
@@ -436,6 +437,24 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 				peer.Select()
 			}
 			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "case-ready", "rowId": terminal.RowID}))
+		case "reconnect-custody":
+			peer := active.Load()
+			require.NotNil(t, peer)
+			require.Equal(t, peer.Row.ID, terminal.RowID)
+			require.True(t, peer.Row.ReconnectCustody)
+			require.False(t, reconnectCustody[terminal.RowID])
+			requireNativeConnectionJoinedReconnect(t, ctx, build, peer.Row, consumer, terminal.AccountRef, terminal.Generation)
+			reconnectCustody[terminal.RowID] = true
+			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "reconnect-custody-verified", "rowId": terminal.RowID}))
+		case "reconnect-erasure":
+			require.Equal(t, active.Load().Row.ID, terminal.RowID)
+			require.True(t, reconnectCustody[terminal.RowID])
+			require.False(t, reconnectErasure[terminal.RowID])
+			requireNativeConnectionJoinedErasure(t, ctx, db)
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_oauth_connect_intents WHERE material_envelope <> ''`).Scan(&count))
+			require.Zero(t, count, "retirement erased every saved input envelope")
+			reconnectErasure[terminal.RowID] = true
+			require.NoError(t, json.NewEncoder(stdin).Encode(map[string]string{"phase": "reconnect-erasure-verified", "rowId": terminal.RowID}))
 		case "authorize":
 			peer := active.Load()
 			require.NotNil(t, peer)
@@ -521,6 +540,9 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 		counts := protocols[row.ID].counts()
 		if peer.Counters != nil {
 			counts["source"] = peer.Counters()
+		}
+		if row.ReconnectCustody {
+			counts["reconnectCustodyVerified"], counts["reconnectErasureVerified"] = reconnectCustody[row.ID], reconnectErasure[row.ID]
 		}
 		receipts[row.ID] = counts
 	}

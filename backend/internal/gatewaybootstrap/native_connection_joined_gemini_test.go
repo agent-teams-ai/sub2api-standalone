@@ -5,6 +5,7 @@ package gatewaybootstrap
 import (
 	"crypto/rsa"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -37,7 +38,8 @@ func newNativeConnectionJoinedGeminiFamily(t *testing.T, cfg *Config, express bo
 		model, secret := "gemini-3.1-pro-preview", "joined-google-key-"+uuid.NewString()
 		initialRefresh, replacementRefresh := "joined-google-refresh-"+uuid.NewString(), "joined-google-refresh-"+uuid.NewString()
 		fields := map[string]string{"api_key": secret, "project_id": "selected-project", "location": "us-central1"}
-		var reconnect map[string]string
+		reconnect := maps.Clone(fields)
+		reconnect["api_key"] = "joined-google-replacement-" + uuid.NewString()
 		var key *rsa.PrivateKey
 		const email = "fixture@gemini-project.iam.gserviceaccount.com"
 		clientID, redirect, wrapped := "", "", false
@@ -47,10 +49,13 @@ func newNativeConnectionJoinedGeminiFamily(t *testing.T, cfg *Config, express bo
 			var document string
 			key, document = nativeConnectionJoinedServiceAccount(t, email, "gemini-project")
 			fields = map[string]string{"service_account_json": document, "project_id": "selected-project", "location": "us-central1"}
+			reconnect = maps.Clone(fields)
+			_, reconnect["service_account_json"] = nativeConnectionJoinedServiceAccount(t, email, "gemini-project")
 		} else if variant == "express_projectless" {
 			base = "https://aiplatform.googleapis.com"
 			endpoint = base + "/v1/publishers/google/models/" + model + ":streamGenerateContent?alt=sse"
 			fields = map[string]string{"api_key": secret}
+			reconnect = map[string]string{"api_key": "joined-google-replacement-" + uuid.NewString()}
 		} else if variant != "project_region" {
 			method, kind, policy, refreshPolicy = "browser", "oauth", "subscription_session", "native"
 			base, clientID, redirect, wrapped = geminicli.GeminiCliBaseURL, geminicli.GeminiCLIOAuthClientID, geminicli.GeminiCLIRedirectURI, true
@@ -71,7 +76,8 @@ func newNativeConnectionJoinedGeminiFamily(t *testing.T, cfg *Config, express bo
 					profile, method, base, wrapped = "antigravity-target-responses-apikey-v1", "api_key", "https://qualified-native.example.test", false
 					kind, policy, refreshPolicy = "api_key", "provider_key", "none"
 					fields = map[string]string{"api_key": secret, "target_id": "joined-connections", "project_id": "declared-project"}
-					reconnect = nil
+					reconnect = maps.Clone(fields)
+					reconnect["api_key"] = "joined-google-replacement-" + uuid.NewString()
 				}
 			}
 			endpoint = base + "/v1internal:streamGenerateContent?alt=sse"
@@ -91,7 +97,8 @@ func newNativeConnectionJoinedGeminiFamily(t *testing.T, cfg *Config, express bo
 		require.True(t, ok)
 		peer := &nativeConnectionJoinedPeer{Protocol: "gemini", Row: nativeConnectionJoinedRow{
 			ID: nativeConnectionJoinedRowID(profile, method, variant), ProfileID: profile, MethodID: method, Variant: variant, Fields: fields, ReconnectFields: reconnect,
-			CredentialKind: kind, CredentialPolicy: policy, RefreshPolicy: refreshPolicy, Provider: definition.Provider.ID, Model: model, ExecutionFamily: definition.DispatchFamily, Execute: true,
+			ReconnectCustody: strings.HasPrefix(method, "vertex_") || method == "api_key",
+			CredentialKind:   kind, CredentialPolicy: policy, RefreshPolicy: refreshPolicy, Provider: definition.Provider.ID, Model: model, ExecutionFamily: definition.DispatchFamily, Execute: true,
 		}}
 		var lock sync.Mutex
 		access, refresh, code, challenge := "joined-google-access-"+uuid.NewString(), initialRefresh, "", ""

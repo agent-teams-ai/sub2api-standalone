@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -85,12 +86,26 @@ func newNativeConnectionJoinedCloudFamily(t *testing.T, _ *Config) nativeConnect
 			key, document = nativeConnectionJoinedServiceAccount(t, email, "source-project")
 			fields = map[string]string{"service_account_json": document, "project_id": "selected-project", "location": "us-east5"}
 		}
+		reconnect := maps.Clone(fields)
+		switch method {
+		case "aws_sigv4":
+			reconnect["access_key_id"] = "AKIA" + strings.ReplaceAll(uuid.NewString(), "-", "")
+			reconnect["secret_access_key"] = "joined-cloud-replacement-" + uuid.NewString()
+			if session != "" {
+				reconnect["session_token"] = "joined-cloud-session-replacement-" + uuid.NewString()
+			}
+		case "bedrock_api_key":
+			reconnect["api_key"] = "joined-cloud-replacement-" + uuid.NewString()
+		case "vertex_service_account":
+			_, reconnect["service_account_json"] = nativeConnectionJoinedServiceAccount(t, email, "source-project")
+		}
 		definition, ok := service.LookupGatewayConnectionProfile(profile.Profile)
 		require.True(t, ok)
 		var tokens atomic.Int64
 		peer := &nativeConnectionJoinedPeer{Protocol: protocol, Row: nativeConnectionJoinedRow{
-			ID: nativeConnectionJoinedRowID(profile.Profile, method, variant), ProfileID: profile.Profile, MethodID: method, Variant: variant, Fields: fields,
-			CredentialKind: kind, CredentialPolicy: "cloud_identity", RefreshPolicy: "none", Provider: definition.Provider.ID, Model: profile.Model, ExecutionFamily: definition.DispatchFamily, Execute: true,
+			ID: nativeConnectionJoinedRowID(profile.Profile, method, variant), ProfileID: profile.Profile, MethodID: method, Variant: variant, Fields: fields, ReconnectFields: reconnect,
+			ReconnectCustody: true,
+			CredentialKind:   kind, CredentialPolicy: "cloud_identity", RefreshPolicy: "none", Provider: definition.Provider.ID, Model: profile.Model, ExecutionFamily: definition.DispatchFamily, Execute: true,
 		}}
 		if key != nil {
 			peer.Handle = func(w http.ResponseWriter, r *http.Request) bool {

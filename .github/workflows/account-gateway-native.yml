@@ -161,10 +161,15 @@ jobs:
         env:
           GATEWAY_NATIVE_OAUTH_CONNECT_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_oauth_connect_test_ci?sslmode=disable
           GATEWAY_NATIVE_OAUTH_RECONNECT_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_oauth_reconnect_test_ci?sslmode=disable
+          GATEWAY_NATIVE_GROK_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_grok_test_legacy_ci?sslmode=disable
+          GATEWAY_NATIVE_OAUTH_DISPATCH_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_oauth_dispatch_test_legacy_ci?sslmode=disable
+          GATEWAY_NATIVE_OAUTH_REFRESH_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_oauth_refresh_test_legacy_ci?sslmode=disable
         run: |
           set -o pipefail
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_oauth_connect_test_ci
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_oauth_reconnect_test_ci
+          docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_grok_test_legacy_ci
+          docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_oauth_dispatch_test_legacy_ci
           go test -tags unit ./internal/handler/admin -run '^TestGatewayOAuthDescriptorHTTPJoinedSuccessWire$' -count=1 -v | tee "$RUNNER_TEMP/native-oauth-joined-wire.log"
           test "$(grep -c '^--- PASS: TestGatewayOAuthDescriptorHTTPJoinedSuccessWire ' "$RUNNER_TEMP/native-oauth-joined-wire.log")" -eq 1
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-oauth-joined-wire.log"; then exit 1; fi
@@ -174,6 +179,16 @@ jobs:
           go test -tags unit ./internal/repository -run '^TestGatewayNativeOAuthReconnectPostgresClaimsAndBackfill$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-oauth-reconnect-pg.log"
           test "$(grep -c '^--- PASS: TestGatewayNativeOAuthReconnectPostgresClaimsAndBackfill ' "$RUNNER_TEMP/native-oauth-reconnect-pg.log")" -eq 1
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-oauth-reconnect-pg.log"; then exit 1; fi
+          go test -tags gatewaycustody ./internal/repository -run '^TestGatewayNative(GrokPostgresProtectedOAuthLifecycle|OAuthDispatchPostgresQualificationRefreshFence)$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-legacy-dispatch-pg.log"
+          for critical in TestGatewayNativeGrokPostgresProtectedOAuthLifecycle TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence; do
+            test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-legacy-dispatch-pg.log")" -eq 1
+          done
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-legacy-dispatch-pg.log"; then exit 1; fi
+          # Fenced refresh requires a populated compatible purpose database.
+          docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test --template=gateway_oauth_dispatch_test_legacy_ci gateway_oauth_refresh_test_legacy_ci
+          go test -tags gatewaycustody ./internal/repository -run '^TestGatewayNativeOAuthPostgresFencedRefresh$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-legacy-refresh-pg.log"
+          test "$(grep -c '^--- PASS: TestGatewayNativeOAuthPostgresFencedRefresh ' "$RUNNER_TEMP/native-legacy-refresh-pg.log")" -eq 1
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-legacy-refresh-pg.log"; then exit 1; fi
 
       - name: Claude OAuth lifecycle, passive quota and protected Messages transport
         working-directory: backend
