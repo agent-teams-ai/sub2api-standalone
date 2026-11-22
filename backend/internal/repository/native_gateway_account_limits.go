@@ -11,7 +11,7 @@ import (
 
 // No credential values or legacy usage/Extra statistics are selected. Exact
 // qualification, enrollment commitment and physical birth own this provenance.
-const gatewayLimitsPhysicalSQL = `SELECT q.issuer,q.subject,q.provider_account_id,q.operation_ref
+const gatewayLimitsPhysicalSQL = `SELECT q.issuer,q.subject,q.provider_account_id,q.operation_ref,COALESCE(c.connection_binding::text,'')
  FROM gateway_oauth_profile_qualifications q
  JOIN accounts a ON a.id=q.account_id AND a.created_at=q.native_created_at
  JOIN gateway_oauth_identity_reservations r ON r.account_id=q.account_id
@@ -69,7 +69,13 @@ func (r *accountRepository) gatewayLimitsTransactionMode(ctx context.Context, sc
 		_ = tx.Rollback()
 		return nil, p, service.ErrGatewayNativeIdentity
 	}
-	err = tx.QueryRowContext(ctx, gatewayLimitsPhysicalSQL, route.AccountID, route.CreatedAt, scope.Consumer, scope.Owner, scope.Account, scope.Generation, route.Profile, route.BaseURL, route.Model).Scan(&p.Issuer, &p.Subject, &p.ProviderAccount, &p.Operation)
+	// Account-info shares this physical read and binds its principal to the
+	// original method selection, even for account-only metadata HTTP requests.
+	var binding []byte
+	err = tx.QueryRowContext(ctx, gatewayLimitsPhysicalSQL, route.AccountID, route.CreatedAt, scope.Consumer, scope.Owner, scope.Account, scope.Generation, route.Profile, route.BaseURL, route.Model).Scan(&p.Issuer, &p.Subject, &p.ProviderAccount, &p.Operation, &binding)
+	if err == nil {
+		p.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, p, service.ErrGatewayNativeIdentity

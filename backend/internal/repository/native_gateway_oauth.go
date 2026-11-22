@@ -515,10 +515,11 @@ func (r *accountRepository) ResolveGatewayNativeOAuthRefresh(ctx context.Context
 		return deny()
 	}
 	var issuer, subject, providerAccount, infoPrincipal string
+	var binding []byte
 	var qualifiedAt sql.NullTime
 	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.created_at,gateway_oauth_credential_version(a.credentials),a.credentials->>'oauth_bundle',
  r.issuer,r.subject,COALESCE(q.provider_account_id,''),q.qualified_at,COALESCE((SELECT i.principal_version
- FROM gateway_account_info_snapshots i WHERE i.account_id=a.id AND i.native_created_at=a.created_at AND i.generation=c.generation),'')
+ FROM gateway_account_info_snapshots i WHERE i.account_id=a.id AND i.native_created_at=a.created_at AND i.generation=c.generation),''),COALESCE(c.connection_binding::text,'')
  FROM accounts a JOIN gateway_oauth_identity_reservations r ON r.account_id=a.id
  JOIN gateway_oauth_connect_intents c ON c.consumer=r.consumer AND c.owner_ref=r.owner_ref
  AND c.account_ref=r.account_ref AND c.generation=r.generation
@@ -547,15 +548,19 @@ func (r *accountRepository) ResolveGatewayNativeOAuthRefresh(ctx context.Context
 	if err != nil {
 		return deny()
 	}
-	if !rows.Next() || rows.Scan(&out.AccountID, &out.CreatedAt, &out.Version, &out.Envelope, &issuer, &subject, &providerAccount, &qualifiedAt, &infoPrincipal) != nil || rows.Next() || rows.Err() != nil {
+	if !rows.Next() || rows.Scan(&out.AccountID, &out.CreatedAt, &out.Version, &out.Envelope, &issuer, &subject, &providerAccount, &qualifiedAt, &infoPrincipal, &binding) != nil || rows.Next() || rows.Err() != nil {
 		_ = rows.Close()
 		return deny()
 	}
 	if rows.Close() != nil {
 		return deny()
 	}
+	connection, err := service.DecodeGatewayConnectionSelection(binding)
+	if err != nil {
+		return deny()
+	}
 	out.Qualified = qualifiedAt.Valid
-	physical := service.GatewayNativeOAuthPhysical{Scope: scope, Operation: operation, Issuer: issuer, Subject: subject, ProviderAccount: providerAccount,
+	physical := service.GatewayNativeOAuthPhysical{Connection: connection, Scope: scope, Operation: operation, Issuer: issuer, Subject: subject, ProviderAccount: providerAccount,
 		Route: service.GatewayNativeRoute{AccountID: out.AccountID, CreatedAt: out.CreatedAt, Generation: scope.Generation,
 			Profile: service.GatewayCodexOAuthResponsesProfile, BaseURL: service.GatewayCodexOAuthBaseURL, Model: service.GatewayCodexOAuthModel}}
 	out.AccountInfoInitialized = out.Qualified && infoPrincipal == service.GatewayAccountInfoPrincipal(physical)
