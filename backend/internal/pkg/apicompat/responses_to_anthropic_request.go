@@ -516,7 +516,7 @@ func normalizeAnthropicToolPairing(messages []AnthropicMessage) []AnthropicMessa
 				}
 				continue
 			}
-			asstBlocks := make([]AnthropicContentBlock, 0, len(others)+len(kept))
+			asstBlocks := make([]AnthropicContentBlock, 0, len(blocks))
 			asstBlocks = append(asstBlocks, others...)
 			asstBlocks = append(asstBlocks, kept...)
 			out = append(out, anthropicMessageFromBlocks("assistant", asstBlocks))
