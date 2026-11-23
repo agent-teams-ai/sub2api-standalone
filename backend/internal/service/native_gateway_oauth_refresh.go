@@ -152,7 +152,7 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 	// back by the same operation without decrypting or entering a second time.
 	// A completed rotation must still be persisted when optional metadata HTTP
 	// observes caller cancellation. SQL retains the original deadline/identity fence.
-	completeCtx, stopComplete := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
+	completeCtx, stopComplete := gatewayOAuthRefreshCompletionContext(callCtx, prepared.Deadline)
 	defer stopComplete()
 	outcome, err := s.repository.CompleteGatewayNativeOAuthRefresh(completeCtx, in, prepared.Fence, envelope)
 	if err != nil {
@@ -166,6 +166,18 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 	}
 	return outcome, nil
 }
+
+// Caller cancellation cannot discard an already issued rotation, but detached
+// completion must still expire with its prepared lease. The separate bounded
+// readback/unknown contexts may outlive that lease because they do not publish.
+func gatewayOAuthRefreshCompletionContext(ctx context.Context, preparedDeadline time.Time) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(2 * time.Second)
+	if preparedDeadline.Before(deadline) {
+		deadline = preparedDeadline
+	}
+	return context.WithDeadline(context.WithoutCancel(ctx), deadline)
+}
+
 func (s *GatewayNativeOAuthRefresh) exchange(ctx context.Context, refresh, issuer, subject string) (GatewayNativeOAuthBundle, error) {
 	deny := func() (GatewayNativeOAuthBundle, error) { return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity }
 	// No proxy/origin/header input, ordinary OAuth service, inference, or retry.

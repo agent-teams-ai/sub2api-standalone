@@ -84,7 +84,7 @@ func (s *GatewayNativeConnections) Maintain(ctx context.Context, in GatewayNativ
 	defer cancel()
 	credential, err := method.Refresh(bounded, in, previous)
 	defer clear(credential.Document)
-	completeCtx, stopComplete := context.WithTimeout(context.WithoutCancel(bounded), 2*time.Second)
+	completeCtx, stopComplete := gatewayOAuthRefreshCompletionContext(bounded, prepared.Deadline)
 	defer stopComplete()
 	if err != nil || credential.Credential != publication.Credential || credential.AuthFamily != publication.AuthFamily || s.refresh(completeCtx, in.Scope, in.Operation) != nil {
 		return unknown()

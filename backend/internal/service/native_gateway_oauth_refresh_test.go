@@ -25,6 +25,8 @@ func TestGatewayNativeOAuthRefreshSignedHTTPContainment(t *testing.T) {
 	var tokenCalls, jwksCalls, destinationCalls atomic.Int32
 	var receivedHeaders atomic.Bool
 	var verifyClockAdvance atomic.Bool
+	var trainingCalls atomic.Int32
+	var trainingCancel atomic.Value
 	destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { destinationCalls.Add(1) }))
 	defer destination.Close()
 	refresh := gatewayOAuthGuardFixtureOpaque()
@@ -34,6 +36,18 @@ func TestGatewayNativeOAuthRefreshSignedHTTPContainment(t *testing.T) {
 	goodID, badID := signed("reserved-subject"), signed("foreign-subject")
 	nextAccess, nextRefresh := gatewayOAuthGuardFixtureOpaque(), gatewayOAuthGuardFixtureOpaque()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "chatgpt.com" {
+			require.Equal(t, "/backend-api/settings/account_user_setting", r.URL.Path)
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			require.Equal(t, "Bearer "+nextAccess, r.Header.Get("Authorization"))
+			cancel, ok := trainingCancel.Load().(context.CancelFunc)
+			require.True(t, ok, "only the explicit metadata cancellation scenario may call settings")
+			trainingCalls.Add(1)
+			cancel()
+			<-r.Context().Done()
+			return
+		}
 		require.Equal(t, "auth.openai.com", r.Host)
 		if r.URL.Path == "/.well-known/jwks.json" {
 			jwksCalls.Add(1)
@@ -102,7 +116,7 @@ func TestGatewayNativeOAuthRefreshSignedHTTPContainment(t *testing.T) {
 	defer transport.CloseIdleConnections()
 	transport.TLSClientConfig.ServerName = "example.com"
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		if address == "auth.openai.com:443" {
+		if address == "auth.openai.com:443" || address == "chatgpt.com:443" {
 			address = server.Listener.Addr().String()
 		} else {
 			require.Equal(t, destination.Listener.Addr().String(), address)
@@ -342,6 +356,44 @@ func TestGatewayNativeOAuthRefreshSignedHTTPContainment(t *testing.T) {
 			require.Zero(t, destinationCalls.Load())
 		})
 	}
+	t.Run("metadata cancellation preserves bounded authorized completion", func(t *testing.T) {
+		mode.Store(0)
+		scope := GatewayNativeCredentialScope{Consumer: "consumer", Owner: "owner", Account: "account", Generation: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Purpose: GatewayOAuthBundlePurpose}
+		owner, err := WithGatewayNativeConsumer(context.Background(), scope.Consumer)
+		require.NoError(t, err)
+		owner, err = WithGatewayNativeOAuthOwner(owner, scope.Owner)
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(owner)
+		defer cancel()
+		trainingCancel.Store(cancel)
+		old := GatewayNativeOAuthBundle{AccessToken: gatewayOAuthGuardFixtureOpaque(), RefreshToken: refresh, IDToken: goodID, SensitiveMetadata: json.RawMessage(`{"private":"old-custody"}`)}
+		envelope, err := custody.SealOAuthBundle(scope, old)
+		require.NoError(t, err)
+		in := GatewayNativeOAuthRefreshIntent{Scope: scope, AccountID: 1, CreatedAt: time.Now().Truncate(time.Microsecond), ExpectedVersion: 1, Operation: "metadata-cancel-refresh", Intent: "rotate"}
+		observer := &refreshContextObserver{prepared: GatewayNativeOAuthRefreshPrepared{Outcome: GatewayNativeOAuthRefreshOutcome{Operation: in.Operation, State: "prepared"}, Fence: 1, Deadline: time.Now().Add(8 * time.Second), Claimed: true, Envelope: envelope, Issuer: GatewayOAuthIssuer, Subject: "reserved-subject"}}
+		refresher, err := NewGatewayNativeOAuthRefresh(&refreshInfoContextObserver{observer}, custody, verifier, transport)
+		require.NoError(t, err)
+		beforeTokens, beforeTraining := tokenCalls.Load(), trainingCalls.Load()
+		out, err := refresher.Refresh(ctx, in)
+		require.ErrorIs(t, err, ErrGatewayNativeIdentity, "the context observer intentionally never commits SQL")
+		require.Equal(t, "unknown", out.State)
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+		require.Equal(t, beforeTokens+1, tokenCalls.Load())
+		require.Equal(t, beforeTraining+1, trainingCalls.Load(), "cancellation happened during actual authenticated metadata HTTP")
+		require.True(t, observer.completionCalled)
+		require.True(t, observer.completionInitiallyLive, "caller cancellation must not suppress publication of the issued rotation")
+		require.True(t, observer.completionAuthorized, "detaching cancellation must preserve owner and consumer context")
+		require.Positive(t, observer.completionDeadline.Sub(observer.completionStarted))
+		require.LessOrEqual(t, observer.completionDeadline.Sub(observer.completionStarted), 2*time.Second)
+		require.True(t, observer.completionDeadline.Before(observer.prepared.Deadline), "long leases retain the bounded completion budget")
+		require.True(t, observer.cleanupLive)
+		require.Equal(t, envelope, observer.prepared.Envelope)
+		replayed, err := refresher.Refresh(owner, in)
+		require.NoError(t, err)
+		require.Equal(t, out, replayed)
+		require.Equal(t, beforeTokens+1, tokenCalls.Load(), "unknown never repeats token exchange")
+		require.Equal(t, beforeTraining+1, trainingCalls.Load())
+	})
 	// Negative control: dropping the production redirect policy really contacts
 	// the destination before the eventual fixed-origin check rejects its response.
 	mode.Store(3)
@@ -367,10 +419,13 @@ func (o *refreshHeaderObserver) RoundTrip(r *http.Request) (*http.Response, erro
 // A context observer holds completion until cancellation; it does not emulate
 // SQL publication, version validation or transaction expiry.
 type refreshContextObserver struct {
-	prepared           GatewayNativeOAuthRefreshPrepared
-	completionCalled   bool
-	completionDeadline time.Time
-	cleanupLive        bool
+	prepared                GatewayNativeOAuthRefreshPrepared
+	completionCalled        bool
+	completionDeadline      time.Time
+	completionStarted       time.Time
+	completionInitiallyLive bool
+	completionAuthorized    bool
+	cleanupLive             bool
 }
 
 func (o *refreshContextObserver) PrepareGatewayNativeOAuthRefresh(context.Context, GatewayNativeOAuthRefreshIntent) (GatewayNativeOAuthRefreshPrepared, error) {
@@ -381,8 +436,11 @@ func (o *refreshContextObserver) EnterGatewayNativeOAuthRefresh(context.Context,
 	o.prepared.Outcome.State = "entered"
 	return true, nil
 }
-func (o *refreshContextObserver) CompleteGatewayNativeOAuthRefresh(ctx context.Context, _ GatewayNativeOAuthRefreshIntent, _ int64, _ string) (GatewayNativeOAuthRefreshOutcome, error) {
+func (o *refreshContextObserver) CompleteGatewayNativeOAuthRefresh(ctx context.Context, in GatewayNativeOAuthRefreshIntent, _ int64, _ string) (GatewayNativeOAuthRefreshOutcome, error) {
 	o.completionCalled = true
+	o.completionStarted = time.Now()
+	o.completionInitiallyLive = ctx.Err() == nil
+	o.completionAuthorized = in.Authorized(ctx)
 	o.completionDeadline, _ = ctx.Deadline()
 	<-ctx.Done()
 	return GatewayNativeOAuthRefreshOutcome{}, ctx.Err()
@@ -394,6 +452,14 @@ func (o *refreshContextObserver) UnknownGatewayNativeOAuthRefresh(ctx context.Co
 		o.prepared.Outcome.State = "unknown"
 	}
 	return nil
+}
+
+// Only this scenario opts into the optional metadata producer. It retains the
+// context observer's absence of successful SQL publication behavior.
+type refreshInfoContextObserver struct{ *refreshContextObserver }
+
+func (*refreshInfoContextObserver) ReserveGatewayAccountInfoOrder(context.Context) (int64, error) {
+	return 1, nil
 }
 
 // This sentinel has no successful behavior and prevents a transport-only test

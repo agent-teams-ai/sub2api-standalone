@@ -90,8 +90,10 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// Fields the snapshot intentionally strips. Credentials = long-lived secret
 	// (refresh_token) not handed out by ResolveOutboundIdentity. Groups/AccountGroups
 	// = relational graphs with back-references that would cycle under encoding/json.
+	// AccountInfo is an authorized admin/private-reader projection excluded from
+	// the plugin snapshot by its json:"-" tag on Account.
 	stripped := map[string]struct{}{
-		"Credentials": {}, "Groups": {}, "AccountGroups": {},
+		"Credentials": {}, "Groups": {}, "AccountGroups": {}, "AccountInfo": {},
 	}
 	// Fields intentionally exposed as readable metadata (incl. Extra and Proxy —
 	// the proxy password is already handed out via ResolveOutboundIdentity's URL).
@@ -121,18 +123,31 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		}
 	}
 
-	// The raw Credentials blob must never serialize; Extra and the proxy ARE released.
+	// Credentials and the separately authorized AccountInfo must never serialize;
+	// Extra and the proxy ARE released.
+	privateEmail := "private-projection@example.test"
+	accountInfo := &GatewayAccountInfo{
+		Status:       "known",
+		InfoRevision: "private-projection-revision",
+		Fields: &GatewayAccountInfoFields{
+			Email: GatewayAccountFact[string]{Status: "known", Value: &privateEmail},
+		},
+	}
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
 		Credentials: map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
 		Extra:       map[string]any{"opaque": "extra-released"},
 		Proxy:       &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
+		AccountInfo: accountInfo,
 	}
 	snap := accountReadableSnapshotJSON(acct)
 	require.NotNil(t, snap)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(snap, &m))
 	assert.NotContains(t, string(snap), "LEAK-REFRESH", "raw Credentials must never appear in metadata")
+	assert.NotContains(t, m, "AccountInfo", "the plugin snapshot does not carry the private projection")
+	assert.NotContains(t, string(snap), privateEmail, "private account facts require their own authorized reader")
+	assert.NotContains(t, string(snap), accountInfo.InfoRevision, "private projection metadata must not leak")
 	assert.Contains(t, string(snap), "extra-released", "Extra is intentionally released")
 	assert.Contains(t, string(snap), "pw-released", "proxy is intentionally released (already exposed via 打票)")
 
@@ -152,6 +167,7 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	assert.NotNil(t, acct.Credentials, "snapshot must not mutate the source account")
 	assert.NotNil(t, acct.Proxy, "snapshot must not mutate the source account")
 	assert.Len(t, acct.Groups, 1, "snapshot must not mutate the source account's Groups")
+	assert.Same(t, accountInfo, acct.AccountInfo, "snapshot must retain the source account's private projection")
 }
 
 func TestListPluginAccounts_ExcludesNonActiveDefenseInDepth(t *testing.T) {
