@@ -283,11 +283,18 @@ func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAc
 }
 
 func exchangeVertexServiceAccountTokenWithClient(ctx context.Context, key *vertexServiceAccountKey, client *http.Client) (string, time.Duration, error) {
+	// The imported service-account token_uri is untrusted. Resolve the endpoint
+	// from package-owned configuration, not from the credential object.
+	// Protected Native requests must always use Google, including in tests.
+	tokenURL := vertexServiceAccountTokenURL
+	if HTTPUpstreamRedirectsDisabled(ctx) {
+		tokenURL = vertexDefaultTokenURL
+	}
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":   key.ClientEmail,
 		"scope": vertexCloudPlatformScope,
-		"aud":   key.TokenURI,
+		"aud":   tokenURL,
 		"iat":   now.Unix(),
 		"exp":   now.Add(time.Hour).Unix(),
 	}
@@ -308,7 +315,7 @@ func exchangeVertexServiceAccountTokenWithClient(ctx context.Context, key *verte
 	values.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 	values.Set("assertion", assertion)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, key.TokenURI, strings.NewReader(values.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return "", 0, err
 	}
