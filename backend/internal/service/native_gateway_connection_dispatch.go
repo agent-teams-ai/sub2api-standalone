@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
@@ -50,6 +52,7 @@ type gatewayConnectionDispatchState struct {
 	physical       GatewayNativeConnectionPhysical
 	account        *Account
 	credentials    [32]byte
+	credentialMACKey [32]byte
 	requestedModel string
 	entered        atomic.Bool
 }
@@ -93,8 +96,11 @@ func GatewayNativeConnectionDispatchBound(ctx context.Context) bool {
 	return ok
 }
 
-func gatewayConnectionDocument(raw json.RawMessage) (map[string]any, [32]byte, error) {
+func gatewayConnectionDocument(raw json.RawMessage, macKey *[32]byte) (map[string]any, [32]byte, error) {
 	var zero [32]byte
+	if macKey == nil {
+		return nil, zero, ErrGatewayNativeIdentity
+	}
 	if _, err := gatewayOAuthJSON(raw); err != nil {
 		return nil, zero, err
 	}
@@ -109,7 +115,13 @@ func gatewayConnectionDocument(raw json.RawMessage) (map[string]any, [32]byte, e
 		return nil, zero, ErrGatewayNativeIdentity
 	}
 	defer clear(canonical)
-	return document, sha256.Sum256(canonical), nil
+	// A request-local keyed MAC checks credential continuity; the secret is never
+	// used as a password verifier or hashed into a reusable cache identifier.
+	mac := hmac.New(sha256.New, macKey[:])
+	_, _ = mac.Write(canonical)
+	var digest [32]byte
+	copy(digest[:], mac.Sum(nil))
+	return document, digest, nil
 }
 
 // ForwardGatewayNativeConnection is the generic private transport hook. The
@@ -150,7 +162,14 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 		release()
 		return nil, false, err
 	}
-	credentials, digest, err := gatewayConnectionDocument(raw)
+	var macKey [32]byte
+	if _, err := rand.Read(macKey[:]); err != nil {
+		clear(raw)
+		release()
+		return nil, false, ErrGatewayNativeIdentity
+	}
+	defer clear(macKey[:])
+	credentials, digest, err := gatewayConnectionDocument(raw, &macKey)
 	clear(raw)
 	if err != nil {
 		release()
@@ -168,7 +187,9 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 	transient.Credentials = credentials
 	defer clear(credentials)
 	release()
-	state := &gatewayConnectionDispatchState{binding: binding, physical: physical, account: transient, credentials: digest, requestedModel: model}
+	state := &gatewayConnectionDispatchState{binding: binding, physical: physical, account: transient, credentials: digest, credentialMACKey: macKey, requestedModel: model}
+	defer clear(state.credentialMACKey[:])
+	defer clear(state.credentials[:])
 	ctx, finishUsage, err := withGatewayNativeConnectionUsage(ctx, physical.Native.Publication, model, &state.entered)
 	if err != nil {
 		return nil, false, err
@@ -224,9 +245,10 @@ func CheckGatewayNativeConnectionDispatch(request *http.Request, account *Accoun
 	if marshalErr != nil {
 		return noop, true, ErrGatewayNativeIdentity
 	}
-	digest := sha256.Sum256(canonical)
+	mac := hmac.New(sha256.New, state.credentialMACKey[:])
+	_, _ = mac.Write(canonical)
 	clear(canonical)
-	if digest != state.credentials {
+	if !hmac.Equal(mac.Sum(nil), state.credentials[:]) {
 		return noop, true, ErrGatewayNativeIdentity
 	}
 	s := state.binding.service
@@ -250,10 +272,10 @@ func CheckGatewayNativeConnectionDispatch(request *http.Request, account *Accoun
 		unlock()
 		return noop, true, ErrGatewayNativeIdentity
 	}
-	freshDocument, freshDigest, decodeErr := gatewayConnectionDocument(raw)
+	freshDocument, freshDigest, decodeErr := gatewayConnectionDocument(raw, &state.credentialMACKey)
 	clear(freshDocument)
 	clear(raw)
-	if decodeErr != nil || freshDigest != state.credentials {
+	if decodeErr != nil || !hmac.Equal(freshDigest[:], state.credentials[:]) {
 		unlock()
 		return noop, true, ErrGatewayNativeIdentity
 	}
@@ -281,9 +303,10 @@ func GatewayNativeConnectionAccountAuthorized(ctx context.Context, account *Acco
 	if err != nil {
 		return false
 	}
-	digest := sha256.Sum256(canonical)
+	mac := hmac.New(sha256.New, state.credentialMACKey[:])
+	_, _ = mac.Write(canonical)
 	clear(canonical)
-	if digest != state.credentials || !reflect.DeepEqual(account.Extra, state.physical.Account.Extra) {
+	if !hmac.Equal(mac.Sum(nil), state.credentials[:]) || !reflect.DeepEqual(account.Extra, state.physical.Account.Extra) {
 		return false
 	}
 	fresh, release, err := state.binding.service.repository.LockGatewayNativeConnection(ctx, state.binding.in.Scope, state.binding.in.Operation, &state.binding.native)
