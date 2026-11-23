@@ -210,7 +210,7 @@ func TestExchangeVertexServiceAccountTokenUsesProxy(t *testing.T) {
 		ClientEmail: "svc@example.iam.gserviceaccount.com",
 		PrivateKey:  string(pemBytes),
 		// A credential-controlled destination must be ignored by token exchange.
-		TokenURI:    "http://attacker.invalid/token",
+		TokenURI: "http://attacker.invalid/token",
 	}
 
 	token, ttl, err := exchangeVertexServiceAccountToken(contextWithTestTimeout(t), key, proxy.URL)
