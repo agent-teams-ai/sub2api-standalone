@@ -202,7 +202,7 @@ func getVertexServiceAccountAccessToken(ctx context.Context, cache GeminiTokenCa
 			return "", ErrGatewayNativeIdentity
 		}
 		key.TokenURI = vertexDefaultTokenURL
-		token, _, err := exchangeVertexServiceAccountTokenWithClient(ctx, key, client)
+		token, _, err := exchangeVertexServiceAccountTokenAtURL(ctx, key, client, vertexDefaultTokenURL)
 		if err != nil || !gatewayCloudSecretValid(token, 32768, true) {
 			return "", ErrGatewayNativeIdentity
 		}
@@ -283,13 +283,13 @@ func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAc
 }
 
 func exchangeVertexServiceAccountTokenWithClient(ctx context.Context, key *vertexServiceAccountKey, client *http.Client) (string, time.Duration, error) {
-	// The imported service-account token_uri is untrusted. Resolve the endpoint
-	// from package-owned configuration, not from the credential object.
-	// Protected Native requests must always use Google, including in tests.
-	tokenURL := vertexServiceAccountTokenURL
-	if HTTPUpstreamRedirectsDisabled(ctx) {
-		tokenURL = vertexDefaultTokenURL
-	}
+	return exchangeVertexServiceAccountTokenAtURL(ctx, key, client, vertexServiceAccountTokenURL)
+}
+
+// The token endpoint is supplied by package-owned composition, never by the
+// imported service-account TokenURI. Protected Native calls pin Google even
+// when ordinary fixture composition uses a local HTTP server.
+func exchangeVertexServiceAccountTokenAtURL(ctx context.Context, key *vertexServiceAccountKey, client *http.Client, tokenURL string) (string, time.Duration, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":   key.ClientEmail,
