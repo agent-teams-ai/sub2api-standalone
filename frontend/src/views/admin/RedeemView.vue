@@ -14,13 +14,15 @@
             />
           </div>
           <Select
-            v-model="filters.type"
+            :model-value="filters.type"
+            @update:model-value="value =&gt; { if (typeof value === 'string') filters.type = value }"
             :options="filterTypeOptions"
             class="w-36"
             @change="loadCodes"
           />
           <Select
-            v-model="filters.status"
+            :model-value="filters.status"
+            @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
             :options="filterStatusOptions"
             class="w-36"
             @change="loadCodes"
@@ -285,7 +287,7 @@
           <form @submit.prevent="handleGenerateCodes" class="space-y-4">
             <div>
               <label class="input-label">{{ t('admin.redeem.codeType') }}</label>
-              <Select v-model="generateForm.type" :options="typeOptions" />
+              <Select :model-value="generateForm.type" @update:model-value="value =&gt; { if (value === 'balance' || value === 'concurrency' || value === 'subscription' || value === 'invitation') generateForm.type = value }" :options="typeOptions" />
             </div>
             <!-- 余额/并发类型：显示数值输入 -->
             <div v-if="generateForm.type !== 'subscription' && generateForm.type !== 'invitation'">
@@ -316,7 +318,8 @@
               <div>
                 <label class="input-label">{{ t('admin.redeem.selectGroup') }}</label>
                 <Select
-                  v-model="generateForm.group_id"
+                  :model-value="generateForm.group_id"
+                  @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) generateForm.group_id = value }"
                   :options="subscriptionGroupOptions"
                   :placeholder="t('admin.redeem.selectGroupPlaceholder')"
                 >
@@ -439,7 +442,8 @@
               </label>
               <Select
                 v-if="batchUpdateForm.update_status"
-                v-model="batchUpdateForm.status"
+                :model-value="batchUpdateForm.status"
+                @update:model-value="value =&gt; { if (value === 'disabled' || value === 'unused') batchUpdateForm.status = value }"
                 data-test="batch-status-select"
                 :options="batchStatusOptions"
               />
@@ -455,7 +459,7 @@
                 {{ t('admin.redeem.batchFields.expiresAt') }}
               </label>
               <template v-if="batchUpdateForm.update_expires_at">
-                <Select v-model="batchUpdateForm.expires_mode" :options="batchExpiryModeOptions" />
+                <Select :model-value="batchUpdateForm.expires_mode" @update:model-value="value =&gt; { if (value === 'clear' || value === 'custom') batchUpdateForm.expires_mode = value }" :options="batchExpiryModeOptions" />
                 <input
                   v-if="batchUpdateForm.expires_mode === 'custom'"
                   v-model="batchUpdateForm.expires_at_local"
@@ -499,7 +503,8 @@
               </label>
               <Select
                 v-if="batchUpdateForm.update_group_id"
-                v-model="batchUpdateForm.group_id"
+                :model-value="batchUpdateForm.group_id"
+                @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) batchUpdateForm.group_id = value }"
                 :options="batchGroupOptions"
                 :placeholder="t('admin.redeem.selectGroupPlaceholder')"
               />

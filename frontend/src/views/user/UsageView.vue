@@ -17,7 +17,7 @@
             <div class="ml-auto flex items-center gap-2">
               <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
               <div class="w-28">
-                <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+                <Select :model-value="granularity" @update:model-value="value =&gt; { if (value === 'day' || value === 'hour') granularity = value }" :options="granularityOptions" @change="loadChartData" />
               </div>
             </div>
           </div>
@@ -72,12 +72,13 @@
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.errors.keyName') }}</label>
-              <Select v-model="errorFilter.api_key_id" :options="errorKeyOptions" @change="applyErrorFilters" />
+              <Select :model-value="errorFilter.api_key_id" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) errorFilter.api_key_id = value }" :options="errorKeyOptions" @change="applyErrorFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.errors.model') }}</label>
               <Select
-                v-model="errorFilter.model"
+                :model-value="errorFilter.model"
+                @update:model-value="value =&gt; { if (typeof value === 'string' || value === null) errorFilter.model = value }"
                 :options="errorModelOptions"
                 searchable
                 creatable
@@ -88,41 +89,41 @@
             </div>
             <div class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('usage.errors.category') }}</label>
-              <Select v-model="errorFilter.category" :options="errorCategoryOptions" @change="applyErrorFilters" />
+              <Select :model-value="errorFilter.category" @update:model-value="value =&gt; { if (typeof value === 'string') errorFilter.category = value }" :options="errorCategoryOptions" @change="applyErrorFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[180px]">
               <label class="input-label">{{ t('usage.errors.status') }}</label>
-              <Select v-model="errorFilter.status_code" :options="errorStatusOptions" @change="applyErrorFilters" />
+              <Select :model-value="errorFilter.status_code" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) errorFilter.status_code = value }" :options="errorStatusOptions" @change="applyErrorFilters" />
             </div>
           </div>
           <div v-else class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
-              <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="applyFilters" />
+              <Select :model-value="filters.api_key_id ?? null" @update:model-value="value =&gt; { if (value === null) filters.api_key_id = undefined; else if (typeof value === 'number') filters.api_key_id = value }" :options="apiKeyOptions" @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[220px]">
               <label class="input-label">{{ t('usage.model') }}</label>
-              <Select v-model="filters.model" :options="modelOptions" searchable @change="applyFilters" />
+              <Select :model-value="filters.model ?? null" @update:model-value="value =&gt; { if (value === null) filters.model = undefined; else if (typeof value === 'string') filters.model = value }" :options="modelOptions" searchable @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.group') }}</label>
-              <Select v-model="filters.group_id" :options="groupOptions" searchable @change="applyFilters" />
+              <Select :model-value="filters.group_id ?? null" @update:model-value="value =&gt; { if (value === null) filters.group_id = undefined; else if (typeof value === 'number') filters.group_id = value }" :options="groupOptions" searchable @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[180px]">
               <label class="input-label">{{ t('usage.type') }}</label>
-              <Select v-model="filters.request_type" :options="requestTypeOptions" @change="applyFilters" />
+              <Select :model-value="filters.request_type ?? null" @update:model-value="value =&gt; { if (value === null) filters.request_type = undefined; else if (value === 'unknown' || value === 'sync' || value === 'stream' || value === 'ws_v2' || value === 'cyber' || value === 'live') filters.request_type = value }" :options="requestTypeOptions" @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[180px]">
               <label class="input-label">{{ t('usage.compactionFilter') }}</label>
-              <Select v-model="filters.native_compaction_v2" :options="compactionOptions" @change="applyFilters" />
+              <Select :model-value="filters.native_compaction_v2" @update:model-value="value =&gt; { if (typeof value === 'boolean' || value === null) filters.native_compaction_v2 = value }" :options="compactionOptions" @change="applyFilters" />
             </div>
             <div v-if="subscriptionFeatureEnabled" class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.billingType') }}</label>
-              <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="applyFilters" />
+              <Select :model-value="filters.billing_type" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) filters.billing_type = value }" :options="billingTypeOptions" @change="applyFilters" />
             </div>
             <div class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.billingMode') }}</label>
-              <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="applyFilters" />
+              <Select :model-value="filters.billing_mode" @update:model-value="value =&gt; { if (typeof value === 'string' || value === null) filters.billing_mode = value }" :options="billingModeOptions" @change="applyFilters" />
             </div>
           </div>
 

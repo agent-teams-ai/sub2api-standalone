@@ -2166,7 +2166,7 @@
             </p>
           </div>
           <div class="w-52">
-            <Select v-model="openaiResponsesWebSocketV2Mode" data-testid="edit-openai-ws-mode-select" :options="openAIWSModeOptions" />
+            <Select :model-value="openaiResponsesWebSocketV2Mode" @update:model-value="value =&gt; { if (value === 'off' || value === 'ctx_pool' || value === 'passthrough' || value === 'http_bridge') openaiResponsesWebSocketV2Mode = value }" data-testid="edit-openai-ws-mode-select" :options="openAIWSModeOptions" />
           </div>
         </div>
       </div>
@@ -2185,7 +2185,8 @@
           </div>
           <div class="w-56">
             <Select
-              v-model="openAIResponsesMode"
+              :model-value="openAIResponsesMode"
+              @update:model-value="value =&gt; { if (value === 'auto' || value === 'force_responses' || value === 'force_chat_completions') openAIResponsesMode = value }"
               :options="openAIResponsesModeOptions"
               :disabled="!openAITextGenerationCapabilityEnabled"
               data-testid="openai-responses-mode-select"
@@ -2647,7 +2648,7 @@
             </p>
           </div>
           <div class="w-52 flex-shrink-0">
-            <Select v-model="codexFingerprintMode" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
+            <Select :model-value="codexFingerprintMode" @update:model-value="value =&gt; { if (value === 'off' || value === 'device' || value === 'session' || value === 'full') codexFingerprintMode = value }" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
           </div>
         </div>
       </div>
@@ -2665,7 +2666,7 @@
             </p>
           </div>
           <div class="w-44 flex-shrink-0">
-            <Select v-model="editPlanType" :options="planTypeOptions" />
+            <Select :model-value="editPlanType" @update:model-value="value =&gt; { if (typeof value === 'string') editPlanType = value }" :options="planTypeOptions" />
           </div>
         </div>
       </div>
@@ -2682,7 +2683,7 @@
             </p>
           </div>
           <div class="w-44">
-            <Select v-model="openAICompactMode" :options="openAICompactModeOptions" />
+            <Select :model-value="openAICompactMode" @update:model-value="value =&gt; { if (value === 'auto' || value === 'force_on' || value === 'force_off') openAICompactMode = value }" :options="openAICompactModeOptions" />
           </div>
         </div>
         <div class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">
@@ -3277,7 +3278,7 @@
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div>
           <label class="input-label">{{ t('common.status') }}</label>
-          <Select v-model="form.status" :options="statusOptions" />
+          <Select :model-value="form.status" @update:model-value="value =&gt; { if (value === 'active' || value === 'error' || value === 'inactive') form.status = value }" :options="statusOptions" />
         </div>
 
         <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->

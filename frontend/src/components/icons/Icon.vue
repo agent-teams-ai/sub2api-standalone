@@ -6,6 +6,7 @@
     stroke="currentColor"
     :stroke-width="strokeWidth"
   >
+    <title v-if="title">{{ title }}</title>
     <path stroke-linecap="round" stroke-linejoin="round" :d="iconPath" />
   </svg>
 </template>
@@ -17,6 +18,7 @@ const props = withDefaults(defineProps<{
   name: keyof typeof icons
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   strokeWidth?: number
+  title?: string
 }>(), {
   size: 'md',
   strokeWidth: 1.5

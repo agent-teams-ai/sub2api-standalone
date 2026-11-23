@@ -21,7 +21,8 @@
             <span class="text-red-500">*</span>
           </label>
           <Select
-            v-model="form.provider_key"
+            :model-value="form.provider_key"
+            @update:model-value="value =&gt; { if (typeof value === 'string') form.provider_key = value }"
             :options="(!!editing ? allKeyOptions : enabledKeyOptions) as SelectOption[]"
             :disabled="!!editing"
             @change="onKeyChange"
@@ -194,7 +195,8 @@
             </div>
             <Select
               v-else-if="field.options?.length"
-              v-model="config[field.key]"
+              :model-value="config[field.key]"
+              @update:model-value="value =&gt; { if (typeof value === 'string') config[field.key] = value }"
               :options="field.options"
               :searchable="field.options.length > 5"
             />

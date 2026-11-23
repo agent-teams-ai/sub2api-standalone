@@ -25,7 +25,8 @@
             <!-- Role Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('role')" class="w-full sm:w-32">
               <Select
-                v-model="filters.role"
+                :model-value="filters.role"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.role = value }"
                 :options="[
                   { value: '', label: t('admin.users.allRoles') },
                   { value: 'admin', label: t('admin.users.admin') },
@@ -38,7 +39,8 @@
             <!-- Status Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('status')" class="w-full sm:w-32">
               <Select
-                v-model="filters.status"
+                :model-value="filters.status"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
                 :options="[
                   { value: '', label: t('admin.users.allStatus') },
                   { value: 'active', label: t('common.active') },
@@ -51,7 +53,8 @@
             <!-- Group Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('group')" class="w-full sm:w-44">
               <Select
-                v-model="filters.group"
+                :model-value="filters.group"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.group = value }"
                 :options="groupFilterOptions"
                 searchable
                 creatable
@@ -64,7 +67,8 @@
             <!-- API Key Group Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('apiKeyGroup')" class="w-full sm:w-44">
               <Select
-                v-model="filters.apiKeyGroup"
+                :model-value="filters.apiKeyGroup"
+                @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) filters.apiKeyGroup = value }"
                 :options="apiKeyGroupFilterOptions"
                 searchable
                 :search-placeholder="t('admin.users.searchApiKeyGroups')"

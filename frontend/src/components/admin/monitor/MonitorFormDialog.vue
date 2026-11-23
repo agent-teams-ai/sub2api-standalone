@@ -58,7 +58,8 @@
         </label>
         <div data-testid="monitor-linked-account">
           <Select
-            v-model="accountSelectValue"
+            :model-value="accountSelectValue"
+            @update:model-value="value =&gt; { if (typeof value === 'string') accountSelectValue = value }"
             :options="accountOptions"
             :placeholder="t('admin.channelMonitor.form.linkedAccountPlaceholder')"
             remote
@@ -181,7 +182,8 @@
           <div>
             <label class="input-label">{{ t('admin.channelMonitor.templateField.label') }}</label>
             <Select
-              v-model="templateSelectValue"
+              :model-value="templateSelectValue"
+              @update:model-value="value =&gt; { if (typeof value === 'string') templateSelectValue = value }"
               :options="templateOptions"
               :placeholder="t('admin.channelMonitor.templateField.placeholder')"
             />

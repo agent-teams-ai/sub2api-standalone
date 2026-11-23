@@ -46,7 +46,8 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
-          v-model="selectedModelId"
+          :model-value="selectedModelId"
+          @update:model-value="value =&gt; { if (typeof value === 'string') selectedModelId = value }"
           :options="availableModels"
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
@@ -60,7 +61,8 @@
           {{ t('admin.accounts.openai.testMode') }}
         </label>
         <Select
-          v-model="testMode"
+          :model-value="testMode"
+          @update:model-value="value =&gt; { if (value === 'compact' || value === 'default') testMode = value }"
           :options="openAITestModeOptions"
           :disabled="status === 'connecting'"
         />

@@ -18,7 +18,8 @@
       </div>
 
       <Select
-        v-model="provider"
+        :model-value="provider"
+        @update:model-value="value =&gt; { const option = providerFilterOptions.find(option =&gt; option.value === value); if (option !== undefined) provider = option.value }"
         :options="providerFilterOptions"
         :placeholder="t('admin.channelMonitor.allProviders')"
         class="w-44"
@@ -26,7 +27,8 @@
       />
 
       <Select
-        v-model="enabled"
+        :model-value="enabled"
+        @update:model-value="value =&gt; { if (value === '' || value === 'false' || value === 'true') enabled = value }"
         :options="enabledFilterOptions"
         :placeholder="t('admin.channelMonitor.enabledFilter')"
         class="w-40"
@@ -96,7 +98,7 @@ const enabled = defineModel<'' | 'true' | 'false'>('enabled', { required: true }
 
 const { t } = useI18n()
 
-const providerFilterOptions = computed(() => [
+const providerFilterOptions = computed<Array<{ value: Provider | ''; label: string }>>(() => [
   { value: '', label: t('admin.channelMonitor.allProviders') },
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },

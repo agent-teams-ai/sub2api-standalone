@@ -47,7 +47,8 @@
           {{ t('admin.accounts.grok.testMode') }}
         </label>
         <Select
-          v-model="grokTestMode"
+          :model-value="grokTestMode"
+          @update:model-value="value =&gt; { if (value === 'image' || value === 'realtime' || value === 'search' || value === 'stt' || value === 'text' || value === 'tts' || value === 'video') grokTestMode = value }"
           :options="grokTestModeOptions"
           :disabled="status === 'connecting'"
         />
@@ -61,7 +62,8 @@
           {{ t('admin.accounts.selectTestModel') }}
         </label>
         <Select
-          v-model="selectedModelId"
+          :model-value="selectedModelId"
+          @update:model-value="value =&gt; { if (typeof value === 'string') selectedModelId = value }"
           :options="modelOptionsForMode"
           :disabled="loadingModels || status === 'connecting'"
           value-key="id"
@@ -75,7 +77,8 @@
           {{ t('admin.accounts.openai.testMode') }}
         </label>
         <Select
-          v-model="testMode"
+          :model-value="testMode"
+          @update:model-value="value =&gt; { if (value === 'compact' || value === 'default') testMode = value }"
           :options="openAITestModeOptions"
           :disabled="status === 'connecting'"
         />
@@ -259,7 +262,9 @@
           :key="`audio-${index}`"
           class="rounded-xl border border-gray-200 bg-white p-3 dark:border-dark-500 dark:bg-dark-700"
         >
-          <audio :src="audio.url" controls class="w-full" :type="audio.mimeType" />
+          <audio controls class="w-full">
+            <source :src="audio.url" :type="audio.mimeType" />
+          </audio>
           <div class="mt-1 text-xs text-gray-500 dark:text-gray-300">{{ audio.mimeType || 'audio/*' }}</div>
         </div>
       </div>
@@ -273,7 +278,9 @@
           :key="`video-${index}`"
           class="overflow-hidden rounded-xl border border-gray-200 bg-black dark:border-dark-500"
         >
-          <video :src="video.url" controls class="max-h-[360px] w-full" :type="video.mimeType" />
+          <video controls class="max-h-[360px] w-full">
+            <source :src="video.url" :type="video.mimeType" />
+          </video>
           <div class="border-t border-gray-100 bg-white px-3 py-1.5 text-xs text-gray-500 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-300">
             {{ video.mimeType || 'video/*' }}
           </div>

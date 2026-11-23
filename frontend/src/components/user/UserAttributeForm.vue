@@ -54,7 +54,8 @@
       <!-- Select -->
       <Select
         v-else-if="attr.type === 'select'"
-        v-model="localValues[attr.id]"
+        :model-value="localValues[attr.id]"
+        @update:model-value="value =&gt; { if (typeof value === 'string') localValues[attr.id] = value }"
         :options="attr.options || []"
         @change="emitChange"
       />

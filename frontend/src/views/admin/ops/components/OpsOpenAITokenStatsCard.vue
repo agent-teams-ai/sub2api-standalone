@@ -165,17 +165,17 @@ function onNextPage() {
       </h3>
       <div class="flex flex-wrap items-center gap-2">
         <div class="w-36">
-          <Select v-model="timeRange" :options="timeRangeOptions" />
+          <Select :model-value="timeRange" @update:model-value="value =&gt; { if (value === '30m' || value === '1h' || value === '1d' || value === '15d' || value === '30d') timeRange = value }" :options="timeRangeOptions" />
         </div>
         <div class="w-36">
-          <Select v-model="viewMode" :options="viewModeOptions" />
+          <Select :model-value="viewMode" @update:model-value="value =&gt; { if (value === 'topn' || value === 'pagination') viewMode = value }" :options="viewModeOptions" />
         </div>
         <div v-if="viewMode === 'topn'" class="w-28">
-          <Select v-model="topN" :options="topNOptions" />
+          <Select :model-value="topN" @update:model-value="value =&gt; { if (typeof value === 'number') topN = value }" :options="topNOptions" />
         </div>
         <template v-else>
           <div class="w-24">
-            <Select v-model="pageSize" :options="pageSizeOptions" />
+            <Select :model-value="pageSize" @update:model-value="value =&gt; { if (typeof value === 'number') pageSize = value }" :options="pageSizeOptions" />
           </div>
           <button
             class="btn btn-secondary btn-sm"

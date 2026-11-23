@@ -14,7 +14,8 @@
             />
           </div>
           <Select
-            v-model="filters.status"
+            :model-value="filters.status"
+            @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
             :options="statusFilterOptions"
             class="w-40"
             @change="handleStatusChange"
@@ -189,11 +190,11 @@
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label class="input-label">{{ t('admin.announcements.form.status') }}</label>
-            <Select v-model="form.status" :options="statusOptions" />
+            <Select :model-value="form.status" @update:model-value="value =&gt; { if (typeof value === 'string') form.status = value }" :options="statusOptions" />
           </div>
           <div>
             <label class="input-label">{{ t('admin.announcements.form.notifyMode') }}</label>
-            <Select v-model="form.notify_mode" :options="notifyModeOptions" />
+            <Select :model-value="form.notify_mode" @update:model-value="value =&gt; { if (typeof value === 'string') form.notify_mode = value }" :options="notifyModeOptions" />
             <p class="input-hint">{{ t('admin.announcements.form.notifyModeHint') }}</p>
           </div>
         </div>

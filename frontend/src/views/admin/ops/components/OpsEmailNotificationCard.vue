@@ -276,7 +276,7 @@ onMounted(() => {
 
           <div>
             <div class="mb-1 text-xs font-medium text-gray-600 dark:text-gray-300">{{ t('admin.ops.email.minSeverity') }}</div>
-            <Select v-model="draft.alert.min_severity" :options="severityOptions" />
+            <Select :model-value="draft.alert.min_severity" @update:model-value="value =&gt; { if (draft &amp;&amp; (value === '' || value === 'critical' || value === 'warning' || value === 'info')) draft.alert.min_severity = value }" :options="severityOptions" />
           </div>
 
           <div class="md:col-span-2">

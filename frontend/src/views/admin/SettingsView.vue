@@ -3898,7 +3898,8 @@
                         {{ t("admin.settings.defaults.subscriptionGroup") }}
                       </label>
                       <Select
-                        v-model="item.group_id"
+                        :model-value="item.group_id"
+                        @update:model-value="value =&gt; { if (typeof value === 'number') item.group_id = value }"
                         class="default-sub-group-select"
                         :options="defaultSubscriptionGroupOptions"
                         :placeholder="
@@ -4228,7 +4229,8 @@
                             {{ t("admin.settings.defaults.subscriptionGroup") }}
                           </label>
                           <Select
-                            v-model="item.group_id"
+                            :model-value="item.group_id"
+                            @update:model-value="value =&gt; { if (typeof value === 'number') item.group_id = value }"
                             class="default-sub-group-select"
                             :options="defaultSubscriptionGroupOptions"
                             :placeholder="
@@ -5534,7 +5536,8 @@
                             }}
                           </label>
                           <Select
-                            v-model="block.preset"
+                            :model-value="block.preset"
+                            @update:model-value="value =&gt; { if (value === 'billing' || value === 'system' || value === 'expansion' || value === 'custom') block.preset = value }"
                             :options="claudeOAuthSystemPromptPresetOptions"
                             @change="
                               (value) =>
@@ -5553,7 +5556,8 @@
                             }}
                           </label>
                           <Select
-                            v-model="block.type"
+                            :model-value="block.type"
+                            @update:model-value="value =&gt; { if (value === 'text') block.type = value }"
                             :options="claudeOAuthSystemPromptBlockTypeOptions"
                           />
                         </div>
@@ -5592,7 +5596,8 @@
                         </div>
                         <div v-if="block.cacheControlEnabled">
                           <Select
-                            v-model="block.cacheControlTTL"
+                            :model-value="block.cacheControlTTL"
+                            @update:model-value="value =&gt; { if (typeof value === 'string') block.cacheControlTTL = value }"
                             :options="claudeOAuthSystemPromptCacheTTLOptions"
                           />
                         </div>
@@ -5958,7 +5963,8 @@
                         />
                       </svg>
                       <Select
-                        v-model="provider.type"
+                        :model-value="provider.type"
+                        @update:model-value="value =&gt; { if (value === 'brave' || value === 'exa' || value === 'tavily') provider.type = value }"
                         :options="[
                           { value: 'brave', label: 'Brave Search' },
                           { value: 'tavily', label: 'Tavily' },
@@ -8173,7 +8179,8 @@
                       t("admin.settings.payment.loadBalanceStrategy")
                     }}</label>
                     <Select
-                      v-model="form.payment_load_balance_strategy"
+                      :model-value="form.payment_load_balance_strategy"
+                      @update:model-value="value =&gt; { if (typeof value === 'string') form.payment_load_balance_strategy = value }"
                       :options="loadBalanceOptions"
                       class="w-40"
                     />
@@ -8206,7 +8213,8 @@
                         />
                       </button>
                       <Select
-                        v-model="form.payment_cancel_rate_limit_window_mode"
+                        :model-value="form.payment_cancel_rate_limit_window_mode"
+                        @update:model-value="value =&gt; { if (typeof value === 'string') form.payment_cancel_rate_limit_window_mode = value }"
                         :options="cancelRateLimitModeOptions"
                         class="w-24"
                         :disabled="!form.payment_cancel_rate_limit_enabled"
@@ -8231,7 +8239,8 @@
                         :disabled="!form.payment_cancel_rate_limit_enabled"
                       />
                       <Select
-                        v-model="form.payment_cancel_rate_limit_unit"
+                        :model-value="form.payment_cancel_rate_limit_unit"
+                        @update:model-value="value =&gt; { if (typeof value === 'string') form.payment_cancel_rate_limit_unit = value }"
                         :options="cancelRateLimitUnitOptions"
                         class="w-28"
                         :disabled="!form.payment_cancel_rate_limit_enabled"
@@ -9683,6 +9692,7 @@ type SettingsForm = Omit<
   | "wechat_connect_mp_enabled"
   | "wechat_connect_mobile_enabled"
   | "openai_oauth_scheduling_rate_multiplier"
+  | "payment_recharge_bonus_tiers"
 > & {
   /** Form always binds a concrete boolean (SystemSettings marks this optional). */
   channel_monitor_hide_throughput: boolean;

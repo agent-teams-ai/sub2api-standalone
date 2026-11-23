@@ -548,7 +548,8 @@
             :key="showEditModal ? 'edit' : createProvider"
             id="key-form-group"
             :aria-label="t('keys.groupLabel')"
-            v-model="formData.group_id"
+            :model-value="formData.group_id"
+            @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) formData.group_id = value }"
             :options="formGroupOptions"
             :placeholder="t('keys.selectGroup')"
             :empty-text="t('common.noGroupsAvailable')"
@@ -625,7 +626,8 @@
         <div v-if="showEditModal">
           <label class="input-label">{{ t('keys.statusLabel') }}</label>
           <Select
-            v-model="formData.status"
+            :model-value="formData.status"
+            @update:model-value="value =&gt; { if (value === 'active' || value === 'inactive') formData.status = value }"
             :options="statusOptions"
             :placeholder="t('keys.selectStatus')"
           />

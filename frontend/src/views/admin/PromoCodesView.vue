@@ -14,7 +14,8 @@
             />
           </div>
           <Select
-            v-model="filters.status"
+            :model-value="filters.status"
+            @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
             :options="filterStatusOptions"
             class="w-36"
             @change="loadCodes"
@@ -276,7 +277,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.promo.status') }}</label>
-          <Select v-model="editForm.status" :options="statusOptions" />
+          <Select :model-value="editForm.status" @update:model-value="value =&gt; { if (value === 'active' || value === 'disabled') editForm.status = value }" :options="statusOptions" />
         </div>
         <div>
           <label class="input-label">

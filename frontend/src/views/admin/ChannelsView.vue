@@ -21,7 +21,8 @@
             </div>
 
             <Select
-              v-model="filters.status"
+              :model-value="filters.status"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
               :options="statusFilterOptions"
               :placeholder="t('admin.channels.allStatus', 'All Status')"
               class="w-40"
@@ -201,7 +202,7 @@
             <!-- Status (edit only) -->
             <div v-if="editingChannel">
               <label class="input-label">{{ t('admin.channels.form.status', 'Status') }}</label>
-              <Select v-model="form.status" :options="statusEditOptions" />
+              <Select :model-value="form.status" @update:model-value="value =&gt; { if (typeof value === 'string') form.status = value }" :options="statusEditOptions" />
             </div>
 
             <!-- Model Restriction -->
@@ -222,7 +223,7 @@
             <!-- Billing Basis -->
             <div>
               <label class="input-label">{{ t('admin.channels.form.billingModelSource', 'Billing Basis') }}</label>
-              <Select v-model="form.billing_model_source" :options="billingModelSourceOptions" />
+              <Select :model-value="form.billing_model_source" @update:model-value="value =&gt; { if (typeof value === 'string') form.billing_model_source = value }" :options="billingModelSourceOptions" />
               <p class="mt-1 text-xs text-gray-400">
                 {{ t('admin.channels.form.billingModelSourceHint', 'Controls which model name is used for pricing lookup') }}
               </p>

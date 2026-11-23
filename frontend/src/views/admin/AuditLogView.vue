@@ -42,17 +42,17 @@
 
               <div class="w-full sm:w-auto sm:min-w-[140px]">
                 <label class="input-label">{{ t('admin.audit.filters.method') }}</label>
-                <Select v-model="filters.method" :options="methodOptions" @change="search" />
+                <Select :model-value="filters.method" @update:model-value="value =&gt; { if (typeof value === 'string') filters.method = value }" :options="methodOptions" @change="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[170px]">
                 <label class="input-label">{{ t('admin.audit.filters.authMethod') }}</label>
-                <Select v-model="filters.auth_method" :options="authMethodOptions" @change="search" />
+                <Select :model-value="filters.auth_method" @update:model-value="value =&gt; { if (typeof value === 'string') filters.auth_method = value }" :options="authMethodOptions" @change="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[140px]">
                 <label class="input-label">{{ t('admin.audit.filters.result') }}</label>
-                <Select v-model="filters.success" :options="resultOptions" @change="search" />
+                <Select :model-value="filters.success" @update:model-value="value =&gt; { if (typeof value === 'string') filters.success = value }" :options="resultOptions" @change="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[170px]">

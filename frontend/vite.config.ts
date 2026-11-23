@@ -1,16 +1,136 @@
-import { defineConfig, loadEnv, Plugin } from 'vite'
+import { defineConfig, loadEnv, Plugin, type ErrorPayload } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import checker from 'vite-plugin-checker'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { resolve } from 'path'
 
+/** Use the same native compiler and Vue mapper during development and builds. */
+function nativeTypecheck(): Plugin {
+  const event = 'native-typecheck:diagnostics'
+  let compiler: ChildProcess | undefined
+  let stopping = false
+  let error: ErrorPayload['err'] | null = null
+  let removeSignalListeners = () => {}
+  const stop = () => {
+    stopping = true
+    process.removeListener('exit', stop)
+    removeSignalListeners()
+    const pid = compiler?.pid
+    compiler = undefined
+    if (pid === undefined) return
+    // The native checker starts a mapper and its AST API process. Stop the tree,
+    // including the Node CLI fallback used when execve is unavailable.
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+    } else {
+      try {
+        process.kill(-pid, 'SIGTERM')
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
+      }
+    }
+  }
+
+  return {
+    name: 'native-typecheck',
+    apply: 'serve',
+    transformIndexHtml: {
+      order: 'pre',
+      handler() {
+        return [{
+          tag: 'script',
+          attrs: { type: 'module' },
+          children: `
+            import { ErrorOverlay } from '/@vite/client'
+            let overlay
+            if (import.meta.hot) {
+              import.meta.hot.on('${event}', error => {
+                overlay?.close()
+                overlay = undefined
+                if (error) {
+                  overlay = new ErrorOverlay(error)
+                  document.body.appendChild(overlay)
+                }
+              })
+              import.meta.hot.send('${event}:ready')
+              import.meta.hot.dispose(() => overlay?.close())
+            }
+          `,
+          injectTo: 'head'
+        }]
+      }
+    },
+    configureServer(server) {
+      stopping = false
+      const tsc = fileURLToPath(new URL('./bin/tsc', import.meta.resolve('typescript/package.json')))
+      compiler = spawn(process.execPath, [tsc, '-b', '--watch', '--runExternalCode', '--preserveWatchOutput', '--pretty', 'false'], {
+        cwd: server.config.root,
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      let pendingLine = ''
+      let diagnostics: string[] = []
+      compiler.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+        process.stdout.write(chunk)
+        const lines = (pendingLine + chunk).split(/\r?\n/)
+        pendingLine = lines.pop() ?? ''
+        for (const line of lines) {
+          if (/Starting compilation|File change detected/.test(line)) {
+            diagnostics = []
+          } else if (/Found \d+ errors?\./.test(line)) {
+            error = /Found 0 errors\./.test(line)
+              ? null
+              : { message: diagnostics.join('\n'), stack: '', plugin: 'native-typecheck' }
+            server.ws.send(event, error)
+          } else if (line.trim()) {
+            diagnostics.push(line)
+          }
+        }
+      })
+      compiler.stderr?.on('data', (chunk: Buffer) => process.stderr.write(chunk))
+      server.ws.on(`${event}:ready`, (_data, client) => client.send(event, error))
+      const interrupt = () => {
+        process.exitCode = 130
+        stop()
+        void server.close()
+      }
+      const terminate = () => {
+        process.exitCode = 143
+        stop()
+        void server.close()
+      }
+      process.once('SIGINT', interrupt)
+      process.once('SIGTERM', terminate)
+      removeSignalListeners = () => {
+        process.removeListener('SIGINT', interrupt)
+        process.removeListener('SIGTERM', terminate)
+      }
+      process.once('exit', stop)
+      compiler.once('error', (error) => {
+        process.exitCode = 1
+        server.config.logger.error(`Native TypeScript checker failed: ${error.message}`)
+        void server.close()
+      })
+      compiler.once('exit', (code, signal) => {
+        if (stopping) return
+        process.exitCode = 1
+        server.config.logger.error(`Native TypeScript checker exited (${signal ?? code}).`)
+        void server.close()
+      })
+    },
+    closeBundle: stop
+  }
+}
+
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
+  const entities: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
     '"': '&quot;',
     "'": '&#39;',
-  })[character] || character)
+  }
+  return value.replace(/[&<>"']/g, (character) => entities[character] || character)
 }
 
 function isSafeImageUrl(value: string): boolean {
@@ -86,9 +206,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
-      checker({
-        vueTsc: true
-      }),
+      nativeTypecheck(),
       injectPublicSettings(backendUrl)
     ],
   resolve: {

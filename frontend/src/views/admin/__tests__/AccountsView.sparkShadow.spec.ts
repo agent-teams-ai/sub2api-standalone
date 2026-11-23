@@ -6,6 +6,36 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import type { AccountFactSource, AccountInfo } from '@/types/accountInfo'
+
+const observedAt = '2026-11-23T03:00:00Z'
+
+function accountInfo(fields: Partial<NonNullable<AccountInfo['fields']>> = {}, infoRevision = '1'): AccountInfo {
+  return {
+    status: 'available',
+    infoRevision,
+    fields: {
+      email: { status: 'unknown' },
+      accountLabel: { status: 'unknown' },
+      subscription: { status: 'unknown' },
+      credentialExpiresAt: { status: 'unknown' },
+      trainingUsage: { status: 'unsupported' },
+      ...fields,
+    },
+  }
+}
+
+function subscriptionInfo(code: string, label: string, source: AccountFactSource, infoRevision = '1'): AccountInfo {
+  return accountInfo({
+    subscription: {
+      status: 'known',
+      value: { code, label, scope: 'unknown', endsAt: null },
+      source,
+      observedAt,
+      freshness: 'current',
+    },
+  }, infoRevision)
+}
 
 // 外审 F2:AccountActionMenu emit 'create-spark-shadow',但 AccountsView 此前未监听,
 // 导致按钮点击无效。本测试通过真实组件引用 emit 该事件,断言父页面接线调用 API。
@@ -245,7 +275,9 @@ const mountViewWithRow = () =>
         CreateAccountModal: true,
         EditAccountModal: true,
         BulkEditAccountModal: true,
-        PlatformTypeBadge: true,
+        PlatformTypeBadge: false,
+        PlatformIcon: true,
+        GrokFreeIcon: true,
         AccountCapacityCell: true,
         AccountStatusIndicator: true,
         AccountTodayStatsCell: true,
@@ -275,18 +307,29 @@ describe('admin AccountsView — 账号行展示', () => {
     vi.unstubAllGlobals()
   })
 
-  it('影子行 email 单元格显示 parent_email，PlatformTypeBadge 接收 parent_plan_type/parent_privacy_mode', async () => {
+  it('uses linked parent facts for the shadow email, subscription, expiry and training display', async () => {
+    const parentInfo = accountInfo({
+      email: { status: 'known', value: 'verified-parent@example.com', source: 'provider_api', observedAt, freshness: 'current' },
+      subscription: {
+        status: 'known',
+        value: { code: 'plus', label: 'Plus', scope: 'personal', endsAt: { kind: 'date', value: '2027-01-01' } },
+        source: 'provider_api', observedAt, freshness: 'current',
+      },
+      trainingUsage: { status: 'known', value: 'disabled', source: 'provider_api', observedAt, freshness: 'current' },
+    })
     const shadowAccount = {
       id: 100,
       name: '影子账号',
       platform: 'openai',
       type: 'oauth',
       parent_account_id: 1,
-      parent_email: 'parent@example.com',
-      parent_plan_type: 'plus',
+      parent_email: 'legacy-parent@example.com',
+      parent_plan_type: 'free',
       parent_privacy_mode: 'false',
-      parent_subscription_expires_at: '2027-01-01T00:00:00Z',
+      parent_subscription_expires_at: '2099-01-01T00:00:00Z',
       parent_chatgpt_account_id: 'chatgpt-abc123',
+      parent_account_info: parentInfo,
+      account_info: subscriptionInfo('pro', 'Shadow-only plan', 'imported'),
     }
 
     listAccounts.mockResolvedValue({ items: [shadowAccount], total: 1, page: 1, page_size: 20, pages: 1 })
@@ -294,15 +337,21 @@ describe('admin AccountsView — 账号行展示', () => {
     const wrapper = mountViewWithRow()
     await flushPromises()
 
-    // 1. email 单元格通过 OR 兜底渲染 parent_email
-    expect(wrapper.text()).toContain('parent@example.com')
-
-    // 2. PlatformTypeBadge 收到 parent_plan_type 和 parent_privacy_mode
+    expect(wrapper.text()).toContain('verified-parent@example.com')
+    expect(wrapper.text()).not.toContain('legacy-parent@example.com')
+    expect(wrapper.text()).toContain('admin.accounts.factLinkedAccount')
     const badge = wrapper.findComponent(PlatformTypeBadge)
     expect(badge.exists()).toBe(true)
-    expect(badge.props('planType')).toBe('plus')
+    expect(badge.props('accountInfo')).toEqual(parentInfo)
+    expect(badge.props('planType')).toBeUndefined()
     expect(badge.props('privacyMode')).toBe('false')
-    expect(badge.props('subscriptionExpiresAt')).toBe('2027-01-01T00:00:00Z')
+    expect(badge.props('subscriptionExpiresAt')).toBeUndefined()
+    expect(badge.text()).toContain('Plus')
+    expect(badge.text()).toContain('admin.accounts.subscriptionExpires 2027-01-01')
+    expect(badge.text()).not.toMatch(/Shadow-only plan|2099-01-01/)
+    expect(badge.get('[data-testid="subscription-provenance"]').text()).toBe('(admin.accounts.factProviderConfirmed)')
+    expect(badge.get('[data-testid="training-usage"]').text()).toBe('admin.accounts.factTrainingUsage: admin.accounts.factTrainingDisabled')
+    expect(badge.get('[data-testid="training-usage"]').attributes('title')).toContain(observedAt)
 
     wrapper.unmount()
   })
@@ -348,11 +397,12 @@ describe('admin AccountsView — 账号行展示', () => {
     wrapper.unmount()
   })
 
-  it('prefers persisted Grok JWT tier over lagging billing/quota snapshots', async () => {
+  it('preserves canonical Grok plans and provenance instead of recomputing them from raw snapshots', async () => {
     const grokAccounts = [
       {
         id: 201,
         name: 'oauth-tier',
+        account_info: subscriptionInfo('FREE', 'Grok Free', 'verified_claim'),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: 'FREE', plan_type: 'legacy' },
@@ -364,6 +414,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 202,
         name: 'billing-tier',
+        account_info: subscriptionInfo('SuperGrok Heavy', 'SuperGrok Heavy', 'inferred'),
         platform: 'grok',
         type: 'oauth',
         credentials: {},
@@ -375,6 +426,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 203,
         name: 'quota-tier',
+        account_info: subscriptionInfo('FREE', 'Grok Free', 'verified_claim'),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: 'FREE' },
@@ -386,6 +438,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 204,
         name: 'extra-tier',
+        account_info: subscriptionInfo('BASIC', 'Grok Free', 'imported'),
         platform: 'grok',
         type: 'oauth',
         credentials: { plan_type: 'SuperGrok' },
@@ -394,6 +447,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 205,
         name: 'legacy-tier',
+        account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'imported'),
         platform: 'grok',
         type: 'oauth',
         credentials: { plan_type: 'SuperGrok' },
@@ -401,6 +455,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 206,
         name: 'supergrokpro-responses-quota',
+        account_info: subscriptionInfo('SuperGrok Heavy', 'SuperGrok Heavy', 'inferred'),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: 'SuperGrokPro' },
@@ -423,6 +478,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 207,
         name: 'supergrokpro-other-model-quota',
+        account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'inferred'),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: 'SuperGrokPro' },
@@ -439,6 +495,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 208,
         name: 'usage-over-legacy-quota',
+        account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'provider_api'),
         platform: 'grok',
         type: 'oauth',
         credentials: {},
@@ -450,6 +507,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 209,
         name: 'legacy-quota-alias',
+        account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'imported'),
         platform: 'grok',
         type: 'oauth',
         credentials: {},
@@ -469,7 +527,10 @@ describe('admin AccountsView — 账号行展示', () => {
     await flushPromises()
 
     const badges = wrapper.findAllComponents(PlatformTypeBadge)
-    expect(badges.map((badge) => badge.props('planType'))).toEqual([
+    expect(badges.map((badge) => {
+      const fact = badge.props('accountInfo')?.fields?.subscription
+      return fact?.status === 'known' ? fact.value.code : undefined
+    })).toEqual([
       'FREE',
       'SuperGrok Heavy',
       'FREE',
@@ -480,15 +541,32 @@ describe('admin AccountsView — 账号行展示', () => {
       'SuperGrok',
       'SuperGrok',
     ])
+    expect(badges.map((badge) => badge.props('accountInfo'))).toEqual(grokAccounts.map((account) => account.account_info))
+    expect(badges.map((badge) => badge.get('[data-testid="subscription-provenance"]').text())).toEqual([
+      '(admin.accounts.factVerifiedClaim)',
+      '(admin.accounts.factInferred)',
+      '(admin.accounts.factVerifiedClaim)',
+      '(admin.accounts.factImportedUnverified)',
+      '(admin.accounts.factImportedUnverified)',
+      '(admin.accounts.factInferred)',
+      '(admin.accounts.factInferred)',
+      '(admin.accounts.factProviderConfirmed)',
+      '(admin.accounts.factImportedUnverified)',
+    ])
+    for (const badge of badges) {
+      expect(badge.props('planType')).toBeUndefined()
+      expect(badge.get('[data-testid="subscription-provenance"]').element.parentElement?.title).toContain(observedAt)
+    }
 
     wrapper.unmount()
   })
 
-  it('skips malformed Grok plan fields and safely uses the next valid fallback', async () => {
+  it('uses bounded Grok facts with malformed legacy fields and never invents a missing canonical plan', async () => {
     const grokAccounts = [
       {
         id: 210,
         name: 'legacy-fallback',
+        account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'provider_api'),
         platform: 'grok',
         type: 'oauth',
         credentials: {},
@@ -500,6 +578,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 211,
         name: 'credential-plan-fallback',
+        account_info: subscriptionInfo('SuperGrok Heavy', 'SuperGrok Heavy', 'provider_api'),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: 0, plan_type: 'SuperGrok Heavy' },
@@ -513,6 +592,7 @@ describe('admin AccountsView — 账号行展示', () => {
       {
         id: 212,
         name: 'no-valid-plan',
+        account_info: accountInfo(),
         platform: 'grok',
         type: 'oauth',
         credentials: { subscription_tier: {}, plan_type: 2 },
@@ -523,6 +603,23 @@ describe('admin AccountsView — 账号行展示', () => {
           grok_quota_snapshot: { subscription_tier: {} },
           subscription_tier: null,
         },
+      },
+      {
+        id: 214,
+        name: 'unknown-canonical-plan',
+        platform: 'grok',
+        type: 'oauth',
+        account_info: accountInfo(),
+        credentials: { subscription_tier: 'SuperGrok Heavy' },
+        extra: { grok_billing_snapshot: { plan: 'SuperGrok Heavy' } },
+      },
+      {
+        id: 215,
+        name: 'missing-canonical-info',
+        platform: 'grok',
+        type: 'oauth',
+        credentials: { subscription_tier: 'SuperGrok Heavy' },
+        extra: { grok_quota_snapshot: { subscription_tier: 'SuperGrok Heavy' } },
       },
     ]
 
@@ -537,15 +634,29 @@ describe('admin AccountsView — 账号行展示', () => {
     const wrapper = mountViewWithRow()
     await flushPromises()
 
-    expect(wrapper.findAllComponents(PlatformTypeBadge).map((badge) => badge.props('planType'))).toEqual([
+    const badges = wrapper.findAllComponents(PlatformTypeBadge)
+    expect(badges.map((badge) => {
+      const fact = badge.props('accountInfo')?.fields?.subscription
+      return fact?.status === 'known' ? fact.value.code : undefined
+    })).toEqual([
       'SuperGrok',
       'SuperGrok Heavy',
       undefined,
+      undefined,
+      undefined,
     ])
+    expect(badges[0].text()).toContain('SuperGrok')
+    expect(badges[1].text()).toContain('SuperGrok Heavy')
+    for (const badge of badges.slice(2)) {
+      expect(badge.text()).toContain('admin.accounts.factPlanUnknown')
+      expect(badge.text()).not.toContain('SuperGrok')
+      expect(badge.find('[data-testid="subscription-provenance"]').exists()).toBe(false)
+    }
+    expect(badges[4].props('accountInfo')).toEqual({ status: 'unavailable' })
     wrapper.unmount()
   })
 
-  it('replaces a Grok row when auto refresh returns a changed canonical usage snapshot', async () => {
+  it('replaces a Grok row when only its canonical account facts change on auto refresh', async () => {
     vi.useFakeTimers()
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
     localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
@@ -555,11 +666,12 @@ describe('admin AccountsView — 账号行展示', () => {
       name: 'refresh-tier',
       platform: 'grok',
       type: 'oauth',
+      account_info: subscriptionInfo('FREE', 'Grok Free', 'verified_claim'),
       extra: { grok_usage_snapshot: { subscription_tier: 'Free', status_code: 200 } },
     }
     const refreshedAccount = {
       ...initialAccount,
-      extra: { grok_usage_snapshot: { subscription_tier: 'SuperGrok', status_code: 200 } },
+      account_info: subscriptionInfo('SuperGrok', 'SuperGrok', 'provider_api', '2'),
     }
     listAccounts.mockResolvedValue({ items: [initialAccount], total: 1, page: 1, page_size: 20, pages: 1 })
     listWithEtag.mockResolvedValueOnce({
@@ -570,13 +682,87 @@ describe('admin AccountsView — 账号行展示', () => {
 
     const wrapper = mountViewWithRow()
     await flushPromises()
-    expect(wrapper.findComponent(PlatformTypeBadge).props('planType')).toBe('Free')
+    expect(wrapper.findComponent(PlatformTypeBadge).props('accountInfo')).toEqual(initialAccount.account_info)
+    expect(wrapper.findComponent(PlatformTypeBadge).text()).toContain('Grok Free')
 
     await vi.advanceTimersByTimeAsync(6000)
     await flushPromises()
 
     expect(listWithEtag).toHaveBeenCalledTimes(1)
-    expect(wrapper.findComponent(PlatformTypeBadge).props('planType')).toBe('SuperGrok')
+    const badge = wrapper.findComponent(PlatformTypeBadge)
+    expect(badge.props('accountInfo')).toEqual(refreshedAccount.account_info)
+    expect(badge.text()).toContain('SuperGrok')
+    expect(badge.text()).not.toContain('Grok Free')
+    expect(badge.get('[data-testid="subscription-provenance"]').text()).toBe('(admin.accounts.factProviderConfirmed)')
+    wrapper.unmount()
+  })
+
+  it.each(['account_info', 'parent_account_info'] as const)('refreshes %s freshness and removes unavailable facts without a revision bump', async (field) => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+
+    const infoWithFreshness = (freshness: 'current' | 'stale') => accountInfo({
+      subscription: {
+        status: 'known',
+        value: { code: 'plus', label: 'Plus', scope: 'personal', endsAt: null },
+        source: 'provider_api', observedAt, freshness,
+      },
+      trainingUsage: { status: 'known', value: 'disabled', source: 'provider_api', observedAt, freshness },
+    })
+    const currentInfo = infoWithFreshness('current')
+    const staleInfo = infoWithFreshness('stale')
+    const unavailableInfo: AccountInfo = { status: 'unavailable' }
+    const unknownInfo = accountInfo({ trainingUsage: { status: 'unknown' } })
+    const initialAccount = {
+      id: 216,
+      name: 'refresh-facts',
+      platform: 'openai',
+      type: 'oauth',
+      parent_account_id: field === 'parent_account_info' ? 1 : null,
+      account_info: subscriptionInfo('pro', 'Unused own plan', 'imported'),
+      credentials: { plan_type: 'pro' },
+      extra: { privacy_mode: 'training_off' },
+      [field]: currentInfo,
+    }
+    listAccounts.mockResolvedValue({ items: [initialAccount], total: 1, page: 1, page_size: 20, pages: 1 })
+    for (const [index, info] of [staleInfo, unavailableInfo, unknownInfo].entries()) {
+      listWithEtag.mockResolvedValueOnce({
+        notModified: false,
+        etag: `facts-${field}-${index}`,
+        data: { items: [{ ...initialAccount, [field]: info }], total: 1, page: 1, page_size: 20, pages: 1 },
+      })
+    }
+
+    const wrapper = mountViewWithRow()
+    await flushPromises()
+    const badge = wrapper.findComponent(PlatformTypeBadge)
+    expect(badge.props('accountInfo')).toEqual(currentInfo)
+    expect(badge.text()).toContain('Plus')
+    expect(badge.text()).not.toMatch(/Unused own plan|admin.accounts.factStale/)
+
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+    expect(listWithEtag).toHaveBeenCalledTimes(1)
+    expect(badge.props('accountInfo')).toEqual(staleInfo)
+    expect(badge.get('[data-testid="subscription-provenance"]').text()).toBe('(admin.accounts.factProviderConfirmed · admin.accounts.factStale)')
+    expect(badge.get('[data-testid="training-usage"]').text()).toBe('admin.accounts.factTrainingUsage: admin.accounts.factTrainingDisabled · admin.accounts.factStale')
+
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+    expect(listWithEtag).toHaveBeenCalledTimes(2)
+    expect(badge.props('accountInfo')).toEqual(unavailableInfo)
+    expect(badge.text()).toContain('admin.accounts.factPlanUnknown')
+    expect(badge.get('[data-testid="training-usage"]').text()).toBe('admin.accounts.factTrainingUsage: admin.accounts.factUnknown')
+    expect(badge.text()).not.toMatch(/Plus|Unused own plan|admin.accounts.factTrainingDisabled/)
+    expect(badge.find('[data-testid="subscription-provenance"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+    expect(listWithEtag).toHaveBeenCalledTimes(3)
+    expect(badge.props('accountInfo')).toEqual(unknownInfo)
+    expect(badge.text()).toContain('admin.accounts.factPlanUnknown')
+    expect(badge.text()).not.toMatch(/Plus|Unused own plan|admin.accounts.factTrainingDisabled/)
     wrapper.unmount()
   })
 })

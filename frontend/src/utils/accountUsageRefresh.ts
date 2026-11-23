@@ -25,6 +25,12 @@ const serializeSnapshotRefreshValue = (value: unknown): string => {
   return JSON.stringify(normalizeSnapshotRefreshValue(value)) ?? ''
 }
 
+// The bounded fact projection can change independently of the account row.
+// Freshness can also change while the stored metadata revision stays the same.
+export const buildAccountInfoRefreshKey = (account: Pick<Account, 'account_info' | 'parent_account_info'>): string => (
+  serializeSnapshotRefreshValue([account.account_info ?? null, account.parent_account_info ?? null])
+)
+
 const isNonBlankString = (value: unknown): value is string => (
   typeof value === 'string' && value.trim().length > 0
 )

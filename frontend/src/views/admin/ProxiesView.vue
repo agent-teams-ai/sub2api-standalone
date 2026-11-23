@@ -21,7 +21,8 @@
 
           <div class="w-full sm:w-40">
             <Select
-              v-model="filters.protocol"
+              :model-value="filters.protocol"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.protocol = value }"
               :options="protocolOptions"
               :placeholder="t('admin.proxies.allProtocols')"
               @change="handleFilterChange"
@@ -29,7 +30,8 @@
           </div>
           <div class="w-full sm:w-36">
             <Select
-              v-model="filters.status"
+              :model-value="filters.status"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
               :options="statusOptions"
               :placeholder="t('admin.proxies.allStatus')"
               @change="handleFilterChange"
@@ -439,7 +441,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.protocol') }}</label>
-          <Select v-model="createForm.protocol" :options="protocolSelectOptions" />
+          <Select :model-value="createForm.protocol" @update:model-value="value =&gt; { if (value === 'http' || value === 'https' || value === 'socks5' || value === 'socks5h') createForm.protocol = value }" :options="protocolSelectOptions" />
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -517,7 +519,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
-          <Select v-model="createForm.fallback_mode" :options="[
+          <Select :model-value="createForm.fallback_mode" @update:model-value="value =&gt; { if (value === 'direct' || value === 'none' || value === 'proxy') createForm.fallback_mode = value }" :options="[
             { label: t('admin.proxies.fallbackNone'), value: 'none' },
             { label: t('admin.proxies.fallbackProxy'), value: 'proxy' },
             { label: t('admin.proxies.fallbackDirect'), value: 'direct' },
@@ -525,7 +527,7 @@
         </div>
         <div v-if="createForm.fallback_mode === 'proxy'">
           <label class="input-label">{{ t('admin.proxies.backupProxy') }}</label>
-          <Select v-model="createForm.backup_proxy_id" :options="backupProxyOptions()" />
+          <Select :model-value="createForm.backup_proxy_id" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) createForm.backup_proxy_id = value }" :options="backupProxyOptions()" />
         </div>
 
       </form>
@@ -679,7 +681,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.protocol') }}</label>
-          <Select v-model="editForm.protocol" :options="protocolSelectOptions" />
+          <Select :model-value="editForm.protocol" @update:model-value="value =&gt; { if (value === 'http' || value === 'https' || value === 'socks5' || value === 'socks5h') editForm.protocol = value }" :options="protocolSelectOptions" />
         </div>
         <div class="grid grid-cols-2 gap-4">
           <div>
@@ -723,7 +725,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.status') }}</label>
-          <Select v-model="editForm.status" :options="editStatusOptions" />
+          <Select :model-value="editForm.status" @update:model-value="value =&gt; { if (value === 'active' || value === 'expired' || value === 'inactive') editForm.status = value }" :options="editStatusOptions" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.expiresAt') }}</label>
@@ -750,7 +752,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
-          <Select v-model="editForm.fallback_mode" :options="[
+          <Select :model-value="editForm.fallback_mode" @update:model-value="value =&gt; { if (value === 'direct' || value === 'none' || value === 'proxy') editForm.fallback_mode = value }" :options="[
             { label: t('admin.proxies.fallbackNone'), value: 'none' },
             { label: t('admin.proxies.fallbackProxy'), value: 'proxy' },
             { label: t('admin.proxies.fallbackDirect'), value: 'direct' },
@@ -758,7 +760,7 @@
         </div>
         <div v-if="editForm.fallback_mode === 'proxy'">
           <label class="input-label">{{ t('admin.proxies.backupProxy') }}</label>
-          <Select v-model="editForm.backup_proxy_id" :options="backupProxyOptions(editingProxy?.id)" />
+          <Select :model-value="editForm.backup_proxy_id" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) editForm.backup_proxy_id = value }" :options="backupProxyOptions(editingProxy?.id)" />
         </div>
 
       </form>
