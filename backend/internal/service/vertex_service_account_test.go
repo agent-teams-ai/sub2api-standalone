@@ -184,6 +184,11 @@ func TestExchangeVertexServiceAccountTokenUsesProxy(t *testing.T) {
 		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
 	})
 
+	// The HTTP endpoint is owned by this fixture, never by the parsed key.
+	previous := vertexServiceAccountTokenURL
+	vertexServiceAccountTokenURL = "http://oauth2.googleapis.com/token"
+	t.Cleanup(func() { vertexServiceAccountTokenURL = previous })
+
 	seenProxyRequest := make(chan string, 1)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenProxyRequest <- r.URL.String()
@@ -204,7 +209,8 @@ func TestExchangeVertexServiceAccountTokenUsesProxy(t *testing.T) {
 	key := &vertexServiceAccountKey{
 		ClientEmail: "svc@example.iam.gserviceaccount.com",
 		PrivateKey:  string(pemBytes),
-		TokenURI:    "http://oauth2.googleapis.com/token",
+		// A credential-controlled destination must be ignored by token exchange.
+		TokenURI:    "http://attacker.invalid/token",
 	}
 
 	token, ttl, err := exchangeVertexServiceAccountToken(contextWithTestTimeout(t), key, proxy.URL)
