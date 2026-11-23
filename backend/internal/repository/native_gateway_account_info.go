@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -79,18 +80,38 @@ func (r *gatewayAccountInfoRepository) ReadGatewayAccountInfo(ctx context.Contex
 	defer func() { _ = tx.Rollback() }()
 	return readGatewayAccountInfoTx(ctx, tx, current)
 }
+
+// accountInfoStorageIdentity is the shared storage key after its caller has
+// enforced the appropriate physical-row authority. Ordinary admin callers never
+// construct a GatewayNativeOAuthPhysical or pretend to own a protected scope.
+type accountInfoStorageIdentity struct {
+	kind, generation, principal, profile string
+	accountID, credentialRevision        int64
+	createdAt                            time.Time
+}
+
+func protectedAccountInfoStorageIdentity(p service.GatewayNativeOAuthPhysical) accountInfoStorageIdentity {
+	return accountInfoStorageIdentity{kind: "protected", generation: p.Route.Generation,
+		principal: service.GatewayAccountInfoPrincipal(p), profile: p.Route.Profile,
+		accountID: p.Route.AccountID, credentialRevision: p.CredentialRevision, createdAt: p.Route.CreatedAt}
+}
+
 func readGatewayAccountInfoTx(ctx context.Context, tx *sql.Tx, p service.GatewayNativeOAuthPhysical) (service.GatewayAccountInfoStored, error) {
-	out := service.GatewayAccountInfoStored{PrincipalVersion: service.GatewayAccountInfoPrincipal(p), CredentialRevision: p.CredentialRevision, Sources: map[string]service.GatewayAccountInfoObservation{}}
+	return readAccountInfoTx(ctx, tx, protectedAccountInfoStorageIdentity(p))
+}
+
+func readAccountInfoTx(ctx context.Context, tx *sql.Tx, key accountInfoStorageIdentity) (service.GatewayAccountInfoStored, error) {
+	out := service.GatewayAccountInfoStored{PrincipalVersion: key.principal, CredentialRevision: key.credentialRevision, Sources: map[string]service.GatewayAccountInfoObservation{}}
 	var raw []byte
-	err := tx.QueryRowContext(ctx, `SELECT revision,sources FROM gateway_account_info_snapshots WHERE account_id=$1 AND native_created_at=$2 AND generation=$3 AND principal_version=$4`, p.Route.AccountID, p.Route.CreatedAt, p.Route.Generation, out.PrincipalVersion).Scan(&out.Revision, &raw)
+	err := tx.QueryRowContext(ctx, `SELECT revision,sources FROM gateway_account_info_snapshots WHERE account_id=$1 AND native_created_at=$2 AND generation=$3 AND principal_version=$4 AND subject_kind=$5`, key.accountID, key.createdAt, key.generation, out.PrincipalVersion, key.kind).Scan(&out.Revision, &raw)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
 	if err != nil || len(raw) > 32768 || json.Unmarshal(raw, &out.Sources) != nil || out.Sources == nil || out.Revision < 1 || out.Revision > 9007199254740991 || len(out.Sources) > service.GatewayAccountInfoMaxSources {
 		return service.GatewayAccountInfoStored{}, service.ErrGatewayNativeIdentity
 	}
-	for key, o := range out.Sources {
-		if key != o.Source || !service.GatewayAccountInfoObservationValid(p.Route.Profile, o) {
+	for source, o := range out.Sources {
+		if source != o.Source || !service.GatewayAccountInfoObservationValid(key.profile, o) {
 			return service.GatewayAccountInfoStored{}, service.ErrGatewayNativeIdentity
 		}
 	}
@@ -156,17 +177,21 @@ func (r *gatewayAccountInfoRepository) StoreGatewayAccountInfo(ctx context.Conte
 // Caller retains the exact account lock and has checked credential revision.
 // Both native quota and enrollment writers use this same transaction leaf.
 func storeGatewayAccountInfoTx(ctx context.Context, tx *sql.Tx, p service.GatewayNativeOAuthPhysical, o service.GatewayAccountInfoObservation, initialize bool) error {
-	if !service.GatewayAccountInfoObservationValid(p.Route.Profile, o) || o.CredentialRevision != p.CredentialRevision || !initialize && o.Order < 1 {
+	return storeAccountInfoTx(ctx, tx, protectedAccountInfoStorageIdentity(p), o, initialize)
+}
+
+func storeAccountInfoTx(ctx context.Context, tx *sql.Tx, key accountInfoStorageIdentity, o service.GatewayAccountInfoObservation, initialize bool) error {
+	if (key.kind != "protected" && key.kind != "admin") || !service.GatewayAccountInfoObservationValid(key.profile, o) || o.CredentialRevision != key.credentialRevision || !initialize && o.Order < 1 {
 		return service.ErrGatewayNativeIdentity
 	}
 	// The caller's verified exclusive physical lock owns replacement. Retire an
 	// obsolete identity before inserting the new snapshot, without relaxing CAS or
 	// exposing old facts to the new owner/generation.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM gateway_account_info_snapshots WHERE account_id=$1 AND
- (native_created_at<>$2 OR generation<>$3 OR principal_version<>$4)`, p.Route.AccountID, p.Route.CreatedAt, p.Route.Generation, service.GatewayAccountInfoPrincipal(p)); err != nil {
+ (native_created_at<>$2 OR generation<>$3 OR principal_version<>$4 OR subject_kind<>$5)`, key.accountID, key.createdAt, key.generation, key.principal, key.kind); err != nil {
 		return service.ErrGatewayNativeIdentity
 	}
-	stored, err := readGatewayAccountInfoTx(ctx, tx, p)
+	stored, err := readAccountInfoTx(ctx, tx, key)
 	if err != nil {
 		return err
 	}
@@ -201,10 +226,11 @@ func storeGatewayAccountInfoTx(ctx context.Context, tx *sql.Tx, p service.Gatewa
 	if err != nil || len(raw) > 32768 {
 		return service.ErrGatewayNativeIdentity
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO gateway_account_info_snapshots(account_id,native_created_at,generation,principal_version,revision,sources)
- VALUES($1,$2,$3,$4,1,$5::jsonb) ON CONFLICT(account_id) DO UPDATE SET revision=gateway_account_info_snapshots.revision+1,sources=EXCLUDED.sources
+	result, err := tx.ExecContext(ctx, `INSERT INTO gateway_account_info_snapshots(account_id,native_created_at,generation,principal_version,revision,sources,subject_kind)
+ VALUES($1,$2,$3,$4,1,$5::jsonb,$7) ON CONFLICT(account_id) DO UPDATE SET revision=gateway_account_info_snapshots.revision+1,sources=EXCLUDED.sources
  WHERE gateway_account_info_snapshots.native_created_at=EXCLUDED.native_created_at AND gateway_account_info_snapshots.generation=EXCLUDED.generation
- AND gateway_account_info_snapshots.principal_version=EXCLUDED.principal_version AND gateway_account_info_snapshots.revision=$6`, p.Route.AccountID, p.Route.CreatedAt, p.Route.Generation, stored.PrincipalVersion, string(raw), stored.Revision)
+ AND gateway_account_info_snapshots.principal_version=EXCLUDED.principal_version AND gateway_account_info_snapshots.subject_kind=EXCLUDED.subject_kind
+ AND gateway_account_info_snapshots.revision=$6`, key.accountID, key.createdAt, key.generation, stored.PrincipalVersion, string(raw), stored.Revision, key.kind)
 	if err != nil {
 		return service.ErrGatewayNativeIdentity
 	}

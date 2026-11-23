@@ -12,6 +12,7 @@ type GatewayConnectionMethodDefinition struct {
 	Interaction               GatewayConnectionInteraction
 	AllowedCredentialPolicies []string
 	ConfigurationRequirements []string
+	AdminActions              []GatewayConnectionAdminAction
 	LegacyKind                string
 	LegacyInputFieldID        string
 }
@@ -264,6 +265,7 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 		gatewayConnectionProfile(GatewayNVIDIABuildChatProfile, PlatformOpenAI, "nvidia", "NVIDIA Build", "unknown", "NVIDIA API trial (evaluation only)", "nvidia_chat", key))
 	for i := range profiles {
 		p := &profiles[i]
+		declareGatewayConnectionAdminActions(p)
 		switch p.ProfileID {
 		case GatewayCodexOAuthResponsesProfile:
 			p.MetadataSources = []string{"verified_claims", "account_check", "credential", "training_settings", "subscription_status"}
@@ -276,7 +278,7 @@ func GatewayNativeConnectionInventory() []GatewayConnectionProfileDefinition {
 		case "gemini-google-one-responses-oauth-v1", "gemini-code-assist-responses-oauth-v1", "gemini-ai-studio-responses-oauth-v1":
 			p.MetadataSources = []string{"account_check", "credential", "user_declaration"}
 		case "antigravity-responses-oauth-v1":
-			p.MetadataSources = []string{"credential"}
+			p.MetadataSources = []string{"credential", "plan_quota"}
 		}
 		switch p.ProfileID {
 		case GatewayCodexOAuthResponsesProfile, GatewayClaudeOAuthMessagesProfile:

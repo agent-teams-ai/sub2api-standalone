@@ -137,11 +137,13 @@ func NewGatewayNativeAntigravityConnectionMethod(profile, methodID, generation s
 		if token == nil || !gatewayCloudSecretValid(token.AccessToken, 32768, true) {
 			return GatewayNativeConnectionCredential{}, ErrGatewayNativeEffectUnknown
 		}
+		var info *GatewayAccountInfoFields
 		if project == "" {
 			loaded, err := client.LoadCodeAssistFromURL(ctx, mount.BaseURL, token.AccessToken)
 			if err != nil || loaded == nil {
 				return GatewayNativeConnectionCredential{}, ErrGatewayNativeEffectUnknown
 			}
+			info = gatewayAntigravityAccountInfo(loaded, time.Now().UTC())
 			project = loaded.CloudAICompanionProject
 			if project == "" {
 				tier := loaded.GetTier()
@@ -159,12 +161,24 @@ func NewGatewayNativeAntigravityConnectionMethod(profile, methodID, generation s
 					project, _ = value["id"].(string)
 				}
 			}
+		} else if deadline, bounded := ctx.Deadline(); !bounded || time.Until(deadline) > 4*time.Second {
+			// A known project does not imply a known subscription. This optional
+			// bounded observation must not jeopardize publishing a rotated token.
+			readCtx, stopRead := context.WithTimeout(ctx, 2*time.Second)
+			if loaded, err := client.LoadCodeAssistFromURL(readCtx, mount.BaseURL, token.AccessToken); err == nil {
+				info = gatewayAntigravityAccountInfo(loaded, time.Now().UTC())
+			}
+			stopRead()
 		}
 		if !gatewayCloudProject.MatchString(project) {
 			return GatewayNativeConnectionCredential{}, ErrGatewayNativeEffectUnknown
 		}
-		return gatewayGeminiConnectionCredential(profile, "antigravity", "antigravity_oauth", project, "", refresh,
+		result, err := gatewayGeminiConnectionCredential(profile, "antigravity", "antigravity_oauth", project, "", refresh,
 			&geminicli.TokenResponse{AccessToken: token.AccessToken, RefreshToken: token.RefreshToken, TokenType: token.TokenType, ExpiresIn: token.ExpiresIn, Scope: token.Scope}, time.Now())
+		if err == nil && info != nil {
+			result.Observations = append(result.Observations, GatewayAccountInfoObservation{Source: "plan_quota", Fields: *info})
+		}
+		return result, err
 	}
 	adapter.Complete = func(ctx context.Context, in GatewayNativeConnectionScope, raw json.RawMessage, completion map[string]string) (GatewayNativeConnectionCredential, error) {
 		var state material

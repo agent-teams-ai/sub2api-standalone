@@ -1073,6 +1073,13 @@ func oauthPGRefreshFixtureWithSubscription(t *testing.T, handler func(http.Respo
 		return service.GatewayNativeOAuthBundle{AccessToken: gatewayOAuthGuardFixtureOpaque(), RefreshToken: gatewayOAuthGuardFixtureOpaque(), IDToken: body + "." + base64.RawURLEncoding.EncodeToString(signature), SensitiveMetadata: json.RawMessage(`{"private":"f2-sensitive-metadata"}`)}
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "chatgpt.com" && r.URL.Path == "/backend-api/settings/account_user_setting" {
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.True(t, strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "))
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if accountCheck != nil && r.Host == "chatgpt.com" {
 			if subscription != nil && r.URL.Path == "/backend-api/subscriptions" {
 				subscription(w, r)

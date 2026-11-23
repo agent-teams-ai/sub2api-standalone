@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/tidwall/gjson"
@@ -119,8 +120,13 @@ func gatewayGrokBillingAccountInfo(body []byte, observed time.Time) *GatewayAcco
 	if err != nil || payload.Config == nil {
 		return nil
 	}
-	summary := xai.BuildBillingSummary(payload.Config)
-	if summary == nil {
+	return gatewayGrokBillingSummaryInfo(xai.BuildBillingSummary(payload.Config), observed)
+}
+
+// Accept only a summary produced from the current authenticated billing reply;
+// callers must not pass merged/cache/imported extras here.
+func gatewayGrokBillingSummaryInfo(summary *xai.BillingSummary, observed time.Time) *GatewayAccountInfoFields {
+	if summary == nil || observed.IsZero() {
 		return nil
 	}
 	fields := GatewayAccountInfoEmptyFields(GatewayGrokOAuthResponsesProfile)
@@ -131,6 +137,24 @@ func gatewayGrokBillingAccountInfo(body []byte, observed time.Time) *GatewayAcco
 			label = plan
 		}
 		fields.Subscription = gatewayKnownFact(GatewayAccountSubscription{Code: plan, Label: label, Scope: "unknown"}, "inferred", observed)
+	}
+	return &fields
+}
+
+// Only the current authenticated LoadCodeAssist response enters this producer.
+// An omitted tier is unknown; the legacy nil/empty -> Free default is not evidence.
+func gatewayAntigravityAccountInfo(response *antigravity.LoadCodeAssistResponse, observed time.Time) *GatewayAccountInfoFields {
+	if response == nil || observed.IsZero() {
+		return nil
+	}
+	fields := GatewayAccountInfoEmptyFields("antigravity-responses-oauth-v1")
+	tier := strings.TrimSpace(response.GetTier())
+	if gatewayInfoText(tier, 100) {
+		label := NormalizeAntigravitySubscription(response).PlanType
+		if !gatewayInfoText(label, 160) {
+			label = tier
+		}
+		fields.Subscription = gatewayKnownFact(GatewayAccountSubscription{Code: tier, Label: label, Scope: "unknown"}, "provider_api", observed)
 	}
 	return &fields
 }

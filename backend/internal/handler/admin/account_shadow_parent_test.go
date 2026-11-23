@@ -11,7 +11,8 @@ import (
 func TestEnrichShadowParentInfo(t *testing.T) {
 	pid := int64(100)
 	parent := &service.Account{
-		ID: 100,
+		ID:          100,
+		AccountInfo: &service.GatewayAccountInfo{Status: "unavailable"},
 		Credentials: map[string]any{
 			"email":                   "owner@example.com",
 			"plan_type":               "pro",
@@ -34,9 +35,24 @@ func TestEnrichShadowParentInfo(t *testing.T) {
 	require.Equal(t, "training_off", items[0].ParentPrivacyMode)
 	require.Equal(t, "2026-12-31T00:00:00Z", items[0].ParentSubscriptionExpiresAt)
 	require.Equal(t, "acct_123", items[0].ParentChatGPTAccountID)
+	require.Equal(t, parent.AccountInfo, items[0].ParentAccountInfo)
+	require.Nil(t, items[0].AccountInfo, "the parent's facts are not the shadow's subject")
+	require.Equal(t, parent.AccountInfo, dto.AccountListItemFromAccount(items[0].Account).ParentAccountInfo)
 
 	require.Empty(t, items[1].ParentEmail, "非影子不回填")
 	require.Empty(t, items[2].ParentEmail, "母账号缺失时优雅留空")
+	require.Nil(t, items[1].ParentAccountInfo)
+	require.Nil(t, items[2].ParentAccountInfo)
+}
+
+func TestEnrichShadowParentInfoDoesNotExposeProtectedParent(t *testing.T) {
+	pid := int64(100)
+	items := []AccountWithConcurrency{{Account: &dto.Account{ID: 200, ParentAccountID: &pid}}}
+	parent := &service.Account{ID: pid, Extra: map[string]any{service.GatewayGenerationExtraKey: "protected"},
+		AccountInfo: &service.GatewayAccountInfo{Status: "available"}, Credentials: map[string]any{"email": "protected@example.test"}}
+	enrichShadowParentInfo(items, map[int64]*service.Account{pid: parent})
+	require.Nil(t, items[0].ParentAccountInfo)
+	require.Empty(t, items[0].ParentEmail)
 }
 
 func ptrInt64(v int64) *int64 { return &v }

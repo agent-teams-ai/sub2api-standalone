@@ -1,0 +1,28 @@
+{
+  "platforms": [{"id":"openai","display_name":"OpenAI","gateway":"openai","cn_provider":false,"litellm_provider":"openai"}],
+  "composite_precedence": ["openai"],
+  "admin_connection_methods": [{
+    "profile_id":"fixture-native-admin-v1","method_id":"fixture_browser_grant","method_revision":1,
+    "platform":"openai","label":"Fixture authorization",
+    "provider":{"id":"fixture","label":"Fixture provider"},"product":{"id":"fixture_plan","label":"Fixture plan"},
+    "category":"oauth-based","add_method":"oauth","input_method":"manual",
+    "surfaces":["create","reauth","flow"],"configuration_requirements":[]
+  }],
+  "native_connection_inventory": {
+    "contract":"native-connection-inventory/v1",
+    "profiles":[{
+      "profileId":"fixture-native-admin-v1","platform":"openai",
+      "provider":{"id":"fixture","label":"Fixture provider"},"product":{"id":"fixture_plan","label":"Fixture plan"},
+      "region":{"id":"global","label":"Global"},"protocol":"openai-responses","dispatchFamily":"openai_responses",
+      "metadataSources":[],"limitsContract":"unsupported","unavailableFallback":"deny",
+      "methods":[{
+        "methodId":"fixture_browser_grant","revision":1,"label":"Fixture authorization","create":true,"reconnect":true,
+        "allowedCredentialPolicies":["subscription_session"],
+        "requirements":["owner_scoped_custody/v1","effect_fence/v1","native_dispatch/v1"],
+        "configurationRequirements":[],
+        "interaction":{"kind":"browser","callbackMode":"manual","completionInputKind":"authorization_code"},
+        "adminActions":[{"category":"oauth-based","add_method":"oauth","input_method":"manual","surfaces":["create","reauth","flow"],"configuration_requirements":[]}]
+      }]
+    }]
+  }
+}

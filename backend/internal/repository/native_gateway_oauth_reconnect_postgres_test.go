@@ -104,6 +104,13 @@ func TestGatewayNativeOAuthReconnectPostgresClaimsAndBackfill(t *testing.T) {
 	provider := uuid.NewString()
 	check := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "chatgpt.com", r.Host)
+		if r.URL.Path == "/backend-api/settings/account_user_setting" {
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.Equal(t, "Bearer "+bundle.AccessToken, r.Header.Get("Authorization"))
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		require.Equal(t, "/backend-api/accounts/check/v4-2023-04-27", r.URL.Path)
 		require.Equal(t, "Bearer "+bundle.AccessToken, r.Header.Get("Authorization"))
 		_, err := fmt.Fprintf(w, `{"accounts":{"workspace":{"account":{"account_id":%q}}}}`, provider)

@@ -1,4 +1,5 @@
 import { shallowRef } from 'vue'
+import type { AddMethod, AuthInputMethod } from '@/composables/useAccountOAuth'
 import builtinCatalog from './platformCatalog.builtin.json'
 
 /**
@@ -51,6 +52,39 @@ export interface PlatformCatalog {
   platforms: PlatformSpec[]
   /** 组合分组逐平台回退的顺序（先命中者生效）。 */
   composite_precedence: string[]
+  /** Generated from native method declarations; UI adapters do not own this list. */
+  admin_connection_methods?: readonly AdminConnectionMethod[]
+}
+
+export type AdminConnectionSurface = 'create' | 'reauth' | 'legacy_reauth' | 'flow'
+export type AdminConnectionCategory = 'oauth-based' | 'apikey' | 'bedrock' | 'service_account'
+
+export interface AdminConnectionMethod {
+  profile_id: string
+  method_id: string
+  method_revision: number
+  platform: string
+  label: string
+  provider: { id: string; label: string }
+  product: { id: string; label: string }
+  account_mode?: string
+  category: AdminConnectionCategory
+  add_method?: AddMethod
+  oauth_type?: string
+  input_method?: string
+  credential_mode?: string
+  surfaces: readonly AdminConnectionSurface[]
+  configuration_requirements: readonly string[]
+}
+
+export interface AdminConnectionSelection {
+  platform: string
+  surface: AdminConnectionSurface
+  category?: AdminConnectionCategory
+  addMethod?: AddMethod
+  oauthType?: string
+  credentialMode?: string
+  accountMode?: string
 }
 
 export const BUILTIN_PLATFORM_CATALOG: PlatformCatalog = builtinCatalog as PlatformCatalog
@@ -70,6 +104,54 @@ export function resetPlatformCatalog(): void {
 /** 全部具体平台，按展示顺序。 */
 export function listPlatforms(): PlatformSpec[] {
   return catalogState.value.platforms
+}
+
+/** Select existing form actions without duplicating native provider/method policy. */
+export function adminConnectionMethods(selection: AdminConnectionSelection): readonly AdminConnectionMethod[] {
+  return (catalogState.value.admin_connection_methods ?? []).filter((method) =>
+    method.platform === selection.platform && method.surfaces.includes(selection.surface) &&
+    (!selection.category || method.category === selection.category) &&
+    (!selection.addMethod || !method.add_method || method.add_method === selection.addMethod) &&
+    (!selection.oauthType || !method.oauth_type || method.oauth_type === selection.oauthType) &&
+    (!selection.accountMode || method.account_mode === selection.accountMode) &&
+    (!selection.credentialMode || !method.credential_mode || method.credential_mode === selection.credentialMode)
+  )
+}
+
+export function adminConnectionMethodAvailable(method: AdminConnectionMethod, enabledRequirements: readonly string[] = []): boolean {
+  return method.configuration_requirements.every((requirement) => enabledRequirements.includes(requirement))
+}
+
+// Finite renderer primitives, not a provider allowlist. Unknown native input
+// kinds remain unavailable until this renderer has an implementation for them.
+const AUTH_INPUT_METHODS: readonly AuthInputMethod[] = [
+  'manual', 'cookie', 'refresh_token', 'mobile_refresh_token', 'codex_session',
+  'agent_identity', 'codex_pat', 'sso_cookie', 'email_password'
+]
+
+export function adminOAuthInputMethods(
+  selection: AdminConnectionSelection,
+  enabledRequirements: readonly string[] = []
+): readonly AuthInputMethod[] {
+  const declared = adminConnectionMethods(selection).filter((method) =>
+    adminConnectionMethodAvailable(method, enabledRequirements)
+  )
+  return AUTH_INPUT_METHODS.filter((input) => declared.some((method) => method.input_method === input))
+}
+
+export function adminOAuthInputLabels(
+  selection: AdminConnectionSelection,
+  enabledRequirements: readonly string[] = []
+): Partial<Record<AuthInputMethod, string>> {
+  const declared = adminConnectionMethods(selection).filter((method) =>
+    adminConnectionMethodAvailable(method, enabledRequirements)
+  )
+  const labels: Partial<Record<AuthInputMethod, string>> = {}
+  for (const input of AUTH_INPUT_METHODS) {
+    const method = declared.find((entry) => entry.input_method === input)
+    if (method) labels[input] = method.label
+  }
+  return labels
 }
 
 export function listPlatformIds(): string[] {

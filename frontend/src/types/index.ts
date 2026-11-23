@@ -1,3 +1,4 @@
+import type { AccountInfo } from './accountInfo'
 /**
  * Core Type Definitions for Sub2API Frontend
  */
@@ -1277,6 +1278,7 @@ export interface Account {
   // 改为通过 credentials_status.has_<key> 暴露存在性。
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
+  account_info?: AccountInfo
   ollama_cloud_usage?: OllamaCloudUsageState
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
@@ -1408,6 +1410,7 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+  parent_account_info?: AccountInfo
 
   grok_model_diagnostics?: GrokModelDiagnostics
 }

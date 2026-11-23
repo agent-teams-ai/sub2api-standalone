@@ -177,7 +177,7 @@ func TestAdminService_ListAccounts_WithSearch(t *testing.T) {
 		accounts, total, err := svc.ListAccounts(context.Background(), 1, 20, PlatformGemini, AccountTypeOAuth, StatusActive, "acc", 0, "", "name", "ASC")
 		require.NoError(t, err)
 		require.Equal(t, int64(10), total)
-		require.Equal(t, []Account{{ID: 1, Name: "acc"}}, accounts)
+		require.Equal(t, []Account{{ID: 1, Name: "acc", AccountInfo: adminListUnsupportedInfo()}}, accounts)
 
 		require.Equal(t, 1, repo.listWithFiltersCalls)
 		require.Equal(t, pagination.PaginationParams{Page: 1, PageSize: 20, SortBy: "name", SortOrder: "ASC"}, repo.listWithFiltersParams)
@@ -199,9 +199,17 @@ func TestAdminService_ListAccounts_WithPrivacyMode(t *testing.T) {
 		accounts, total, err := svc.ListAccounts(context.Background(), 1, 20, PlatformOpenAI, AccountTypeOAuth, StatusActive, "acc2", 0, PrivacyModeCFBlocked, "", "")
 		require.NoError(t, err)
 		require.Equal(t, int64(1), total)
-		require.Equal(t, []Account{{ID: 2, Name: "acc2"}}, accounts)
+		require.Equal(t, []Account{{ID: 2, Name: "acc2", AccountInfo: adminListUnsupportedInfo()}}, accounts)
 		require.Equal(t, PrivacyModeCFBlocked, repo.listWithFiltersPrivacy)
 	})
+}
+
+func adminListUnsupportedInfo() *GatewayAccountInfo {
+	return &GatewayAccountInfo{Status: "available", InfoRevision: "0", Fields: &GatewayAccountInfoFields{
+		Email: GatewayAccountFact[string]{Status: "unsupported"}, AccountLabel: GatewayAccountFact[string]{Status: "unsupported"},
+		Subscription:        GatewayAccountFact[GatewayAccountSubscription]{Status: "unsupported"},
+		CredentialExpiresAt: GatewayAccountFact[string]{Status: "unsupported"}, TrainingUsage: GatewayAccountFact[string]{Status: "unsupported"},
+	}}
 }
 
 func TestAdminService_ListProxies_WithSearch(t *testing.T) {

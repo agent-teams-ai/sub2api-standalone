@@ -221,6 +221,7 @@ type Account struct {
 	Credentials             map[string]any                 `json:"credentials"`
 	CredentialsStatus       map[string]bool                `json:"credentials_status,omitempty"`
 	Extra                   map[string]any                 `json:"extra"`
+	AccountInfo             *service.GatewayAccountInfo    `json:"account_info,omitempty"`
 	OllamaCloudUsage        *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	OpenCodeGoUsage         *service.OpenCodeGoUsageState  `json:"opencode_go_usage,omitempty"`
 	ProxyID                 *int64                         `json:"proxy_id"`
@@ -318,11 +319,12 @@ type Account struct {
 	QuotaDimension  string `json:"quota_dimension,omitempty"`
 
 	// 影子账号回填的母账号信息（仅影子非空，源自母账号 Credentials/Extra）
-	ParentEmail                 string `json:"parent_email,omitempty"`
-	ParentPlanType              string `json:"parent_plan_type,omitempty"`
-	ParentPrivacyMode           string `json:"parent_privacy_mode,omitempty"`
-	ParentSubscriptionExpiresAt string `json:"parent_subscription_expires_at,omitempty"`
-	ParentChatGPTAccountID      string `json:"parent_chatgpt_account_id,omitempty"`
+	ParentEmail                 string                      `json:"parent_email,omitempty"`
+	ParentPlanType              string                      `json:"parent_plan_type,omitempty"`
+	ParentPrivacyMode           string                      `json:"parent_privacy_mode,omitempty"`
+	ParentSubscriptionExpiresAt string                      `json:"parent_subscription_expires_at,omitempty"`
+	ParentChatGPTAccountID      string                      `json:"parent_chatgpt_account_id,omitempty"`
+	ParentAccountInfo           *service.GatewayAccountInfo `json:"parent_account_info,omitempty"`
 
 	Proxy         *Proxy         `json:"proxy,omitempty"`
 	AccountGroups []AccountGroup `json:"account_groups,omitempty"`
@@ -349,6 +351,7 @@ type AccountListItem struct {
 	Credentials       map[string]any                 `json:"credentials,omitempty"`
 	CredentialsStatus map[string]bool                `json:"credentials_status,omitempty"`
 	Extra             map[string]any                 `json:"extra,omitempty"`
+	AccountInfo       *service.GatewayAccountInfo    `json:"account_info,omitempty"`
 	OllamaCloudUsage  *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	OpenCodeGoUsage   *service.OpenCodeGoUsageState  `json:"opencode_go_usage,omitempty"`
 
@@ -419,13 +422,14 @@ type AccountListItem struct {
 	QuotaNotifyTotalEnabled    *bool    `json:"quota_notify_total_enabled,omitempty"`
 	QuotaNotifyTotalThreshold  *float64 `json:"quota_notify_total_threshold,omitempty"`
 
-	ParentAccountID             *int64 `json:"parent_account_id,omitempty"`
-	QuotaDimension              string `json:"quota_dimension,omitempty"`
-	ParentEmail                 string `json:"parent_email,omitempty"`
-	ParentPlanType              string `json:"parent_plan_type,omitempty"`
-	ParentPrivacyMode           string `json:"parent_privacy_mode,omitempty"`
-	ParentSubscriptionExpiresAt string `json:"parent_subscription_expires_at,omitempty"`
-	ParentChatGPTAccountID      string `json:"parent_chatgpt_account_id,omitempty"`
+	ParentAccountID             *int64                      `json:"parent_account_id,omitempty"`
+	QuotaDimension              string                      `json:"quota_dimension,omitempty"`
+	ParentEmail                 string                      `json:"parent_email,omitempty"`
+	ParentPlanType              string                      `json:"parent_plan_type,omitempty"`
+	ParentPrivacyMode           string                      `json:"parent_privacy_mode,omitempty"`
+	ParentSubscriptionExpiresAt string                      `json:"parent_subscription_expires_at,omitempty"`
+	ParentChatGPTAccountID      string                      `json:"parent_chatgpt_account_id,omitempty"`
+	ParentAccountInfo           *service.GatewayAccountInfo `json:"parent_account_info,omitempty"`
 
 	Proxy    *Proxy  `json:"proxy,omitempty"`
 	GroupIDs []int64 `json:"group_ids,omitempty"`

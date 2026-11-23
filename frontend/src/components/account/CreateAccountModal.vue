@@ -271,6 +271,8 @@
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
           <button
+            v-if="adminCategoryAvailable('oauth-based')"
+            data-admin-category="oauth-based"
             type="button"
             @click="accountCategory = 'oauth-based'"
             :class="[
@@ -301,6 +303,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('apikey')"
+            data-admin-category="apikey"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -331,6 +335,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('bedrock')"
+            data-admin-category="bedrock"
             type="button"
             @click="accountCategory = 'bedrock'"
             :class="[
@@ -361,6 +367,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('service_account')"
+            data-admin-category="service_account"
             type="button"
             @click="accountCategory = 'service_account'"
             :class="[
@@ -401,6 +409,8 @@
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
           <button
+            v-if="adminCategoryAvailable('oauth-based')"
+            data-admin-category="oauth-based"
             type="button"
             @click="accountCategory = 'oauth-based'"
             :class="[
@@ -427,6 +437,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('apikey')"
+            data-admin-category="apikey"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -460,6 +472,8 @@
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
           <button
+            v-if="adminCategoryAvailable('oauth-based')"
+            data-admin-category="oauth-based"
             type="button"
             @click="accountCategory = 'oauth-based'"
             :class="[
@@ -486,6 +500,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('apikey')"
+            data-admin-category="apikey"
             type="button"
             data-testid="grok-account-type-api-key"
             @click="accountCategory = 'apikey'"
@@ -519,6 +535,8 @@
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
+            v-if="adminAccountModeAvailable('zen')"
+            data-admin-account-mode="zen"
             type="button"
             @click="openCodeAccountMode = 'zen'"
             :class="[
@@ -542,6 +560,8 @@
             </div>
           </button>
           <button
+            v-if="adminAccountModeAvailable('go')"
+            data-admin-account-mode="go"
             type="button"
             @click="openCodeAccountMode = 'go'"
             :class="[
@@ -568,12 +588,13 @@
       </div>
 
       <!-- Account Mode Selection (providers using the generic form) -->
-      <div v-if="isGenericMultiProtocolPlatform && genericAccountModes.length > 1" data-testid="generic-account-mode">
+      <div v-if="isGenericMultiProtocolPlatform && (genericAccountModes.length > 1 || (genericAccountModes.length === 1 && genericAccountModes[0] !== accountMode))" data-testid="generic-account-mode">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
             v-for="mode in genericAccountModes"
             :key="mode"
+            :data-admin-account-mode="mode"
             type="button"
             @click="accountMode = mode"
             :class="[
@@ -602,6 +623,8 @@
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode">
           <!-- Pay-as-you-go (token balance) -->
           <button
+            v-if="adminAccountModeAvailable('payg')"
+            data-admin-account-mode="payg"
             type="button"
             @click="accountMode = 'payg'"
             :class="[
@@ -628,7 +651,8 @@
           </button>
           <!-- Coding Plan (kimi / zhipu only — DeepSeek has no coding plan) -->
           <button
-            v-if="form.platform !== 'deepseek'"
+            v-if="adminAccountModeAvailable('coding')"
+            data-admin-account-mode="coding"
             type="button"
             @click="accountMode = 'coding'"
             :class="[
@@ -737,6 +761,8 @@
         </div>
         <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type">
           <button
+            v-if="adminCategoryAvailable('oauth-based')"
+            data-admin-category="oauth-based"
             type="button"
             @click="accountCategory = 'oauth-based'"
             :class="[
@@ -767,6 +793,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('apikey')"
+            data-admin-category="apikey"
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
@@ -809,6 +837,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('service_account')"
+            data-admin-category="service_account"
             type="button"
             @click="accountCategory = 'service_account'"
             :class="[
@@ -870,6 +900,8 @@
           <div class="mt-2 grid grid-cols-2 gap-3">
             <!-- Google One OAuth -->
             <button
+              v-if="adminOAuthTypeDeclared('google_one')"
+              data-admin-oauth-type="google_one"
               type="button"
               @click="handleSelectGeminiOAuthType('google_one')"
               :class="[
@@ -913,6 +945,8 @@
 
             <!-- GCP Code Assist OAuth -->
             <button
+              v-if="adminOAuthTypeDeclared('code_assist')"
+              data-admin-oauth-type="code_assist"
               type="button"
               @click="handleSelectGeminiOAuthType('code_assist')"
               :class="[
@@ -993,8 +1027,9 @@
           </div>
 
           <!-- Custom OAuth Client (Advanced) -->
-          <div v-if="showAdvancedOAuth" class="mt-3 group relative">
+          <div v-if="showAdvancedOAuth && adminOAuthTypeDeclared('ai_studio')" class="mt-3 group relative">
             <button
+              data-admin-oauth-type="ai_studio"
               type="button"
               :disabled="!geminiAIStudioOAuthEnabled"
               @click="handleSelectGeminiOAuthType('ai_studio')"
@@ -1109,6 +1144,8 @@
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-2 gap-3">
           <button
+            v-if="adminCategoryAvailable('oauth-based')"
+            data-admin-category="oauth-based"
             type="button"
             @click="antigravityAccountType = 'oauth'"
             :class="[
@@ -1135,6 +1172,8 @@
           </button>
 
           <button
+            v-if="adminCategoryAvailable('apikey')"
+            data-admin-category="apikey"
             type="button"
             @click="antigravityAccountType = 'upstream'"
             :class="[
@@ -1219,7 +1258,7 @@
         <div v-if="form.platform === 'gemini'">
           <label class="input-label">{{ t('admin.accounts.vertexAuthMode') }}</label>
           <div class="mt-2 flex gap-4">
-            <label class="flex cursor-pointer items-center">
+            <label v-if="adminCredentialModeAvailable('service_account', 'service_account')" class="flex cursor-pointer items-center">
               <input
                 v-model="vertexAuthMode"
                 type="radio"
@@ -1228,7 +1267,7 @@
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.vertexAuthModeServiceAccount') }}</span>
             </label>
-            <label class="flex cursor-pointer items-center">
+            <label v-if="adminCredentialModeAvailable('service_account', 'apikey')" class="flex cursor-pointer items-center">
               <input
                 v-model="vertexAuthMode"
                 type="radio"
@@ -1476,7 +1515,7 @@
       <div v-if="form.platform === 'anthropic' && isOAuthFlow">
         <label class="input-label">{{ t('admin.accounts.addMethod') }}</label>
         <div class="mt-2 flex gap-4">
-          <label class="flex cursor-pointer items-center">
+          <label v-if="adminAddMethodAvailable('oauth')" class="flex cursor-pointer items-center">
             <input
               v-model="addMethod"
               type="radio"
@@ -1485,7 +1524,7 @@
             />
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.types.oauth') }}</span>
           </label>
-          <label class="flex cursor-pointer items-center">
+          <label v-if="adminAddMethodAvailable('setup-token')" class="flex cursor-pointer items-center">
             <input
               v-model="addMethod"
               type="radio"
@@ -2037,7 +2076,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockAuthMode') }}</label>
           <div class="mt-2 flex gap-4">
-            <label class="flex cursor-pointer items-center">
+            <label v-if="adminCredentialModeAvailable('bedrock', 'sigv4')" class="flex cursor-pointer items-center">
               <input
                 v-model="bedrockAuthMode"
                 type="radio"
@@ -2046,7 +2085,7 @@
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockAuthModeSigv4') }}</span>
             </label>
-            <label class="flex cursor-pointer items-center">
+            <label v-if="adminCredentialModeAvailable('bedrock', 'apikey')" class="flex cursor-pointer items-center">
               <input
                 v-model="bedrockAuthMode"
                 type="radio"
@@ -3378,7 +3417,7 @@
             </p>
           </div>
           <div class="w-52">
-            <Select v-model="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" />
+            <Select :model-value="openaiResponsesWebSocketV2Mode" :options="openAIWSModeOptions" @update:model-value="updateOpenAIWSMode" />
           </div>
         </div>
       </div>
@@ -3552,7 +3591,7 @@
             </p>
           </div>
           <div class="w-52 flex-shrink-0">
-            <Select v-model="codexFingerprintMode" data-testid="create-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
+            <Select :model-value="codexFingerprintMode" data-testid="create-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" @update:model-value="updateCodexFingerprintMode" />
           </div>
         </div>
       </div>
@@ -3570,7 +3609,7 @@
             </p>
           </div>
           <div class="w-44">
-            <Select v-model="openAICompactMode" :options="openAICompactModeOptions" />
+            <Select :model-value="openAICompactMode" :options="openAICompactModeOptions" data-testid="create-openai-compact-mode-select" @update:model-value="updateOpenAICompactMode" />
           </div>
         </div>
         <div>
@@ -3610,7 +3649,8 @@
           </div>
           <div class="w-56">
             <Select
-              v-model="openAIResponsesMode"
+              :model-value="openAIResponsesMode"
+              @update:model-value="updateOpenAIResponsesMode"
               :options="openAIResponsesModeOptions"
               :disabled="!openAITextGenerationCapabilityEnabled"
               data-testid="openai-responses-mode-select"
@@ -3795,17 +3835,8 @@
         :show-help="form.platform === 'anthropic'"
         :show-proxy-warning="form.platform !== 'openai' && form.platform !== 'grok' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
-        :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok'"
-        :show-mobile-refresh-token-option="form.platform === 'openai'"
-        :show-session-token-option="false"
-        :show-access-token-option="false"
-        :show-codex-session-import-option="form.platform === 'openai'"
-        :show-agent-identity-option="form.platform === 'openai'"
-        :show-codex-pat-option="form.platform === 'openai'"
-        :show-sso-option="form.platform === 'grok'"
-        :show-email-password-option="false"
-        :show-manual-option="true"
+        :input-methods="adminInputMethods"
+        :input-labels="adminInputLabels"
         :initial-input-method="'manual'"
         :platform="form.platform"
         :show-project-id="geminiOAuthType === 'code_assist'"
@@ -3830,7 +3861,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting"
+          :disabled="submitting || !adminSelectedMethodAvailable"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -4225,7 +4256,14 @@ import {
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
-import { listPlatforms } from '@/constants/platformCatalog'
+import {
+  adminConnectionMethods,
+  adminConnectionMethodAvailable,
+  adminOAuthInputMethods,
+  adminOAuthInputLabels,
+  listPlatforms,
+  type AdminConnectionCategory
+} from '@/constants/platformCatalog'
 import {
   formatDateTimeLocalInput,
   getBrowserTimeZone,
@@ -4241,6 +4279,7 @@ import {
   OPENAI_WS_MODE_PASSTHROUGH,
   OPENAI_WS_MODE_HTTP_BRIDGE,
   isOpenAIWSModeEnabled,
+  normalizeOpenAIWSMode,
   resolveOpenAIWSModeHintKey,
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
@@ -4455,7 +4494,7 @@ const isGenericMultiProtocolPlatform = computed(
 const extraMultiProtocolPlatforms = computed(() =>
   listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
 )
-const genericAccountModes = computed(() => providerAccountModes(form.platform))
+const genericAccountModes = computed(() => providerAccountModes(form.platform).filter(adminAccountModeAvailable))
 // 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
 const routesByModel = computed(() => providerRoutesByModel(form.platform))
 function currentOpenCodeOrCNMode(): string {
@@ -4747,12 +4786,16 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>('off')
-const codexFingerprintModeOptions = computed(() => [
-  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
-  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
-  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
-  { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
+const codexFingerprintModeOptions = computed<Array<{ value: CodexFingerprintMode; label: string }>>(() => [
+  { value: 'off', label: t('admin.accounts.openai.codexFingerprintOff') },
+  { value: 'device', label: t('admin.accounts.openai.codexFingerprintDevice') },
+  { value: 'session', label: t('admin.accounts.openai.codexFingerprintSession') },
+  { value: 'full', label: t('admin.accounts.openai.codexFingerprintFull') },
 ])
+const updateCodexFingerprintMode = (value: unknown) => {
+  const option = codexFingerprintModeOptions.value.find((entry) => entry.value === value)
+  if (option) codexFingerprintMode.value = option.value
+}
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
 const anthropicAPIKeyAuthScheme = ref<AnthropicAPIKeyAuthScheme>('x_api_key')
@@ -4821,16 +4864,24 @@ const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
 const geminiAIStudioOAuthEnabled = ref(false)
-const openAICompactModeOptions = computed(() => [
+const openAICompactModeOptions = computed<Array<{ value: OpenAICompactMode; label: string }>>(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
   { value: 'force_on', label: t('admin.accounts.openai.compactModeForceOn') },
   { value: 'force_off', label: t('admin.accounts.openai.compactModeForceOff') }
 ])
-const openAIResponsesModeOptions = computed(() => [
+const openAIResponsesModeOptions = computed<Array<{ value: OpenAIResponsesMode; label: string }>>(() => [
   { value: 'auto', label: t('admin.accounts.openai.responsesModeAuto') },
   { value: 'force_responses', label: t('admin.accounts.openai.responsesModeForceResponses') },
   { value: 'force_chat_completions', label: t('admin.accounts.openai.responsesModeForceChatCompletions') }
 ])
+const updateOpenAICompactMode = (value: unknown) => {
+  const option = openAICompactModeOptions.value.find((entry) => entry.value === value)
+  if (option) openAICompactMode.value = option.value
+}
+const updateOpenAIResponsesMode = (value: unknown) => {
+  const option = openAIResponsesModeOptions.value.find((entry) => entry.value === value)
+  if (option) openAIResponsesMode.value = option.value
+}
 const openAITextEndpointCapabilityLabel = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
     return t('admin.accounts.openai.capabilityResponses')
@@ -4971,6 +5022,10 @@ const openaiResponsesWebSocketV2Mode = computed({
     openaiOAuthResponsesWebSocketV2Mode.value = mode
   }
 })
+const updateOpenAIWSMode = (value: unknown) => {
+  const mode = normalizeOpenAIWSMode(value)
+  if (mode !== null) openaiResponsesWebSocketV2Mode.value = mode
+}
 
 const openAIWSModeHintKey = computed(() =>
   resolveOpenAIWSModeHintKey(openaiResponsesWebSocketV2Mode.value)
@@ -5078,10 +5133,45 @@ const isOAuthFlow = computed(() => {
   return accountCategory.value === 'oauth-based'
 })
 
+const declaredAdminMethods = computed(() => adminConnectionMethods({ platform: form.platform, surface: 'create' }))
+const adminCategoryAvailable = (category: AdminConnectionCategory) =>
+  declaredAdminMethods.value.some((method) => method.category === category)
+function adminAccountModeAvailable(accountMode: string): boolean {
+  return declaredAdminMethods.value.some((method) => method.category === 'apikey' && method.account_mode === accountMode)
+}
+const adminAddMethodAvailable = (method: AddMethod) =>
+  declaredAdminMethods.value.some((entry) => entry.category === 'oauth-based' && entry.add_method === method)
+const adminOAuthTypeDeclared = (oauthType: string) =>
+  declaredAdminMethods.value.some((method) => method.oauth_type === oauthType)
+const enabledAdminRequirements = computed(() => geminiAIStudioOAuthEnabled.value ? ['custom_oauth_client'] : [])
+const adminOAuthSelection = computed(() => ({
+  platform: form.platform,
+  surface: 'create' as const,
+  category: 'oauth-based' as const,
+  addMethod: addMethod.value,
+  oauthType: geminiOAuthType.value
+}))
+const adminInputMethods = computed(() => adminOAuthInputMethods(adminOAuthSelection.value, enabledAdminRequirements.value))
+const adminInputLabels = computed(() => adminOAuthInputLabels(adminOAuthSelection.value, enabledAdminRequirements.value))
+const adminCredentialModeAvailable = (category: AdminConnectionCategory, credentialMode: string) =>
+  declaredAdminMethods.value.some((method) => method.category === category && method.credential_mode === credentialMode)
+const adminSelectedMethodAvailable = computed(() => {
+  const category = form.platform === 'antigravity' && antigravityAccountType.value === 'upstream'
+    ? 'apikey' : accountCategory.value
+  if (category === 'oauth-based' && adminInputMethods.value.length === 0) return false
+  const credentialMode = category === 'bedrock' ? bedrockAuthMode.value
+    : category === 'service_account' ? vertexAuthMode.value : undefined
+  return adminConnectionMethods({
+    platform: form.platform, surface: 'create', category,
+    addMethod: addMethod.value, oauthType: geminiOAuthType.value, credentialMode,
+    accountMode: isMultiProtocolPlatform.value ? currentOpenCodeOrCNMode() : undefined
+  }).some((method) => adminConnectionMethodAvailable(method, enabledAdminRequirements.value))
+})
+
 const isGrokSSOInputMethod = computed(() => form.platform === 'grok' && oauthFlowRef.value?.inputMethod === 'sso_cookie')
 
 const isManualInputMethod = computed(() => {
-  return oauthFlowRef.value?.inputMethod === 'manual'
+  return adminInputMethods.value.includes('manual') && oauthFlowRef.value?.inputMethod === 'manual'
 })
 
 const expiresAtInput = computed({
@@ -5290,12 +5380,16 @@ watch(
 
 watch(
   [() => props.show, () => form.platform, accountCategory],
-  async ([show, platform, category]) => {
+  async ([show, platform, category], _previous, onCleanup) => {
+    let current = true
+    onCleanup(() => { current = false })
+    geminiAIStudioOAuthEnabled.value = false
     if (!show || platform !== 'gemini' || category !== 'oauth-based') {
       geminiAIStudioOAuthEnabled.value = false
       return
     }
     const caps = await geminiOAuth.getCapabilities()
+    if (!current) return
     geminiAIStudioOAuthEnabled.value = !!caps?.ai_studio_oauth_enabled
     if (!geminiAIStudioOAuthEnabled.value && geminiOAuthType.value === 'ai_studio') {
       geminiOAuthType.value = 'code_assist'
@@ -5305,6 +5399,7 @@ watch(
 )
 
 const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | 'ai_studio') => {
+  if (!adminOAuthTypeDeclared(oauthType)) return
   if (oauthType === 'ai_studio' && !geminiAIStudioOAuthEnabled.value) {
     appStore.showError(t('admin.accounts.oauth.gemini.aiStudioNotConfigured'))
     return
@@ -5980,6 +6075,7 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (!adminSelectedMethodAvailable.value) return
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -6279,6 +6375,7 @@ const goBackToBasicInfo = () => {
 }
 
 const handleGenerateUrl = async () => {
+  if (!isManualInputMethod.value) return
   if (form.platform === 'openai') {
     await openaiOAuth.generateAuthUrl(form.proxy_id)
   } else if (form.platform === 'gemini') {
@@ -6298,6 +6395,7 @@ const handleGenerateUrl = async () => {
 }
 
 const handleValidateRefreshToken = (rt: string) => {
+  if (!adminInputMethods.value.includes('refresh_token')) return
   if (form.platform === 'openai') {
     handleOpenAIValidateRT(rt)
   } else if (form.platform === 'antigravity') {
@@ -6491,6 +6589,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
 }
 
 const handleGrokImportSSO = async (ssoInput: string) => {
+  if (!adminInputMethods.value.includes('sso_cookie')) return
   // Align with OpenAI/Grok RT batch import: one token per line, no client-side dedupe.
   const ssoTokens = ssoInput
     .split('\n')
@@ -6567,6 +6666,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
  * Password is only used for the authorize API call; buildCredentials never stores it.
  */
 const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
+  if (!adminInputMethods.value.includes('email_password')) return
   if (!emailPasswordInput.trim()) return
   if (!validateGrokOAuthUpstreamConfig()) return
 
@@ -6808,6 +6908,8 @@ const isAgentIdentityImportContent = (content: string) => {
 }
 
 const handleOpenAIImportCodexSession = async (content: string) => {
+  const method = oauthFlowRef.value?.inputMethod
+  if ((method !== 'codex_session' && method !== 'agent_identity') || !adminInputMethods.value.includes(method)) return
   const oauthClient = openaiOAuth
   const trimmed = content.trim()
   if (!trimmed) {
@@ -6890,6 +6992,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
 }
 
 const handleOpenAIImportCodexPAT = async (accessToken: string) => {
+  if (!adminInputMethods.value.includes('codex_pat')) return
   const oauthClient = openaiOAuth
   const trimmed = accessToken.trim()
   if (!trimmed) {
@@ -7056,7 +7159,10 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 const handleOpenAIValidateRT = (rt: string) => handleOpenAIBatchRT(rt)
 
 // 手动输入 Mobile RT
-const handleOpenAIValidateMobileRT = (rt: string) => handleOpenAIBatchRT(rt, OPENAI_MOBILE_RT_CLIENT_ID)
+const handleOpenAIValidateMobileRT = (rt: string) => {
+  if (!adminInputMethods.value.includes('mobile_refresh_token')) return
+  return handleOpenAIBatchRT(rt, OPENAI_MOBILE_RT_CLIENT_ID)
+}
 
 // Antigravity 手动 RT 批量验证和创建
 const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
@@ -7361,6 +7467,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 
 // 主入口：根据平台路由到对应处理函数
 const handleExchangeCode = async () => {
+  if (!isManualInputMethod.value) return
   const authCode = oauthFlowRef.value?.authCode || ''
 
   switch (form.platform) {
@@ -7378,6 +7485,7 @@ const handleExchangeCode = async () => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
+  if (!adminInputMethods.value.includes('cookie')) return
   oauth.loading.value = true
   oauth.error.value = ''
 

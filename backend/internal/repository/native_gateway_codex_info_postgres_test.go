@@ -152,7 +152,19 @@ func TestGatewayAccountInfoCodexPostgresHydrationAndRefresh(t *testing.T) {
 	require.Equal(t, "native0@example.test", *initial.Sources["verified_claims"].Fields.Email.Value)
 	require.Equal(t, "plus", initial.Sources["account_check"].Fields.Subscription.Value.Code)
 	require.Nil(t, initial.Sources["account_check"].Fields.Subscription.Value.EndsAt)
-	require.Len(t, initial.Sources, 4)
+	require.Len(t, initial.Sources, 5)
+	for _, source := range []string{"credential", "verified_claims", "account_check", "subscription_status", "training_settings"} {
+		require.Contains(t, initial.Sources, source)
+	}
+	training := initial.Sources["training_settings"]
+	require.Positive(t, training.Order)
+	require.Equal(t, initial.Sources["account_check"].Order, training.Order, "the same pre-HTTP reservation binds authenticated observations")
+	require.EqualValues(t, 1, training.CredentialRevision)
+	require.Equal(t, "known", training.Fields.TrainingUsage.Status)
+	require.NotNil(t, training.Fields.TrainingUsage.Value)
+	require.Equal(t, "disabled", *training.Fields.TrainingUsage.Value)
+	require.Equal(t, "provider_api", training.Fields.TrainingUsage.Source)
+	require.NotEmpty(t, training.Fields.TrainingUsage.ObservedAt)
 	subscription := initial.Sources["subscription_status"].Fields.Subscription
 	require.Equal(t, "known", subscription.Status)
 	require.Equal(t, "provider_api", subscription.Source)

@@ -1348,6 +1348,41 @@ func TestClient_LoadCodeAssist_Success_RealCall(t *testing.T) {
 	}
 }
 
+func TestClient_LoadCodeAssist_RejectsRedirectAndOversizedReply(t *testing.T) {
+	for _, kind := range []string{"redirect", "oversized"} {
+		t.Run(kind, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/v1internal:loadCodeAssist" {
+					t.Error("authenticated metadata request followed a redirect")
+					_, _ = w.Write([]byte(`{"currentTier":{"id":"g1-ultra-tier"}}`))
+					return
+				}
+				if r.Header.Get("Authorization") != "Bearer metadata-private-token" {
+					t.Error("missing fixed bearer authentication")
+				}
+				if kind == "redirect" {
+					w.Header().Set("Location", "/unrelated-success")
+					w.WriteHeader(http.StatusFound)
+					return
+				}
+				_, _ = w.Write([]byte(`{"currentTier":{"id":"g1-ultra-tier"},"padding":"` + strings.Repeat("x", 65536) + `"}`))
+			}))
+			defer server.Close()
+			withMockBaseURLs(t, []string{server.URL})
+			client := mustNewClient(t, "")
+			response, raw, err := client.LoadCodeAssist(context.Background(), "metadata-private-token")
+			if err == nil || response != nil || raw != nil {
+				t.Fatal("unqualified reply must not be usable as provider-confirmed metadata")
+			}
+			if calls != 1 {
+				t.Fatalf("one authenticated call required; got %d", calls)
+			}
+		})
+	}
+}
+
 func TestClient_LoadCodeAssist_HTTPError_RealCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

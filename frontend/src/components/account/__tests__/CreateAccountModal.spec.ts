@@ -5,6 +5,7 @@ import {
   BUILTIN_PLATFORM_CATALOG,
   resetPlatformCatalog,
   setPlatformCatalog,
+  type PlatformCatalog,
 } from '@/constants/platformCatalog'
 
 const {
@@ -73,6 +74,19 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+// These controls are already replaced by the mount stubs below; keep their
+// imported-type SFC macros outside this focused form qualification as well.
+vi.mock('@/components/common/BaseDialog.vue', () => ({ default: { name: 'BaseDialog', props: ['show'], template: '<div/>' } }))
+vi.mock('@/components/common/ConfirmDialog.vue', () => ({ default: { name: 'ConfirmDialog', template: '<div/>' } }))
+vi.mock('@/components/common/Select.vue', () => ({ default: { name: 'Select', props: ['modelValue', 'options', 'disabled'], emits: ['update:modelValue'], template: '<div/>' } }))
+vi.mock('@/components/icons/Icon.vue', () => ({ default: { name: 'Icon', props: ['name', 'size'], template: '<span/>' } }))
+vi.mock('@/components/common/PlatformIcon.vue', () => ({ default: { name: 'PlatformIcon', props: ['platform', 'size'], template: '<span/>' } }))
+vi.mock('@/components/common/ProxySelector.vue', () => ({ default: { name: 'ProxySelector', props: ['modelValue'], template: '<div/>' } }))
+vi.mock('@/components/common/ProxyAdBanner.vue', () => ({ default: { name: 'ProxyAdBanner', template: '<div/>' } }))
+vi.mock('@/components/common/GroupSelector.vue', () => ({ default: { name: 'GroupSelector', props: ['modelValue'], template: '<div/>' } }))
+vi.mock('@/components/account/ModelWhitelistSelector.vue', () => ({ default: { name: 'ModelWhitelistSelector', props: ['modelValue'], template: '<div/>' } }))
+vi.mock('@/components/account/QuotaLimitCard.vue', () => ({ default: { name: 'QuotaLimitCard', template: '<div/>' } }))
+
 import CreateAccountModal from '../CreateAccountModal.vue'
 
 const BaseDialogStub = defineComponent({
@@ -84,18 +98,15 @@ const BaseDialogStub = defineComponent({
 const OAuthAuthorizationFlowStub = defineComponent({
   name: 'OAuthAuthorizationFlow',
   props: {
-    showManualOption: Boolean,
-    showCodexSessionImportOption: Boolean,
-    showAgentIdentityOption: Boolean,
-    showCodexPatOption: Boolean,
+    inputMethods: Array,
     initialInputMethod: String,
   },
   data: () => ({ inputMethod: 'manual' }),
   emits: ['import-codex-session', 'import-codex-pat'],
   template: `
     <div>
-      <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
-      <button data-testid="import-codex-pat" @click="$emit('import-codex-pat', 'pat-token')">pat</button>
+      <button data-testid="import-codex-session" @click="inputMethod = 'codex_session'; $emit('import-codex-session', 'session-json')">session</button>
+      <button data-testid="import-codex-pat" @click="inputMethod = 'codex_pat'; $emit('import-codex-pat', 'pat-token')">pat</button>
     </div>
   `,
 })
@@ -549,7 +560,17 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   describe('providers using the generic form', () => {
-    const serverOnlyProviders = {
+    const serverOnlyProviders: PlatformCatalog = {
+      admin_connection_methods: [
+        ...(BUILTIN_PLATFORM_CATALOG.admin_connection_methods ?? []),
+        ...[['acme_router', 'standard'], ['acme_router', 'team'], ['acme_chat', 'pass']].map(([platform, accountMode]) => ({
+          profile_id: `${platform}-${accountMode}-api-key-v1`, method_id: 'api_key', method_revision: 1,
+          account_mode: accountMode,
+          platform, label: 'API key', provider: { id: platform, label: platform },
+          product: { id: 'api', label: 'API' }, category: 'apikey' as const,
+          surfaces: ['create'] as const, configuration_requirements: []
+        }))
+      ],
       platforms: [
         ...BUILTIN_PLATFORM_CATALOG.platforms,
         {
@@ -815,10 +836,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
 
     const flow = wrapper.getComponent(OAuthAuthorizationFlowStub)
-    expect(flow.props('showManualOption')).toBe(true)
-    expect(flow.props('showCodexSessionImportOption')).toBe(true)
-    expect(flow.props('showAgentIdentityOption')).toBe(true)
-    expect(flow.props('showCodexPatOption')).toBe(true)
+    expect(flow.props('inputMethods')).toEqual([
+      'manual', 'refresh_token', 'mobile_refresh_token', 'codex_session', 'agent_identity', 'codex_pat'
+    ])
     expect(flow.props('initialInputMethod')).toBe('manual')
   })
 

@@ -1,24 +1,41 @@
 name: Account gateway native qualification
 on:
+  workflow_call:
+    inputs:
+      source_revision:
+        description: Exact Native source commit qualified by a dependency workflow
+        required: true
+        type: string
+      base_revision:
+        description: Exact Native baseline commit for the declaration inventory diff
+        required: true
+        type: string
   push:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'frontend/src/constants/platformCatalog.builtin.json'
+      - 'frontend/src/constants/platformCatalog.ts'
       - '.github/workflows/account-gateway-native.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'backend/**'
+      - 'frontend/src/constants/platformCatalog.builtin.json'
+      - 'frontend/src/constants/platformCatalog.ts'
       - '.github/workflows/account-gateway-native.yml'
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  EXPECTED_REVISION: ${{ inputs.source_revision || (github.repository == 'agent-teams-ai/sub2api-standalone' && (github.event.pull_request.head.sha || github.sha)) || '' }}
+  EXPLICIT_NATIVE_SOURCE: ${{ inputs.source_revision || '' }}
 concurrency:
-  group: account-gateway-native-${{ github.ref }}
+  group: account-gateway-native-${{ github.repository }}-${{ github.ref }}-${{ inputs.source_revision || 'direct' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   native:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: inputs.source_revision != '' || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -46,11 +63,52 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: agent-teams-ai/sub2api-standalone
+          ref: ${{ env.EXPECTED_REVISION }}
+          fetch-depth: 0
+      - name: Verify exact Native qualification source
+        run: |
+          [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          test -z "$(git status --porcelain)"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.4'
           cache-dependency-path: backend/go.sum
+      - name: Native declaration inventory export and bounded compatibility diff
+        working-directory: backend
+        env:
+          NATIVE_INVENTORY_BASE_REVISION: ${{ inputs.base_revision || (inputs.source_revision == '' && github.repository == 'agent-teams-ai/sub2api-standalone' && (github.event.pull_request.base.sha || github.event.before)) || '' }}
+          NATIVE_INVENTORY_CURRENT_REVISION: ${{ env.EXPECTED_REVISION }}
+          NATIVE_INVENTORY_BASELINE: ${{ runner.temp }}/native-connection-inventory/baseline-platform-catalog.json
+          NATIVE_INVENTORY_EXPORT: ${{ runner.temp }}/native-connection-inventory/current-inventory.json
+          NATIVE_INVENTORY_REPORT: ${{ runner.temp }}/native-connection-inventory/inventory-diff.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-connection-inventory"
+          test "$(git rev-parse HEAD)" = "$NATIVE_INVENTORY_CURRENT_REVISION"
+          if [ -z "$NATIVE_INVENTORY_BASE_REVISION" ]; then
+            test -z "$EXPLICIT_NATIVE_SOURCE"
+            NATIVE_INVENTORY_BASE_REVISION="$(git rev-parse HEAD^)"
+            export NATIVE_INVENTORY_BASE_REVISION
+          fi
+          [[ "$NATIVE_INVENTORY_BASE_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          git show "$NATIVE_INVENTORY_BASE_REVISION:frontend/src/constants/platformCatalog.builtin.json" > "$NATIVE_INVENTORY_BASELINE"
+          go test -tags unit ./internal/service -run 'TestBuildPlatformCatalog|TestFrontendBuiltinPlatformCatalogInSync|TestGatewayConnectionInventory' -count=1 -v | tee "$RUNNER_TEMP/native-connection-inventory/contracts.log"
+          if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-connection-inventory/contracts.log"; then exit 1; fi
+          for critical in TestFrontendBuiltinPlatformCatalogInSync TestGatewayConnectionInventorySharedWireExample TestGatewayConnectionInventoryAdminSurfacesAndRequirements TestGatewayConnectionInventoryProjectionReturnsFreshData TestGatewayConnectionInventoryDiffReportsActualContractChanges TestGatewayConnectionInventoryDiffRejectsMalformedAndUnboundedSources TestGatewayConnectionInventoryQualificationExport; do
+            test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-connection-inventory/contracts.log")" -eq 1
+          done
+          test -s "$NATIVE_INVENTORY_EXPORT"
+          test -s "$NATIVE_INVENTORY_REPORT"
+      - name: Upload native declaration inventory and diff
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-connection-inventory-${{ env.EXPECTED_REVISION }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-connection-inventory
+          if-no-files-found: error
+          retention-days: 14
       - name: Native boundary and ordinary regressions
         working-directory: backend
         env:
@@ -88,25 +146,27 @@ jobs:
           GATEWAY_NATIVE_IMPORT_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_import_test_ci?sslmode=disable
           GATEWAY_NATIVE_CODEX_INFO_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_info_test_codex_ci?sslmode=disable
           GATEWAY_NATIVE_CODEX_BINDING_INFO_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_info_test_codex_binding_ci?sslmode=disable
+          GATEWAY_ADMIN_INFO_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/admin_info_test_ci?sslmode=disable
         run: |
           set -o pipefail
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_info_test_ci
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_import_test_ci
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_info_test_codex_ci
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test gateway_info_test_codex_binding_ci
-          go test -tags unit ./internal/pkg/apicompat ./internal/service -run 'TestGeminiContinuation|TestResponsesToAnthropic.*StructuredOutput|TestGatewayGeminiContinuation|TestGatewayAccountInfo|TestGatewayQuotaAndInfo|TestGatewayCodex(Info|RetainedInfo|Maintenance)|TestGatewayClaudeInfo|TestGatewayGrokInfo|TestGatewayOAuthInfo|TestGatewayAccountCapabilities|TestGatewayNativeGemini|TestGatewayNativeOfficial|TestGatewayNativeAnthropicSchema' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-unit.log"
+          docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test admin_info_test_ci
+          go test -tags unit ./internal/pkg/apicompat ./internal/pkg/antigravity ./internal/service -run 'TestGeminiContinuation|TestResponsesToAnthropic.*StructuredOutput|TestClient_LoadCodeAssist|TestGatewayGeminiContinuation|TestGatewayAccountInfo|TestGatewayQuotaAndInfo|TestGatewayCodex(Info|RetainedInfo|Maintenance)|TestGatewayClaudeInfo|TestGatewayGrokInfo|TestGatewayOAuthInfo|TestGatewayAccountCapabilities|TestGatewayNativeGemini|TestGatewayNativeOfficial|TestGatewayNativeAnthropicSchema|TestOpenAITrainingInfo|TestAdminAccountInfo|TestGatewayTrainingCollector' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-unit.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-account-info-unit.log"; then exit 1; fi
-          go test -tags unit ./internal/gatewaybootstrap ./internal/handler/admin -run 'TestNativeAccountCapabilities|TestNativeOfficialAPIConfig|TestNativeConnectionCleanupAuthorityStoredTuple|TestGatewayAccountLimitsAuthorityHTTP|TestGatewayAccountInfoPrivateHTTPContract|TestGatewayNativeOAuthConnectHTTPImportStrictIngress' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-http.log"
+          go test -tags unit ./internal/gatewaybootstrap ./internal/handler/admin -run 'TestNativeAccountCapabilities|TestNativeOfficialAPIConfig|TestNativeConnectionCleanupAuthorityStoredTuple|TestGatewayAccountLimitsAuthorityHTTP|TestGatewayAccountInfoPrivateHTTPContract|TestGatewayNativeOAuthConnectHTTPImportStrictIngress|TestEnrichShadowParentInfo' -count=1 -v | tee "$RUNNER_TEMP/native-account-info-http.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-account-info-http.log"; then exit 1; fi
-          for critical in TestNativeAccountCapabilitiesExposeImportsOnlyWithComposedCodex TestNativeOfficialAPIConfigUsesExistingClosedFD6Profiles TestNativeConnectionCleanupAuthorityStoredTuple TestGatewayAccountLimitsAuthorityHTTP TestGatewayAccountInfoPrivateHTTPContract TestGatewayNativeOAuthConnectHTTPImportStrictIngress; do
+          for critical in TestNativeAccountCapabilitiesExposeImportsOnlyWithComposedCodex TestNativeOfficialAPIConfigUsesExistingClosedFD6Profiles TestNativeConnectionCleanupAuthorityStoredTuple TestGatewayAccountLimitsAuthorityHTTP TestGatewayAccountInfoPrivateHTTPContract TestGatewayNativeOAuthConnectHTTPImportStrictIngress TestEnrichShadowParentInfo TestEnrichShadowParentInfoDoesNotExposeProtectedParent; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-account-info-http.log")" -eq 1
           done
-          for critical in TestGatewayNativeOfficialGeminiActualTLSContinuationAndSchema TestGatewayNativeOfficialAnthropicActualTLSHeadersToolsAndSchema TestGatewayGeminiContinuationBindsEveryAuthorityAndNativeIdentity TestGatewayAccountInfoReaderUsesCurrentSnapshotAndFinalAuthority; do
+          for critical in TestClient_LoadCodeAssist_RejectsRedirectAndOversizedReply TestGatewayNativeOfficialGeminiActualTLSContinuationAndSchema TestGatewayNativeOfficialAnthropicActualTLSHeadersToolsAndSchema TestGatewayGeminiContinuationBindsEveryAuthorityAndNativeIdentity TestGatewayAccountInfoReaderUsesCurrentSnapshotAndFinalAuthority TestOpenAITrainingInfoRequiresFixedAuthenticatedSuccess TestAdminAccountInfoCredentialReplacementAndSourceIntegrity TestAdminAccountInfoAntigravityUsesOnlyObservedTier TestGatewayTrainingCollectorPreservesCustodyCommitBudget; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-account-info-unit.log")" -eq 1
           done
-          go test -tags integration ./internal/repository -run '^TestGateway(AccountInfoPostgresOrderingAtomicityAndReplacement|AccountInfoCodexPostgresHydrationAndRefresh|AccountInfoCodexPostgresConnectionBinding|NativeOAuthImportPostgresClaimsReplayAndLostACK)$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-account-info-pg.log"
+          go test -tags integration ./internal/repository -run '^(TestGateway(AccountInfoPostgresOrderingAtomicityAndReplacement|AccountInfoCodexPostgresHydrationAndRefresh|AccountInfoCodexPostgresConnectionBinding|NativeOAuthImportPostgresClaimsReplayAndLostACK)|TestAdminAccountInfoPostgresTrustedProducerAndCredentialFence)$' -count=1 -v -timeout 180s | tee "$RUNNER_TEMP/native-account-info-pg.log"
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-account-info-pg.log"; then exit 1; fi
-          for critical in TestGatewayAccountInfoPostgresOrderingAtomicityAndReplacement TestGatewayAccountInfoCodexPostgresHydrationAndRefresh TestGatewayAccountInfoCodexPostgresConnectionBinding TestGatewayNativeOAuthImportPostgresClaimsReplayAndLostACK; do
+          for critical in TestGatewayAccountInfoPostgresOrderingAtomicityAndReplacement TestGatewayAccountInfoCodexPostgresHydrationAndRefresh TestGatewayAccountInfoCodexPostgresConnectionBinding TestGatewayNativeOAuthImportPostgresClaimsReplayAndLostACK TestAdminAccountInfoPostgresTrustedProducerAndCredentialFence; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-account-info-pg.log")" -eq 1
           done
 
@@ -325,11 +385,10 @@ jobs:
 
   rollback_reader:
     name: Immutable native rollback reader and new journal states
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: inputs.source_revision != '' || github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
       ROLLBACK_READER_REVISION: a59da2e24adec39b8b21a512bc6721bf7fa2a4c1
       ROLLBACK_BASE_IMAGE: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
       CGO_ENABLED: '0'
@@ -337,7 +396,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: agent-teams-ai/sub2api-standalone
+          ref: ${{ env.EXPECTED_REVISION }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.4'
@@ -345,6 +405,7 @@ jobs:
       - name: Compile current writer and the exact compatible production reader
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_REVISION" =~ ^[a-f0-9]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
           test -z "$(git status --porcelain)"
           probe_root="$RUNNER_TEMP/native-rollback"
@@ -433,7 +494,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: native-rollback-reader-${{ github.event.pull_request.head.sha || github.sha }}
+          name: native-rollback-reader-${{ env.EXPECTED_REVISION }}
           path: ${{ runner.temp }}/native-rollback/output
           if-no-files-found: error
           retention-days: 14

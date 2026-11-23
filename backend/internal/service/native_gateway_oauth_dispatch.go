@@ -233,9 +233,12 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 	}
 	credentialInfo := gatewayCodexCredentialInfo(bundle, s.custody, time.Now())
 	provider, info, err := s.accountCheckInfo(bounded, bundle.AccessToken)
-	var subscriptionInfo *GatewayAccountInfoFields
+	var subscriptionInfo, trainingInfo *GatewayAccountInfoFields
 	if err == nil && infoOrder > 0 && info.Subscription.Status == "known" && info.Subscription.Value != nil && info.Subscription.Value.EndsAt == nil {
 		subscriptionInfo = gatewayCodexSubscriptionInfo(bounded, s.client, s.accountCheckHeaders, bundle.AccessToken, provider, info)
+	}
+	if err == nil && infoOrder > 0 {
+		trainingInfo = gatewayCodexTrainingInfo(bounded, s.client, s.accountCheckHeaders, bundle.AccessToken)
 	}
 	bundle = GatewayNativeOAuthBundle{}
 	if err != nil {
@@ -252,6 +255,9 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 		}
 		if subscriptionInfo != nil {
 			physical.proof.info = append(physical.proof.info, GatewayAccountInfoObservation{Source: "subscription_status", Order: infoOrder, CredentialRevision: version, Fields: *subscriptionInfo})
+		}
+		if trainingInfo != nil {
+			physical.proof.info = append(physical.proof.info, GatewayAccountInfoObservation{Source: "training_settings", Order: infoOrder, CredentialRevision: version, Fields: *trainingInfo})
 		}
 	}
 	if err = s.repository.QualifyGatewayNativeOAuthDispatch(bounded, physical, version); err != nil {

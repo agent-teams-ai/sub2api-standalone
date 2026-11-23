@@ -355,6 +355,12 @@ func (f *nativeConnectionJoinedCodex) handle(w http.ResponseWriter, r *http.Requ
 		f.mu.Unlock()
 		require.True(f.t, valid, "bound native OAuth grant and PKCE")
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": access, "refresh_token": refresh, "id_token": f.signedID(), "token_type": "Bearer", "expires_in": 3600})
+	case "chatgpt.com/backend-api/settings/account_user_setting":
+		f.mu.Lock()
+		valid := r.Header.Get("Authorization") == "Bearer "+f.currentBearer
+		f.mu.Unlock()
+		require.True(f.t, valid && r.Method == http.MethodPatch && r.URL.RawQuery == "feature=training_allowed&value=false", "authenticated training-settings producer")
+		w.WriteHeader(http.StatusNoContent)
 	case "chatgpt.com/backend-api/accounts/check/v4-2023-04-27":
 		f.mu.Lock()
 		if f.tokens.Load() == 0 && r.Header.Get("Authorization") == "Bearer "+f.reconnectAccess {

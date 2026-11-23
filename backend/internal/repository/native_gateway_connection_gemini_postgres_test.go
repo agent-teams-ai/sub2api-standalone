@@ -285,6 +285,22 @@ func TestGatewayNativeConnectionPostgresGeminiAndAntigravity(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, published.Native)
 			route = &published.Native.GatewayNativeRoute
+			var infoReader *service.GatewayAccountInfoReader
+			infoInput := service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: in.Connection.ProfileID, ExpectedAuthorizationEpoch: 1}
+			if f.profile == "antigravity-responses-oauth-v1" {
+				infoReader, err = service.NewGatewayAccountInfoReader(NewGatewayAccountInfoRepository(db), func(context.Context, service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
+					return *route, nil
+				}, native)
+				require.NoError(t, err)
+				before := f.projects.Load()
+				info := infoReader.Read(ownerCtx, infoInput)
+				require.Equal(t, "available", info.Info.Status)
+				require.Equal(t, "known", info.Info.Fields.Subscription.Status)
+				require.Equal(t, "provider_api", info.Info.Fields.Subscription.Source)
+				require.Equal(t, "free-tier", info.Info.Fields.Subscription.Value.Code)
+				require.NotEmpty(t, info.Info.Fields.Subscription.ObservedAt)
+				require.Equal(t, before, f.projects.Load(), "private metadata reads reuse the persisted authenticated observation")
+			}
 			request := map[string]any{"model": f.model, "input": "Review file.go", "store": false, "stream": true, "max_output_tokens": 512, "parallel_tool_calls": false, "tools": []any{map[string]any{"type": "function", "name": "read_source", "parameters": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]string{"type": "string"}}}}}}
 			body, err := json.Marshal(request)
 			require.NoError(t, err)
@@ -325,6 +341,10 @@ func TestGatewayNativeConnectionPostgresGeminiAndAntigravity(t *testing.T) {
 					require.EqualValues(t, 2, f.tokens.Load(), "lost token ACK cannot trigger another rotation")
 				} else {
 					require.Equal(t, "completed", maintained.State)
+					if infoReader != nil {
+						info := infoReader.Read(ownerCtx, infoInput)
+						require.Equal(t, "known", info.Info.Fields.Subscription.Status, "refresh republishes current authenticated plan facts")
+					}
 					_, entered, err = nativeConnectionForwardFixture(t, ownerCtx, custody, native, gateway, in, *route, continued)
 					require.Error(t, err)
 					require.False(t, entered, "old credential revision must not authenticate the old thought carrier")

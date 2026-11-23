@@ -1191,6 +1191,13 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		defer fetchCancel()
 
 		proxyURL := s.antigravityQuotaFetcher.GetProxyURL(fetchCtx, account)
+		infoWriter, infoCapable := s.accountRepo.(AdminAccountInfoRepository)
+		var infoBinding AdminAccountInfoBinding
+		if infoCapable {
+			var bindErr error
+			infoBinding, bindErr = infoWriter.ReserveAdminAccountInfo(fetchCtx, account)
+			infoCapable = bindErr == nil
+		}
 		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, proxyURL)
 		if err != nil {
 			degraded := buildAntigravityDegradedUsage(err)
@@ -1200,6 +1207,11 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 				timestamp: time.Now(),
 			})
 			return degraded, nil
+		}
+		if infoCapable && fetchResult.AccountInfo != nil {
+			observation := GatewayAccountInfoObservation{Source: "plan_quota", Order: infoBinding.Order,
+				CredentialRevision: infoBinding.CredentialRevision, Fields: *fetchResult.AccountInfo}
+			_ = infoWriter.StoreAdminAccountInfo(fetchCtx, infoBinding, account.Credentials, "", observation)
 		}
 
 		enrichUsageWithAccountError(fetchResult.UsageInfo, account)

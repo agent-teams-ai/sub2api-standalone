@@ -65,6 +65,10 @@ func (s *GatewayNativeConnections) Maintain(ctx context.Context, in GatewayNativ
 	if err != nil || s.refresh(ctx, in.Scope, in.Operation) != nil {
 		return out, ErrGatewayNativeIdentity
 	}
+	infoOrder, err := s.reserveAccountInfoOrder(ctx, in.Connection.ProfileID)
+	if err != nil {
+		return out, err
+	}
 	won, err := s.repository.EnterGatewayNativeOAuthRefresh(ctx, attempt, prepared.Fence)
 	if err != nil || !won {
 		return out, err
@@ -80,7 +84,9 @@ func (s *GatewayNativeConnections) Maintain(ctx context.Context, in GatewayNativ
 	defer cancel()
 	credential, err := method.Refresh(bounded, in, previous)
 	defer clear(credential.Document)
-	if err != nil || bounded.Err() != nil || credential.Credential != publication.Credential || credential.AuthFamily != publication.AuthFamily || s.refresh(bounded, in.Scope, in.Operation) != nil {
+	completeCtx, stopComplete := context.WithTimeout(context.WithoutCancel(bounded), 2*time.Second)
+	defer stopComplete()
+	if err != nil || credential.Credential != publication.Credential || credential.AuthFamily != publication.AuthFamily || s.refresh(completeCtx, in.Scope, in.Operation) != nil {
 		return unknown()
 	}
 	envelope, err := s.custody.SealConnection(in.Scope, publication, attempt.ExpectedVersion+1, credential.Document)
@@ -88,7 +94,12 @@ func (s *GatewayNativeConnections) Maintain(ctx context.Context, in GatewayNativ
 		return unknown()
 	}
 	attempt.nativeInfo = append([]GatewayAccountInfoObservation(nil), credential.Observations...)
-	result, err := s.repository.CompleteGatewayNativeOAuthRefresh(bounded, attempt, prepared.Fence, envelope)
+	for i := range attempt.nativeInfo {
+		if attempt.nativeInfo[i].Order == 0 {
+			attempt.nativeInfo[i].Order = infoOrder
+		}
+	}
+	result, err := s.repository.CompleteGatewayNativeOAuthRefresh(completeCtx, attempt, prepared.Fence, envelope)
 	if err != nil {
 		return unknown()
 	}

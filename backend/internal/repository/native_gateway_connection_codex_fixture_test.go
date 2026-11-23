@@ -35,6 +35,7 @@ type nativeCodexImportFixture struct {
 	phase                     atomic.Int32
 	tokens, checks, tasks     atomic.Int32
 	models, inference, quotas atomic.Int32
+	training                  atomic.Int32
 }
 
 func (f *nativeCodexImportFixture) bearer() string {
@@ -101,6 +102,13 @@ func (f *nativeCodexImportFixture) serve(w http.ResponseWriter, r *http.Request)
 			expires = 45 // Real native expiry triggers the first maintenance.
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": f.bearer(), "refresh_token": fmt.Sprintf("%s-%d", f.refresh, n), "id_token": f.signedID(), "expires_in": expires, "token_type": "Bearer"})
+	case "chatgpt.com/backend-api/settings/account_user_setting":
+		f.training.Add(1)
+		assert.Equal(f.t, http.MethodPatch, r.Method)
+		assert.Equal(f.t, "Bearer "+f.bearer(), r.Header.Get("Authorization"))
+		assert.Equal(f.t, "training_allowed", r.URL.Query().Get("feature"))
+		assert.Equal(f.t, "false", r.URL.Query().Get("value"))
+		w.WriteHeader(http.StatusNoContent)
 	case "chatgpt.com/backend-api/accounts/check/v4-2023-04-27":
 		f.checks.Add(1)
 		assert.Equal(f.t, "Bearer "+f.bearer(), r.Header.Get("Authorization"))

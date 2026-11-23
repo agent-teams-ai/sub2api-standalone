@@ -89,6 +89,7 @@ func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Accou
 
 	// 调用 LoadCodeAssist 获取订阅等级和 AI Credits 余额（非关键路径，失败不影响主流程）
 	tierRaw, tierNormalized, loadResp := f.fetchSubscriptionTier(ctx, client, accessToken)
+	accountInfo := gatewayAntigravityAccountInfo(loadResp, time.Now().UTC())
 
 	// 转换为 UsageInfo
 	usageInfo := f.buildUsageInfo(modelsResp, tierRaw, tierNormalized, loadResp)
@@ -102,8 +103,9 @@ func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Accou
 	}
 
 	return &QuotaResult{
-		UsageInfo: usageInfo,
-		Raw:       modelsRaw,
+		UsageInfo:   usageInfo,
+		Raw:         modelsRaw,
+		AccountInfo: accountInfo,
 	}, nil
 }
 

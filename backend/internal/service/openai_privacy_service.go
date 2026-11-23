@@ -41,49 +41,13 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 	if accessToken == "" || clientFactory == nil {
 		return ""
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-
 	client, err := clientFactory(proxyURL)
-	if err != nil {
-		slog.Warn("openai_privacy_client_error", "error", err.Error())
+	if err != nil || client == nil {
 		return PrivacyModeFailed
 	}
-
-	resp, err := client.R().
-		SetContext(ctx).
-		SetHeader("Authorization", "Bearer "+accessToken).
-		SetHeader("Origin", "https://chatgpt.com").
-		SetHeader("Referer", "https://chatgpt.com/").
-		SetHeader("Accept", "application/json").
-		SetHeader("sec-fetch-mode", "cors").
-		SetHeader("sec-fetch-site", "same-origin").
-		SetHeader("sec-fetch-dest", "empty").
-		SetQueryParam("feature", "training_allowed").
-		SetQueryParam("value", "false").
-		Patch(openAISettingsURL)
-
-	if err != nil {
-		slog.Warn("openai_privacy_request_error", "error", err.Error())
-		return PrivacyModeFailed
-	}
-
-	if resp.StatusCode == 403 || resp.StatusCode == 503 {
-		body := resp.String()
-		if isCloudflareChallengeResponse(resp.Header.Get("cf-mitigated"), body) {
-			slog.Warn("openai_privacy_cf_blocked", "status", resp.StatusCode)
-			return PrivacyModeCFBlocked
-		}
-	}
-
-	if !resp.IsSuccessState() {
-		slog.Warn("openai_privacy_failed", "status", resp.StatusCode, "body", truncate(resp.String(), 200))
-		return PrivacyModeFailed
-	}
-
-	slog.Info("openai_privacy_training_disabled")
-	return PrivacyModeTrainingOff
+	return disableOpenAITrainingWithClient(bounded, client.GetClient(), client.Headers, accessToken)
 }
 
 // isCloudflareChallengeResponse 判断 chatgpt.com 返回的是否为 Cloudflare 质询/拦截页。

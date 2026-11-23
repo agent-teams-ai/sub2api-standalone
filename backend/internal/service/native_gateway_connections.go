@@ -302,6 +302,10 @@ func (s *GatewayNativeConnections) complete(ctx context.Context, in GatewayNativ
 	if err != nil || s.connect(ctx, in.Scope, in.Operation) != nil {
 		return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
 	}
+	infoOrder, err := s.reserveAccountInfoOrder(ctx, in.Connection.ProfileID)
+	if err != nil {
+		return GatewayNativeConnectionResult{}, err
+	}
 	won, err := s.journal.EnterConnect(ctx, saved)
 	if err != nil {
 		return GatewayNativeConnectionResult{}, ErrGatewayNativeIdentity
@@ -320,6 +324,11 @@ func (s *GatewayNativeConnections) complete(ctx context.Context, in GatewayNativ
 	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	credential, effectErr := method.Complete(bounded, in, material, fields)
+	for i := range credential.Observations {
+		if credential.Observations[i].Order == 0 {
+			credential.Observations[i].Order = infoOrder
+		}
+	}
 	defer clear(credential.Document)
 	if effectErr == nil && bounded.Err() == nil && time.Now().Before(saved.Deadline) && s.connect(bounded, in.Scope, in.Operation) == nil {
 		publication := GatewayConnectionPublication{Connection: in.Connection, Credential: credential.Credential, DispatchFamily: saved.NativeDispatchFamily, AuthFamily: credential.AuthFamily}

@@ -137,6 +137,11 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 		return unknown()
 	}
 	if infoOrder > 0 {
+		if time.Until(prepared.Deadline) > 4*time.Second {
+			if training := gatewayCodexTrainingInfo(callCtx, s.client, nil, next.AccessToken); training != nil {
+				next.info = append(next.info, GatewayAccountInfoObservation{Source: "training_settings", Fields: *training})
+			}
+		}
 		for i := range next.info {
 			next.info[i].Order = infoOrder
 			next.info[i].CredentialRevision = in.ExpectedVersion + 1
@@ -145,7 +150,11 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 	}
 	// SQL publishes whole ciphertext and version atomically; a lost ACK is read
 	// back by the same operation without decrypting or entering a second time.
-	outcome, err := s.repository.CompleteGatewayNativeOAuthRefresh(callCtx, in, prepared.Fence, envelope)
+	// A completed rotation must still be persisted when optional metadata HTTP
+	// observes caller cancellation. SQL retains the original deadline/identity fence.
+	completeCtx, stopComplete := context.WithTimeout(context.WithoutCancel(callCtx), 2*time.Second)
+	defer stopComplete()
+	outcome, err := s.repository.CompleteGatewayNativeOAuthRefresh(completeCtx, in, prepared.Fence, envelope)
 	if err != nil {
 		readCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		readback, readErr := s.repository.PrepareGatewayNativeOAuthRefresh(readCtx, in)

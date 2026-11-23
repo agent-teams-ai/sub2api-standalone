@@ -479,6 +479,11 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 
 	// 固定顺序：prod -> daily
 	availableURLs := BaseURLs
+	// This authenticated response is also the source of canonical account facts.
+	// Explicit configured fallback remains below; a server redirect is not proof
+	// that the requested endpoint confirmed this bearer account's subscription.
+	boundedClient := *c.httpClient
+	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 	var lastErr error
 	for urlIdx, baseURL := range availableURLs {
@@ -492,7 +497,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
 
-		resp, err := servertiming.Do(c.httpClient, req)
+		resp, err := servertiming.Do(&boundedClient, req)
 		if err != nil {
 			lastErr = fmt.Errorf("loadCodeAssist 请求失败: %w", err)
 			if shouldFallbackToNextURL(err, 0) && urlIdx < len(availableURLs)-1 {
@@ -502,10 +507,19 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 			return nil, nil, lastErr
 		}
 
-		respBodyBytes, err := io.ReadAll(resp.Body)
+		if resp == nil || resp.Body == nil || resp.Request == nil || resp.Request.URL == nil || resp.Request.URL.String() != apiURL {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, nil, fmt.Errorf("loadCodeAssist response endpoint mismatch")
+		}
+		respBodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
 		_ = resp.Body.Close() // 立即关闭，避免循环内 defer 导致的资源泄漏
 		if err != nil {
 			return nil, nil, fmt.Errorf("读取响应失败: %w", err)
+		}
+		if len(respBodyBytes) > 65536 {
+			return nil, nil, fmt.Errorf("loadCodeAssist response too large")
 		}
 
 		// 检查是否需要 URL 降级

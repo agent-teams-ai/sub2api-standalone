@@ -213,14 +213,34 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			require.NoError(t, err)
 			infoInput := service.GatewayAccountLimitsInput{OwnerRef: in.Scope.Owner, AccountRef: in.Scope.Account, ProfileID: in.Connection.ProfileID, ExpectedAuthorizationEpoch: 1}
 			checksBefore, tokensBefore, tasksBefore := f.checks.Load(), f.tokens.Load(), f.tasks.Load()
+			trainingBefore := f.training.Load()
 			info := infoReader.Read(ownerCtx, infoInput)
 			require.Equal(t, "available", info.Info.Status)
 			require.Equal(t, in.Scope.Generation, info.PhysicalGeneration)
 			require.NotEmpty(t, info.PrincipalVersion)
 			require.NotNil(t, info.Info.Fields)
+			protectedAccount, accountErr := accounts.GetByID(ctx, route.AccountID)
+			require.NoError(t, accountErr)
+			adminFacts := accounts.(service.AdminAccountInfoRepository)
+			ordinary, ordinaryErr := adminFacts.ReadAdminAccountInfo(ctx, []*service.Account{protectedAccount})
+			require.NoError(t, ordinaryErr)
+			require.NotContains(t, ordinary, route.AccountID, "protected rows never leak through ordinary admin facts")
+			_, ordinaryErr = adminFacts.ReserveAdminAccountInfo(ctx, protectedAccount)
+			require.Error(t, ordinaryErr)
 			if f.clientID != "" {
 				require.Equal(t, "known", info.Info.Fields.CredentialExpiresAt.Status, "committed provider expiry reaches the cached reader")
 			}
+			if f.method != "codex_pat" && len(f.agent) == 0 {
+				require.Positive(t, trainingBefore, "actual authenticated PATCH precedes the persisted fact")
+				require.Equal(t, "known", info.Info.Fields.TrainingUsage.Status)
+				require.Equal(t, "disabled", *info.Info.Fields.TrainingUsage.Value)
+				require.Equal(t, "provider_api", info.Info.Fields.TrainingUsage.Source)
+				require.NotEmpty(t, info.Info.Fields.TrainingUsage.ObservedAt)
+			} else {
+				require.Zero(t, trainingBefore, "PAT/Agent Identity has no authenticated training-settings producer")
+				require.Equal(t, "unknown", info.Info.Fields.TrainingUsage.Status)
+			}
+			require.Equal(t, trainingBefore, f.training.Load(), "metadata reads do not call settings")
 			require.Equal(t, "unsupported", service.ProjectGatewayAccountInfoV1(info).Info.Fields.PrivacyMode.Status)
 			infoInput.OwnerRef = "foreign-owner"
 			require.Equal(t, "unavailable", infoReader.Read(ownerCtx, infoInput).Info.Status)
@@ -317,6 +337,9 @@ func TestGatewayNativeConnectionPostgresCodexVariants(t *testing.T) {
 			}
 			maintained, err := native.Maintain(ownerCtx, in)
 			require.NoError(t, err)
+			var ordinaryRevision int64
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT account_info_credential_revision FROM accounts WHERE id=$1`, route.AccountID).Scan(&ordinaryRevision))
+			require.EqualValues(t, 1, ordinaryRevision, "protected engine rotation preserves the unrelated ordinary-admin revision and legacy row guard")
 			if created.Credential.RefreshPolicy == "native" {
 				require.Equal(t, "completed", maintained.State)
 				resolution, err := physical.ResolveGatewayNativeConnectionRefresh(selectedCtx, in.Scope, in.Operation)

@@ -30,3 +30,19 @@ func (s *GatewayNativeConnections) readAccountInfo(ctx context.Context, in Gatew
 	}
 	return projectGatewayAccountInfoResult(in.ProfileID, stored, p.Scope.Generation, now)
 }
+
+// Reserve before a method can send credentials. Publication assigns the physical
+// credential revision later, but cannot reorder observations by HTTP completion.
+func (s *GatewayNativeConnections) reserveAccountInfoOrder(ctx context.Context, profile string) (int64, error) {
+	definition, exists := LookupGatewayConnectionProfile(profile)
+	if !exists || len(definition.MetadataSources) == 0 {
+		return 0, nil
+	}
+	writer, ok := s.repository.(interface {
+		ReserveGatewayAccountInfoOrder(context.Context) (int64, error)
+	})
+	if !ok {
+		return 0, nil
+	}
+	return writer.ReserveGatewayAccountInfoOrder(ctx)
+}

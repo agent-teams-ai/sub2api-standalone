@@ -217,6 +217,9 @@ func NewGatewayNativeCodexImportMethods(generation string, mount GatewayConnecti
 				}
 				document["chatgpt_account_id"] = provider
 				observations = append(observations, GatewayAccountInfoObservation{Source: "account_check", Fields: fields})
+				if training := gatewayCodexTrainingInfo(ctx, client, headers, account.GetCredential("access_token")); training != nil {
+					observations = append(observations, GatewayAccountInfoObservation{Source: "training_settings", Fields: *training})
+				}
 			case "codex_pat":
 				info, err := validateOpenAICodexPersonalAccessToken(ctx, account.GetCredential("access_token"), client)
 				if err != nil {

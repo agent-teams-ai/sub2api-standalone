@@ -278,6 +278,17 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 		return nil, err
 	}
 
+	// Bind the current credentials and reserve order before either billing HTTP
+	// call. A cache/extra merge below is not a trusted fact producer.
+	var infoBinding AdminAccountInfoBinding
+	infoWriter, hasInfoWriter := s.accountRepo.(AdminAccountInfoRepository)
+	if hasInfoWriter && strings.TrimSpace(account.GetGrokAccessToken()) == token {
+		// A token refresh may return a different account copy while this probe
+		// still carries the old endpoint/proxy snapshot. Skip optional facts
+		// until the next existing probe rather than binding those two identities.
+		infoBinding, _ = infoWriter.ReserveAdminAccountInfo(ctx, account)
+	}
+
 	probeCtx, cancel := context.WithTimeout(ctx, grokQuotaUpstreamTimeout)
 	defer cancel()
 	type billingResult struct {
@@ -300,6 +311,18 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 
 	weeklyOK := weekly.summary != nil
 	monthlyOK := monthly.summary != nil
+	if infoBinding.Order > 0 {
+		fresh := monthly.summary
+		if fresh == nil {
+			fresh = weekly.summary
+		}
+		if fields := gatewayGrokBillingSummaryInfo(fresh, time.Now().UTC()); fields != nil &&
+			(fields.Subscription.Status == "known" || weeklyOK && monthlyOK) {
+			observation := GatewayAccountInfoObservation{Source: "plan_quota", Order: infoBinding.Order,
+				CredentialRevision: infoBinding.CredentialRevision, Fields: *fields}
+			_ = infoWriter.StoreAdminAccountInfo(ctx, infoBinding, account.Credentials, "", observation)
+		}
+	}
 	previous, _ := grokBillingSnapshotFromExtra(account.Extra)
 	if !weeklyOK && !monthlyOK {
 		probeErr := mergeGrokBillingProbeErrors(weekly.status, monthly.status, weekly.err, monthly.err)
