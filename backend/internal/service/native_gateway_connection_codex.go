@@ -133,7 +133,7 @@ func gatewayCodexImportDocument(method string, input map[string]string) (map[str
 }
 
 func gatewayCodexImportDecode(raw json.RawMessage) (map[string]any, error) {
-	document, _, err := gatewayConnectionDocument(raw)
+	document, err := gatewayConnectionDocument(raw)
 	return document, err
 }
 

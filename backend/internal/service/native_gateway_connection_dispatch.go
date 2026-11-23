@@ -48,13 +48,13 @@ type gatewayConnectionDispatchBinding struct {
 type gatewayConnectionDispatchBindingKey struct{}
 
 type gatewayConnectionDispatchState struct {
-	binding        gatewayConnectionDispatchBinding
-	physical       GatewayNativeConnectionPhysical
-	account        *Account
-	credentials    [32]byte
+	binding          gatewayConnectionDispatchBinding
+	physical         GatewayNativeConnectionPhysical
+	account          *Account
+	credentials      [32]byte
 	credentialMACKey [32]byte
-	requestedModel string
-	entered        atomic.Bool
+	requestedModel   string
+	entered          atomic.Bool
 }
 type gatewayConnectionDispatchStateKey struct{}
 
@@ -96,27 +96,38 @@ func GatewayNativeConnectionDispatchBound(ctx context.Context) bool {
 	return ok
 }
 
-func gatewayConnectionDocument(raw json.RawMessage, macKey *[32]byte) (map[string]any, [32]byte, error) {
-	var zero [32]byte
-	if macKey == nil {
-		return nil, zero, ErrGatewayNativeIdentity
-	}
+// gatewayConnectionDocument validates and decodes credential JSON for import
+// and read-only quota consumers, which do not need a credential-continuity tag.
+func gatewayConnectionDocument(raw json.RawMessage) (map[string]any, error) {
 	if _, err := gatewayOAuthJSON(raw); err != nil {
-		return nil, zero, err
+		return nil, err
 	}
 	var document map[string]any
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
 	if d.Decode(&document) != nil || len(document) == 0 {
+		return nil, ErrGatewayNativeIdentity
+	}
+	return document, nil
+}
+
+// Only protected request dispatch creates this keyed continuity MAC. A missing
+// request key is a denial, never a fallback to hashing credentials directly.
+func gatewayConnectionDocumentMAC(raw json.RawMessage, macKey *[32]byte) (map[string]any, [32]byte, error) {
+	var zero [32]byte
+	if macKey == nil {
 		return nil, zero, ErrGatewayNativeIdentity
+	}
+	document, err := gatewayConnectionDocument(raw)
+	if err != nil {
+		return nil, zero, err
 	}
 	canonical, err := json.Marshal(document)
 	if err != nil {
+		clear(document)
 		return nil, zero, ErrGatewayNativeIdentity
 	}
 	defer clear(canonical)
-	// A request-local keyed MAC checks credential continuity; the secret is never
-	// used as a password verifier or hashed into a reusable cache identifier.
 	mac := hmac.New(sha256.New, macKey[:])
 	_, _ = mac.Write(canonical)
 	var digest [32]byte
@@ -169,7 +180,7 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 		return nil, false, ErrGatewayNativeIdentity
 	}
 	defer clear(macKey[:])
-	credentials, digest, err := gatewayConnectionDocument(raw, &macKey)
+	credentials, digest, err := gatewayConnectionDocumentMAC(raw, &macKey)
 	clear(raw)
 	if err != nil {
 		release()
@@ -272,7 +283,7 @@ func CheckGatewayNativeConnectionDispatch(request *http.Request, account *Accoun
 		unlock()
 		return noop, true, ErrGatewayNativeIdentity
 	}
-	freshDocument, freshDigest, decodeErr := gatewayConnectionDocument(raw, &state.credentialMACKey)
+	freshDocument, freshDigest, decodeErr := gatewayConnectionDocumentMAC(raw, &state.credentialMACKey)
 	clear(freshDocument)
 	clear(raw)
 	if decodeErr != nil || !hmac.Equal(freshDigest[:], state.credentials[:]) {

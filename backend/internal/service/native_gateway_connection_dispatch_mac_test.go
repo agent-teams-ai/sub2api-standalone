@@ -11,33 +11,33 @@ func TestGatewayConnectionDocumentKeyedMACBindsExactCredentials(t *testing.T) {
 	keyA[0] = 1
 	keyB[0] = 2
 
-	document, first, err := gatewayConnectionDocument(raw, &keyA)
+	document, first, err := gatewayConnectionDocumentMAC(raw, &keyA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer clear(document)
-	_, again, err := gatewayConnectionDocument(raw, &keyA)
+	_, again, err := gatewayConnectionDocumentMAC(raw, &keyA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first != again {
 		t.Fatal("identical credentials with the same request key changed MAC")
 	}
-	_, differentKey, err := gatewayConnectionDocument(raw, &keyB)
+	_, differentKey, err := gatewayConnectionDocumentMAC(raw, &keyB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first == differentKey {
 		t.Fatal("MAC must be bound to a freshly selected request key")
 	}
-	_, changedCredentials, err := gatewayConnectionDocument(json.RawMessage(`{"api_key":"tampered","other":"value"}`), &keyA)
+	_, changedCredentials, err := gatewayConnectionDocumentMAC(json.RawMessage(`{"api_key":"tampered","other":"value"}`), &keyA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first == changedCredentials {
 		t.Fatal("changed credentials must not match the request MAC")
 	}
-	if _, _, err := gatewayConnectionDocument(raw, nil); err == nil {
+	if _, _, err := gatewayConnectionDocumentMAC(raw, nil); err == nil {
 		t.Fatal("missing authentication key must fail closed")
 	}
 }

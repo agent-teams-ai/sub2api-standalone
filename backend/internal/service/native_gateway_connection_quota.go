@@ -88,7 +88,7 @@ func (s *GatewayNativeConnections) CollectQuota(ctx context.Context, expected Ga
 		if err != nil {
 			return GatewayProviderQuotaObservation{}, ErrGatewayNativeIdentity
 		}
-		document, _, err := gatewayConnectionDocument(raw)
+		document, err := gatewayConnectionDocument(raw)
 		if err != nil {
 			return GatewayProviderQuotaObservation{}, ErrGatewayNativeIdentity
 		}
