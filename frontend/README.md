@@ -42,13 +42,19 @@ The Vite commands select `vite.config.ts` explicitly so that the generated
 `vite.config.js` from the referenced Node project cannot shadow the current
 configuration.
 
-## Remaining qualification
+## Lint qualification
 
-The existing ESLint profile still depends on the previous TypeScript compiler
-API and is not qualified with this native compiler. It remains a required,
-separate gate. Successful native typechecking, tests, and builds do not establish
-lint compatibility; an older compiler or embedded parser is not an accepted
-fallback for that gate.
+`pnpm lint:check` runs the maintained [native syntax lint package](tools/eslint-syntax/README.md)
+with ESLint, Vue and Oxc. It retains the existing effective rule policy, file
+coverage and inline directives through pinned upstream syntax-rule sources.
+The owning command checks the strict native TypeScript tooling projects,
+rebuilds and compares compiled JavaScript and declarations, verifies source
+provenance and installed package bytes, and runs the actual ESLint CLI.
+
+Lint remains a required gate alongside typechecking, tests and builds. Its
+qualification rejects older compiler API initialization, including a repeated
+import after a caught rejection; an older compiler or embedded parser is not
+an accepted fallback.
 
 Upstream references:
 

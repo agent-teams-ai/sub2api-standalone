@@ -28,3 +28,32 @@ python -m pip install -r .github/release-tools/requirements-release.txt
 python -m unittest discover -s .github/release-tools -p 'test_release_matrix.py'
 bash -n .github/release-tools/release-images.sh
 ```
+
+## Historical backend in the database-upgrade smoke
+
+The owning CI still builds the complete head release image and checks its fresh
+installation and upgraded installation, including UI, login, migrations and
+clean shutdown logs. The historical comparator only creates the old database,
+admin and persisted configuration before that upgrade. It does not qualify an
+old frontend, a complete old release image, or the separate declared rollback
+image for new operation encodings.
+
+`upgrade_comparator.py` builds the immutable base commit with its existing
+nonembedded `backend/Makefile` target and exact Go pin. It records the source
+revision, release linker fields and Go build information, and refuses dirty or
+extra build inputs. It reuses the already-built head image by immutable image ID
+only when the inherited runtime stages, backend resource preparation, relevant
+global arguments, Docker context filters, entrypoint and every copied runtime
+input match the base. The historical binary is mounted read-only at
+`/app/sub2api`; the normal entrypoint, user, environment and upgrade volume are
+retained. Any mismatch fails the smoke without rebuilding an old frontend.
+
+The receipt becomes complete only after the existing upgraded UI, login,
+migration and log checks pass. CI retains that receipt and binary/version
+provenance. The binary itself is a run-local artifact, not a published release.
+
+Run the bounded source/provenance guards with:
+
+```sh
+python -m unittest discover -s .github/release-tools -p 'test_upgrade_comparator.py'
+```

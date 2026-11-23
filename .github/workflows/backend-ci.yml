@@ -111,14 +111,17 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r .github/release-tools/requirements-release.txt
       - run: python -m unittest discover -s .github/release-tools -p 'test_release_matrix.py'
+      - run: python -m unittest discover -s .github/release-tools -p 'test_upgrade_comparator.py'
       - run: bash -n .github/release-tools/release-images.sh
       - name: Verify standalone Git migration failure and resume guards
         run: bash scripts/github/tests/probe-sub2api-standalone-test.sh
 
   # Builds the release image from the exact commit and boots it against
   # PostgreSQL 17 and Redis 8: a fresh install, then an upgrade of a database
-  # created by the base commit, so new migrations are applied on top of the
-  # schema a running deployment already has.
+  # created by the exact base backend, so new migrations are applied on top of
+  # the schema a running deployment already has. The historical DB producer
+  # uses its owning nonembedded Go build in the verified matching head runtime;
+  # this does not rebuild or qualify the old frontend or a full old image.
   container:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
@@ -150,13 +153,24 @@ jobs:
         run: |
           docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org \
             --build-arg COMMIT="$GITHUB_SHA" -t sub2api:head .
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
       - name: Fresh install, upgrade and login smoke
         env:
           PG_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
-          run_app() { # name volume database image redis-db
+          run_app() { # name volume database image redis-db [read-only historical backend]
+            local -a binary_mount=()
+            if [ -n "${6:-}" ]; then
+              binary_mount=(--mount "type=bind,source=$6,target=/app/sub2api,readonly")
+            fi
             docker run -d --name "$1" --network host -v "$2:/app/data" \
+              "${binary_mount[@]}" \
               -e AUTO_SETUP=true -e TZ=UTC -e SERVER_HOST=127.0.0.1 -e SERVER_PORT=8080 -e SERVER_MODE=release \
               -e DATABASE_HOST=127.0.0.1 -e DATABASE_PORT=5432 -e DATABASE_USER=sub2api \
               -e DATABASE_PASSWORD=sub2api-ci-only -e DATABASE_DBNAME="$3" -e DATABASE_SSLMODE=disable \
@@ -217,19 +231,35 @@ jobs:
           fi
           echo "== upgrade a database created by base $BASE_SHA"
           git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
-          docker build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg GOSUMDB=sum.golang.org \
-            --build-arg COMMIT="$BASE_SHA" -t sub2api:base "$RUNNER_TEMP/base"
+          comparator_output="$RUNNER_TEMP/upgrade-comparator"
+          python .github/release-tools/upgrade_comparator.py prepare \
+            --base "$RUNNER_TEMP/base" --head "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" --head-sha "$GITHUB_SHA" \
+            --image sub2api:head --output "$comparator_output"
+          upgrade_runtime_image="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtimeImageId"])' "$comparator_output/receipt.json")"
+          historical_backend="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaryPath"])' "$comparator_output/receipt.json")"
           docker exec "$PG_CONTAINER" createdb -U sub2api sub2api_upgrade
           docker volume create sub2api-upgrade >/dev/null
-          run_app base sub2api-upgrade sub2api_upgrade sub2api:base 1
+          run_app base sub2api-upgrade sub2api_upgrade "$upgrade_runtime_image" 1 "$historical_backend"
           wait_ready base
           stop_app base
-          run_app upgraded sub2api-upgrade sub2api_upgrade sub2api:head 1
+          run_app upgraded sub2api-upgrade sub2api_upgrade "$upgrade_runtime_image" 1
           wait_ready upgraded
           check_app upgraded sub2api_upgrade
           stop_app upgraded
           clean_log base
           clean_log upgraded
+          python .github/release-tools/upgrade_comparator.py complete --output "$comparator_output"
+      - name: Preserve historical backend comparator provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: backend-upgrade-comparator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/upgrade-comparator/*.json
+            ${{ runner.temp }}/upgrade-comparator/*.txt
+            ${{ runner.temp }}/upgrade-comparator/*.log
+          if-no-files-found: ignore
 
   deploy-image:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
