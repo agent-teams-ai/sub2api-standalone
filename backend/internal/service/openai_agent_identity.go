@@ -305,7 +305,7 @@ func ensureAgentIdentityTaskForAccount(ctx context.Context, repo AccountReposito
 	if err != nil {
 		return err
 	}
-	credentials := make(map[string]any, len(credAccount.Credentials)+1)
+	credentials := make(map[string]any, len(credAccount.Credentials))
 	for key, value := range credAccount.Credentials {
 		credentials[key] = value
 	}
