@@ -183,9 +183,10 @@ jobs:
           GATEWAY_NATIVE_LEGACY_RECOVERY_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_legacy_recovery_test_ci?sslmode=disable
           GATEWAY_NATIVE_EXTENSION_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_extension_test_ci?sslmode=disable
           GATEWAY_NATIVE_LIMITS_V2_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/gateway_limits_v2_test_ci?sslmode=disable
+          GATEWAY_NATIVE_CONNECTION_TERMINAL_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_connection_terminal_test_ci?sslmode=disable
         run: |
           set -o pipefail
-          for db in native_connection_test_ci native_observations_test_ci native_dispatch_test_ci native_codex_connection_test_ci native_subscription_test_ci native_cloud_connection_test_ci native_gemini_connection_test_ci native_legacy_recovery_test_ci native_extension_test_ci gateway_limits_v2_test_ci; do
+          for db in native_connection_test_ci native_observations_test_ci native_dispatch_test_ci native_codex_connection_test_ci native_subscription_test_ci native_cloud_connection_test_ci native_gemini_connection_test_ci native_legacy_recovery_test_ci native_extension_test_ci gateway_limits_v2_test_ci native_connection_terminal_test_ci; do
             docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test "$db"
           done
           go test -tags unit ./internal/service ./internal/pkg/apicompat -run '^(TestGatewayConnection|TestGatewayNativeCloud|TestGemini|TestPrepareBedrockRequestBody_PreservesStructuredOutput|TestPrepareBedrockSonnet55PreservesEffort|TestClientToolSearchPreservesExplicitContractAcrossNativeCodecs|TestAdaptResponsesClientTools)' -count=1 -v | tee "$RUNNER_TEMP/native-method-contracts.log"
@@ -207,8 +208,8 @@ jobs:
             TestGatewayAccountLimitsV2KeyPostgres; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-method-postgres.log")" -eq 1
           done
-          go test -tags gatewaycustody ./internal/gatewaybootstrap -run '^TestNativeConnectionJoined(SchemaOracleRetainsConstraints|OpenRouterReasoningReplay|ErasureEvidence)$' -count=1 -v | tee "$RUNNER_TEMP/native-schema-oracle.log"
-          for critical in TestNativeConnectionJoinedSchemaOracleRetainsConstraints TestNativeConnectionJoinedOpenRouterReasoningReplay TestNativeConnectionJoinedErasureEvidence; do
+          go test -tags gatewaycustody ./internal/gatewaybootstrap -run '^TestNativeConnectionJoined(SchemaOracleRetainsConstraints|OpenRouterReasoningReplay|ErasureEvidence|TerminalPostgres)$' -count=1 -v | tee "$RUNNER_TEMP/native-schema-oracle.log"
+          for critical in TestNativeConnectionJoinedSchemaOracleRetainsConstraints TestNativeConnectionJoinedOpenRouterReasoningReplay TestNativeConnectionJoinedErasureEvidence TestNativeConnectionJoinedTerminalPostgres; do
             test "$(grep -c "^--- PASS: $critical " "$RUNNER_TEMP/native-schema-oracle.log")" -eq 1
           done
           if grep -Fq -- '--- SKIP:' "$RUNNER_TEMP/native-schema-oracle.log"; then exit 1; fi

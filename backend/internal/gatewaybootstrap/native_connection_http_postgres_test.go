@@ -532,7 +532,7 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 		}
 	}
 	require.NoError(t, scanner.Err())
-	err = cmd.Wait()
+	childErr := cmd.Wait()
 	waited = true
 	receipts := map[string]any{}
 	for _, row := range rows {
@@ -556,67 +556,46 @@ func TestNativeConnectionsJoinedPrivateHTTPPostgres(t *testing.T) {
 		receiptFields["expectedExtensionRows"] = 1
 		receiptFields["nativeServiceRecompositions"] = nativeServiceRecompositions
 		receiptFields["creationCatalogRestored"] = nativeServiceRecompositions == 1 && withdrawnCapabilities == nil
-		checkNativeSentinels()
-		exportedFiles := 0
-		for _, name := range []string{"gateway-diagnostics.log", "joined-transcript.jsonl", "gateway-rr-receipt.json", "native-joined.log"} {
-			path := filepath.Join(artifacts, name)
-			info, statErr := os.Stat(path)
-			if os.IsNotExist(statErr) && name == "native-joined.log" {
-				continue
+	}
+	writeReceipt := func(verified bool) {
+		receiptFields["sourcePostconditions"] = nativeConnectionJoinedPostconditionEvidence{
+			Contract: "native-connections-source-postconditions/v1", Verified: verified,
+		}
+		receipt, marshalErr := json.Marshal(receiptFields)
+		require.NoError(t, marshalErr)
+		if batch == "extensibility" {
+			for _, name := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
+				require.False(t, bytes.Contains(receipt, []byte(private[name])), "source receipt must not contain credentials")
 			}
-			require.NoError(t, statErr)
-			require.LessOrEqual(t, info.Size(), int64(32<<20))
-			data, readErr := os.ReadFile(path)
-			require.NoError(t, readErr)
-			for _, key := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
-				require.False(t, bytes.Contains(data, []byte(private[key])), "provider credential must not appear in exported fixture output")
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(artifacts, "native-receipt.json"), receipt, 0600))
+	}
+	finishNativeConnectionJoined(t, childErr, terminal.Phase, terminal.Contract, terminalContract, func() {
+		if batch == "extensibility" {
+			checkNativeSentinels()
+			exportedFiles := 0
+			for _, name := range []string{"gateway-diagnostics.log", "joined-transcript.jsonl", "gateway-rr-receipt.json", "native-joined.log"} {
+				path := filepath.Join(artifacts, name)
+				info, statErr := os.Stat(path)
+				if os.IsNotExist(statErr) && name == "native-joined.log" {
+					continue
+				}
+				require.NoError(t, statErr)
+				require.LessOrEqual(t, info.Size(), int64(32<<20))
+				data, readErr := os.ReadFile(path)
+				require.NoError(t, readErr)
+				for _, key := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
+					require.False(t, bytes.Contains(data, []byte(private[key])), "provider credential must not appear in exported fixture output")
+				}
+				exportedFiles++
 			}
-			exportedFiles++
+			receiptFields["credentialSecrecy"] = map[string]any{"nativeDurableChecks": nativeSecretScans, "exportedFiles": exportedFiles + 1, "sentinels": 2, "passed": true}
 		}
-		receiptFields["credentialSecrecy"] = map[string]any{"nativeDurableChecks": nativeSecretScans, "exportedFiles": exportedFiles + 1, "sentinels": 2, "passed": true}
-	}
-	receipt, marshalErr := json.Marshal(receiptFields)
-	require.NoError(t, marshalErr)
-	if batch == "extensibility" {
-		for _, name := range []string{"extensionSentinelFirst", "extensionSentinelReplacement"} {
-			require.False(t, bytes.Contains(receipt, []byte(private[name])), "source receipt must not contain credentials")
+		if batch == "extensibility" {
+			require.Equal(t, 1, nativeServiceRecompositions)
+			require.Nil(t, withdrawnCapabilities)
+			require.Equal(t, 2, nativeSecretScans)
 		}
-	}
-	require.NoError(t, os.WriteFile(filepath.Join(artifacts, "native-receipt.json"), receipt, 0600))
-	require.NoError(t, err, "joined runner failed; sanitized row/source receipt saved")
-	require.Equal(t, "completed", terminal.Phase)
-	require.Equal(t, terminalContract, terminal.Contract)
-	if batch == "extensibility" {
-		require.Equal(t, 1, nativeServiceRecompositions)
-		require.Nil(t, withdrawnCapabilities)
-		require.Equal(t, 2, nativeSecretScans)
-	}
-	require.Zero(t, unexpected.Load(), "no unqualified source endpoint, credential or protocol was accepted")
-	for _, row := range rows {
-		peer := peersByID[row.ID]
-		if peer.Verify != nil {
-			peer.Verify()
-		}
-		if !row.Execute {
-			continue
-		}
-		counts := protocols[row.ID].counts()
-		require.GreaterOrEqual(t, counts["dispatches"].(int64), int64(2), row.ID)
-		require.Positive(t, counts["functionCalls"].(int64), row.ID)
-		require.Positive(t, counts["functionOutputs"].(int64), row.ID)
-		require.Positive(t, counts["schemaRequests"].(int64), row.ID)
-		if counts["customDeclarations"].(int64) > 0 {
-			require.Positive(t, counts["customCalls"].(int64), row.ID)
-			require.Positive(t, counts["customOutputs"].(int64), row.ID)
-		}
-		if peer.Protocol == "gemini" || row.ProfileID == service.GatewayGeminiAPIKeyProfile || row.ReviewProof != nil {
-			require.Positive(t, counts["signatureChecks"].(int64), row.ID)
-		}
-		if row.ReviewProof != nil {
-			require.Positive(t, counts["thinkingRequests"].(int64), row.ID)
-		}
-	}
-	requireNativeConnectionJoinedErasure(t, ctx, db)
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_oauth_connect_intents WHERE material_envelope <> ''`).Scan(&count))
-	require.Zero(t, count, "terminal enrollment and cleanup erased every saved input envelope")
+		requireNativeConnectionJoinedSourcePostconditions(t, ctx, db, unexpected.Load(), rows, peersByID, protocols)
+	}, writeReceipt)
 }
