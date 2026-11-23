@@ -195,6 +195,21 @@ def verify_build_info(output, revision, go_version, architecture):
     return settings
 
 
+def verify_runtime_image(images):
+    if len(images) != 1 or not IMAGE_ID.fullmatch(images[0]['Id']):
+        raise ValueError('head runtime image is not bound to an immutable image ID')
+    image = images[0]
+    if image['Os'] != 'linux' or image['Architecture'] not in {'amd64', 'arm64'}:
+        raise ValueError('unsupported head runtime platform')
+    if image['Config']['Entrypoint'] != ['/app/docker-entrypoint.sh'] or image['Config']['Cmd'] != ['/app/sub2api']:
+        raise ValueError('head runtime entrypoint does not match the preserved application contract')
+    # Image config may omit its empty default. Explicit malformed/nonempty
+    # values still differ from the reviewed root-entrypoint contract.
+    if image['Config']['WorkingDir'] != '/app' or image['Config'].get('User', '') != '':
+        raise ValueError('head runtime working directory/user differs from the preserved entrypoint contract')
+    return image
+
+
 def prepare(args):
     base, head, output = (Path(value).resolve() for value in (args.base, args.head, args.output))
     clean_source(base, args.base_sha)
@@ -211,16 +226,7 @@ def prepare(args):
            'GOPROXY': 'https://proxy.golang.org,direct', 'GOSUMDB': 'sum.golang.org'}
     if command(['go', 'env', 'GOVERSION'], env=env) != required_go:
         raise ValueError('installed Go does not match the historical owning pin')
-    image = json.loads(command(['docker', 'image', 'inspect', args.image]))
-    if len(image) != 1 or not IMAGE_ID.fullmatch(image[0]['Id']):
-        raise ValueError('head runtime image is not bound to an immutable image ID')
-    image = image[0]
-    if image['Os'] != 'linux' or image['Architecture'] not in {'amd64', 'arm64'}:
-        raise ValueError('unsupported head runtime platform')
-    if image['Config']['Entrypoint'] != ['/app/docker-entrypoint.sh'] or image['Config']['Cmd'] != ['/app/sub2api']:
-        raise ValueError('head runtime entrypoint does not match the preserved application contract')
-    if image['Config']['WorkingDir'] != '/app' or image['Config']['User']:
-        raise ValueError('head runtime working directory/user differs from the preserved entrypoint contract')
+    image = verify_runtime_image(json.loads(command(['docker', 'image', 'inspect', args.image])))
     head_version = command(['docker', 'run', '--rm', '--entrypoint', '/app/sub2api', image['Id'], '--version'])
     verify_version(head_version, args.head_sha)
     if output.is_relative_to(base) or output.is_relative_to(head) or any(c in str(output) for c in ',\n\r'):

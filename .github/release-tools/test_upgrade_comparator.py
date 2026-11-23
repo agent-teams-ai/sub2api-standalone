@@ -177,6 +177,21 @@ class UpgradeComparatorTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'expected commit'):
             comparator.verify_version(f'Sub2API 1.2.3 (commit: {self.head_sha}, built: 2026-01-01)', self.base_sha)
 
+    def test_docker_inspect_omitted_user_is_default_root_not_an_invalid_explicit_user(self):
+        # Docker's image config omits User for the root-default runtime. This is
+        # the shape that reached the real container job before its KeyError.
+        image = {'Id': 'sha256:' + 'a' * 64, 'Os': 'linux', 'Architecture': 'amd64',
+                 'Config': {'Entrypoint': ['/app/docker-entrypoint.sh'],
+                            'Cmd': ['/app/sub2api'], 'WorkingDir': '/app'}}
+        self.assertIs(comparator.verify_runtime_image([image]), image)
+        image['Config']['User'] = ''
+        self.assertIs(comparator.verify_runtime_image([image]), image)
+        for user in ['root', '0', 'sub2api', None, False, 0, [], {}]:
+            with self.subTest(explicitUser=user):
+                image['Config']['User'] = user
+                with self.assertRaisesRegex(ValueError, 'working directory/user'):
+                    comparator.verify_runtime_image([image])
+
     def test_receipt_stays_incomplete_when_binary_changes_after_preparation(self):
         output = self.directory / 'receipt'
         output.mkdir()
