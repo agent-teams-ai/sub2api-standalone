@@ -1,0 +1,1413 @@
+{
+  "contract": "native-syntax-rule-bundle/v1",
+  "upstreamCommit": "ca9c0eb71075c197e7c27c7eee2e65c6a3d24fc9",
+  "upstreamVersion": "8.73.0",
+  "esbuildVersion": "0.28.2",
+  "availableRules": [
+    "no-array-constructor",
+    "no-duplicate-enum-values",
+    "no-extra-non-null-assertion",
+    "no-loss-of-precision",
+    "no-misused-new",
+    "no-namespace",
+    "no-non-null-asserted-optional-chain",
+    "no-this-alias",
+    "no-unnecessary-type-constraint",
+    "no-unsafe-declaration-merging",
+    "no-unused-vars",
+    "no-var-requires",
+    "prefer-as-const",
+    "triple-slash-reference",
+    "no-explicit-any"
+  ],
+  "sourcePatches": [
+    {
+      "path": "packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts",
+      "before": "3f1f59ff23feebd5751add5d7afb84994b6256aab895d43ca0116388b4f6a552",
+      "after": "036c92b59f4f41fee6de5213ead96f9e644d19053b52fd9cac95c439a70e6a1d",
+      "reason": "Use ordinary filename strings instead of unavailable classic compiler enum properties."
+    },
+    {
+      "path": "packages/eslint-plugin/src/util/astUtils.ts",
+      "before": "5a4611c552da6676994c93a0ad2d5c352b8df2f6ccade0b9144bc6c39b17f5d7",
+      "after": "72d44cfd220866eab07336ce1f3b47b063639667ce149eae0f3bf2cd4265ba89",
+      "reason": "Keep the exact global-comment helper and ESTree predicates; omit compiler-node utilities."
+    },
+    {
+      "path": "packages/eslint-plugin/src/util/index.ts",
+      "before": "0836eaf3bed9a3b88b8799c7749242152e6eecdbbd078227cb2f3772e66c3af6",
+      "after": "2daa0d5812a07571843a4f16389a678c5b5eee4864c5c8f9d73839eb52d52a75",
+      "reason": "Export the unchanged syntax helpers used by the selected rules; omit unrelated typed rules."
+    },
+    {
+      "path": "packages/eslint-plugin/src/util/misc.ts",
+      "before": "7a7c5abc89ca475ff7be1a471016fce24d1d3942128e4720463fa0d7f46a90db",
+      "after": "39ffaa19e40773fe6a38d28e52048ed88a6da68e18e732f4ecd4a14bf28f6bf7",
+      "reason": "Use the same literal filename extensions with the original definition-file predicate."
+    },
+    {
+      "path": "packages/utils/src/eslint-utils/index.ts",
+      "before": "6eddc1432777582b4797eb53c43b9917b1ba8908a737f7823a7049620f98588b",
+      "after": "82fdd93f5139d132f82a17dab374b17dec48934ff53058d6fc60cc75f3217bed",
+      "reason": "Retain the official rule factory and assertions without typed parser services."
+    },
+    {
+      "path": "packages/utils/src/index.ts",
+      "before": "9becceede953fe9c3d2a7302f82834aacb4c51c5b0bfbe77bd851dd4407633d8",
+      "after": "7fb037c5012a54a42cd8601c55c07c6bc4e08d8358644924b2a0103b92b315a6",
+      "reason": "Export only the official namespaces and AST constants used by the syntax slice."
+    },
+    {
+      "path": "packages/utils/src/ts-eslint/index.ts",
+      "before": "17ec351733c9b9a5de7d0aee5f710ca792a19efc365bed93ec045b885c309fde",
+      "after": "87ec28cff3d686ca17324e1fb1251563487c2f1d4dbdc3d3b201893d06cd1ef1",
+      "reason": "Retain the original Scope export without unused ESLint wrapper classes."
+    }
+  ],
+  "inputs": [
+    {
+      "path": "generated-rule-entry.ts",
+      "package": "@agent-teams/eslint-native-syntax",
+      "version": "0.1.0",
+      "sha256": "f0ca654c55812097dd7e9db2f3e7a8d1a7e9d58bdcdc7d33a322c2b60e1ca938"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-array-constructor.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "d6ed41ac54ee1d07f54d4970d1f93c5a40544acef87a3950fbf2c00dac4f180f"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-duplicate-enum-values.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "2f4460bd93d33cb5d808c8c23221063847d3b6a44434c1aa56c4b8971c8f1f44"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-explicit-any.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "f1536d289f037bd5d1c2ac5f483a9688fb9656ad3a4600a6d153804cca5fbca6"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-extra-non-null-assertion.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "fd623cb4dcac6c853dd6bca9c5ec18d270f557dab1cb069425b8fe7dad9bf26f"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-loss-of-precision.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "c8156aaf135b3b7a874f5ac92e15ccac1fa01b3d87c4a4a1ed27786f8526c842"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-misused-new.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "ca43b3efce68d1ada34b2e4a8f7aa8bd02435c0b27f9dc096d67311714bfbc0f"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-namespace.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "7252c1412f26f505a6b6de94ae2cd4f3f45ca482e6b4e5a10141523a50c75658"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-non-null-asserted-optional-chain.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "2105a9ae6b26d0123f62dd95708cbf4ca98d250d5f57b4aafda0b6622929517b"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-this-alias.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "54596e9e54bb119151150ddc679e2cee121de4b4d8d0f0c3bf248edbfaa64068"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "3f1f59ff23feebd5751add5d7afb84994b6256aab895d43ca0116388b4f6a552"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-unsafe-declaration-merging.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "f0dffc81516aadbbf9c7bcabd1f7003dc720416df1149b9b383da5fc52eb545c"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-unused-vars.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "de74b7273ea30c26a0fc360f3fceb4404d0e8dee502e25aee1b7e07bba389540"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/no-var-requires.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "a72219e30da28f2b76e90ef4f588f7100d22968441f06474576c0600ed1aa29d"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/prefer-as-const.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "abcd9f3081a98c6e228e7b15e315afdd739a37105c2465ab5e92855bc2ca2bb2"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/rules/triple-slash-reference.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "4faee7764562279fd461838a52ced22506ae5d3480e205aebd640d2a67da32aa"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/astUtils.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "5a4611c552da6676994c93a0ad2d5c352b8df2f6ccade0b9144bc6c39b17f5d7"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/collectUnusedVariables.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "dc0f15fc6cad1f93f10e2612262a216b2637cb8d13966721f278a97cdb6019cd"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/createRule.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "6b9a77d81c416698ed61888e51371a4a82171e31f6827311a76d4a00c94214bc"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/escapeRegExp.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "9c96283d39dca277fc6067f85929070f956b32e7542e4033d210bb8cc7d83941"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/getESLintCoreRule.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "a9b9f41f1c9bf14fcb9e6f4cd1ab813ba92c52a13b2f3176feb6bbf8d14d1c54"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/getStaticStringValue.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "be413c0945e85202a41f846f4811be54c090dd7011086ed25fc9b7b3c294118a"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "0836eaf3bed9a3b88b8799c7749242152e6eecdbbd078227cb2f3772e66c3af6"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/isNullLiteral.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "c06da7943a744f0c30a6812124f16ba267507e2dc502e89e3a321a4f274d8c50"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/isTypeImport.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "9f4a4d52754f0d94eff2737f60bcce20a22148e739854d7623a8771537eb9450"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/isTypeOnlyReference.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "695b29e6378ce52536e1158b54fb97429c937d050210f9687af105579b03376a"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/misc.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "7a7c5abc89ca475ff7be1a471016fce24d1d3942128e4720463fa0d7f46a90db"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/referenceContainsTypePredicate.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "33b8cc2bc5532ca89a7822657289f1c87818d845b72bf2942d394d66b6013b67"
+    },
+    {
+      "path": "vendor/packages/eslint-plugin/src/util/referenceContainsTypeQuery.ts",
+      "package": "@typescript-eslint/eslint-plugin",
+      "version": "8.73.0",
+      "sha256": "512dfbe852b658a35a5353938aa1b887cc1293aa13723cfb988db21a4ebd86ce"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/PatternMatcher.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "b9606df569a9d2dbb9cea8480bad3aaaead2853fb1cc8c47274bf7f88a320af2"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/ReferenceTracker.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "cfcf6c0ccf6eb1c8330760cad44b1835c24abbac3d72716404ea38fd1d8ad1c3"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/astUtilities.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "4c1f191c410ff5a457327b0cca3c13ca9f056156eb02cf55278bddff24272bd8"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/index.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "a97990e77a23aea39060610aef4b4bb92154d5330ecb0b557324ba4c14a1db41"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/predicates.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "401f66e935565b2af899251075a3af72ef94704aa96470c793931a1b36e24dd2"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/eslint-utils/scopeAnalysis.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "9da70984e8da322b2a9b4c8205987d9e785edc4761e58199b41fb43bfe11b639"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/helpers.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "1111f130e86bfde17cae91a282da825cb512467409d2e06d11b1bfef88943e5a"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/index.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "b90283ab6c36fc580b06cb293629a9b37eaba24e17ff9ae2f0d874a3f3a962a1"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/misc.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "4caa577f3658234dda24d37aae162a17c8ba061e90df3b758648b24b4b58f02f"
+    },
+    {
+      "path": "vendor/packages/utils/src/ast-utils/predicates.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "1ffc05c4bac80d8fad631f0c7fcc1b5b6d562eebd3ff898f874e68946f9e1731"
+    },
+    {
+      "path": "vendor/packages/utils/src/eslint-utils/RuleCreator.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "66d8d7c4cdc7f08a58b80354c7e20c2b0c09d5287a5b879a1d78843ca51ec508"
+    },
+    {
+      "path": "vendor/packages/utils/src/eslint-utils/applyDefault.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "5354f3c036651f5c7e352c8b7b436b01ca7a0e6c4cc99c26070f504f1c643941"
+    },
+    {
+      "path": "vendor/packages/utils/src/eslint-utils/deepMerge.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "c46ece3a84ed9cefb70d116488c1421f53db97ccf02f2ae205bc387a9eb885a1"
+    },
+    {
+      "path": "vendor/packages/utils/src/eslint-utils/index.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "6eddc1432777582b4797eb53c43b9917b1ba8908a737f7823a7049620f98588b"
+    },
+    {
+      "path": "vendor/packages/utils/src/eslint-utils/nullThrows.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "0c8c8a5d4f368979b27ca0d7edcec8bd183aaa99c9ea0c00c69bb7fae14dec04"
+    },
+    {
+      "path": "vendor/packages/utils/src/index.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "9becceede953fe9c3d2a7302f82834aacb4c51c5b0bfbe77bd851dd4407633d8"
+    },
+    {
+      "path": "vendor/packages/utils/src/ts-eslint/Rule.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "c0ca5684dd37f96d6ec6331044bff677af490a9794782a765a9d5287ca594578"
+    },
+    {
+      "path": "vendor/packages/utils/src/ts-eslint/Scope.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "c3682751986cbd5025384d78e1b0d338fd920c7cc83a00302910b88c03efcbf1"
+    },
+    {
+      "path": "vendor/packages/utils/src/ts-eslint/index.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "17ec351733c9b9a5de7d0aee5f710ca792a19efc365bed93ec045b885c309fde"
+    },
+    {
+      "path": "vendor/packages/utils/src/ts-estree.ts",
+      "package": "@typescript-eslint/utils",
+      "version": "8.73.0",
+      "sha256": "bee8b3251451796e280ada0880b090c78c309ca2c2f54381cba764d9c23857a3"
+    }
+  ],
+  "embeddedCompilerImplementations": 0,
+  "bundleSHA256": "d1018362ff8e83d9a2f5e76cb7356688c7f7500312c476686b4a02ec0441eabe",
+  "runtimeCompiler": {
+    "version": "7.1.0-beta",
+    "configSHA256": "52b75206ef66f30b8bc8ab23be6305ebc93b2f51ed543976824025ad40f5ff22",
+    "source": [
+      {
+        "path": "index.ts",
+        "sha256": "77342378e891036ea7aa85a96b46c12ade53282e1cef746454dbc26bc99aa061"
+      },
+      {
+        "path": "reject-legacy-typescript.ts",
+        "sha256": "f1205f9697d1b362bab8042b309f2c1aaa8bfd7e1c9b542c783cc8c9c52273b1"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "index.js",
+        "sha256": "b87ff9e51fc3cdf8c1661bee7ec23b2e1a9b7491c7f5ed0149d23789161def71"
+      },
+      {
+        "path": "index.d.ts",
+        "sha256": "3a40e3f13fe693296b14cd5418320009393676f5b360b3424c3d0f269ed120bc"
+      },
+      {
+        "path": "reject-legacy-typescript.js",
+        "sha256": "f68ea895b8dd6b54b591e8872dbab42bf4eb89361f72fab9a27aa8abda81e30f"
+      },
+      {
+        "path": "reject-legacy-typescript.d.ts",
+        "sha256": "99ee12316b19003e03f22b400e601a3ac99f5690b121123b8ed7dbd07526a515"
+      }
+    ]
+  },
+  "metafile": {
+    "inputs": {
+      "vendor/packages/utils/src/ast-utils/eslint-utils/astUtilities.ts": {
+        "bytes": 4988,
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/eslint-utils/PatternMatcher.ts": {
+        "bytes": 2157,
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/eslint-utils/predicates.ts": {
+        "bytes": 3252,
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/eslint-utils/ReferenceTracker.ts": {
+        "bytes": 3758,
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/eslint-utils/scopeAnalysis.ts": {
+        "bytes": 957,
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/eslint-utils/index.ts": {
+        "bytes": 165,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/astUtilities.ts",
+            "kind": "import-statement",
+            "original": "./astUtilities"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/PatternMatcher.ts",
+            "kind": "import-statement",
+            "original": "./PatternMatcher"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/predicates.ts",
+            "kind": "import-statement",
+            "original": "./predicates"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/ReferenceTracker.ts",
+            "kind": "import-statement",
+            "original": "./ReferenceTracker"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/scopeAnalysis.ts",
+            "kind": "import-statement",
+            "original": "./scopeAnalysis"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/helpers.ts": {
+        "bytes": 2749,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/misc.ts": {
+        "bytes": 525,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ts-estree.ts": {
+        "bytes": 454,
+        "imports": [
+          {
+            "path": "@typescript-eslint/types",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/predicates.ts": {
+        "bytes": 4546,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/ts-estree.ts",
+            "kind": "import-statement",
+            "original": "../ts-estree"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/helpers.ts",
+            "kind": "import-statement",
+            "original": "./helpers"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ast-utils/index.ts": {
+        "bytes": 113,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/ast-utils/eslint-utils/index.ts",
+            "kind": "import-statement",
+            "original": "./eslint-utils"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/helpers.ts",
+            "kind": "import-statement",
+            "original": "./helpers"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/misc.ts",
+            "kind": "import-statement",
+            "original": "./misc"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/predicates.ts",
+            "kind": "import-statement",
+            "original": "./predicates"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/eslint-utils/deepMerge.ts": {
+        "bytes": 1476,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/eslint-utils/applyDefault.ts": {
+        "bytes": 1265,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/deepMerge.ts",
+            "kind": "import-statement",
+            "original": "./deepMerge"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ts-eslint/Rule.ts": {
+        "bytes": 29888,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/eslint-utils/RuleCreator.ts": {
+        "bytes": 4210,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/applyDefault.ts",
+            "kind": "import-statement",
+            "original": "./applyDefault"
+          },
+          {
+            "path": "vendor/packages/utils/src/ts-eslint/Rule.ts",
+            "kind": "import-statement",
+            "original": "../ts-eslint/Rule"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/eslint-utils/nullThrows.ts": {
+        "bytes": 581,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/eslint-utils/index.ts": {
+        "bytes": 107,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/RuleCreator.ts",
+            "kind": "import-statement",
+            "original": "./RuleCreator"
+          },
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/nullThrows.ts",
+            "kind": "import-statement",
+            "original": "./nullThrows"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ts-eslint/Scope.ts": {
+        "bytes": 2511,
+        "imports": [
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/ts-eslint/index.ts": {
+        "bytes": 33,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/ts-eslint/Scope.ts",
+            "kind": "import-statement",
+            "original": "./Scope"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/utils/src/index.ts": {
+        "bytes": 205,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/ast-utils/index.ts",
+            "kind": "import-statement",
+            "original": "./ast-utils"
+          },
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/index.ts",
+            "kind": "import-statement",
+            "original": "./eslint-utils"
+          },
+          {
+            "path": "vendor/packages/utils/src/ts-eslint/index.ts",
+            "kind": "import-statement",
+            "original": "./ts-eslint"
+          },
+          {
+            "path": "@typescript-eslint/types",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/createRule.ts": {
+        "bytes": 239,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/isTypeImport.ts": {
+        "bytes": 787,
+        "imports": [
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/referenceContainsTypePredicate.ts": {
+        "bytes": 565,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/referenceContainsTypeQuery.ts": {
+        "bytes": 632,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/isTypeOnlyReference.ts": {
+        "bytes": 1265,
+        "imports": [
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/referenceContainsTypePredicate.ts",
+            "kind": "import-statement",
+            "original": "./referenceContainsTypePredicate"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/referenceContainsTypeQuery.ts",
+            "kind": "import-statement",
+            "original": "./referenceContainsTypeQuery"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/collectUnusedVariables.ts": {
+        "bytes": 24964,
+        "imports": [
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/isTypeImport.ts",
+            "kind": "import-statement",
+            "original": "./isTypeImport"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/isTypeOnlyReference.ts",
+            "kind": "import-statement",
+            "original": "./isTypeOnlyReference"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/escapeRegExp.ts": {
+        "bytes": 359,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/astUtils.ts": {
+        "bytes": 894,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/escapeRegExp.ts",
+            "kind": "import-statement",
+            "original": "./escapeRegExp"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils/ast-utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/isNullLiteral.ts": {
+        "bytes": 261,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/getStaticStringValue.ts": {
+        "bytes": 1662,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/isNullLiteral.ts",
+            "kind": "import-statement",
+            "original": "./isNullLiteral"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/misc.ts": {
+        "bytes": 375,
+        "imports": [],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/index.ts": {
+        "bytes": 379,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/createRule.ts",
+            "kind": "import-statement",
+            "original": "./createRule"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/collectUnusedVariables.ts",
+            "kind": "import-statement",
+            "original": "./collectUnusedVariables"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/astUtils.ts",
+            "kind": "import-statement",
+            "original": "./astUtils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/getStaticStringValue.ts",
+            "kind": "import-statement",
+            "original": "./getStaticStringValue"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/misc.ts",
+            "kind": "import-statement",
+            "original": "./misc"
+          },
+          {
+            "path": "vendor/packages/utils/src/eslint-utils/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils/eslint-utils"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-array-constructor.ts": {
+        "bytes": 2192,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/utils/src/ast-utils/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils/ast-utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-duplicate-enum-values.ts": {
+        "bytes": 3140,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-extra-non-null-assertion.ts": {
+        "bytes": 1216,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/util/getESLintCoreRule.ts": {
+        "bytes": 2245,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "eslint/use-at-your-own-risk",
+            "kind": "import-statement",
+            "external": true
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-loss-of-precision.ts": {
+        "bytes": 1400,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/getESLintCoreRule.ts",
+            "kind": "import-statement",
+            "original": "../util/getESLintCoreRule"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-misused-new.ts": {
+        "bytes": 3245,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-namespace.ts": {
+        "bytes": 2212,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-non-null-asserted-optional-chain.ts": {
+        "bytes": 2372,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-this-alias.ts": {
+        "bytes": 2550,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts": {
+        "bytes": 3708,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "node:path",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-unsafe-declaration-merging.ts": {
+        "bytes": 2013,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-unused-vars.ts": {
+        "bytes": 48139,
+        "imports": [
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "import-statement",
+            "external": true
+          },
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/isTypeOnlyReference.ts",
+            "kind": "import-statement",
+            "original": "../util/isTypeOnlyReference"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-var-requires.ts": {
+        "bytes": 3270,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/prefer-as-const.ts": {
+        "bytes": 2574,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/triple-slash-reference.ts": {
+        "bytes": 4229,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "vendor/packages/eslint-plugin/src/rules/no-explicit-any.ts": {
+        "bytes": 8822,
+        "imports": [
+          {
+            "path": "vendor/packages/utils/src/index.ts",
+            "kind": "import-statement",
+            "original": "@typescript-eslint/utils"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/util/index.ts",
+            "kind": "import-statement",
+            "original": "../util"
+          }
+        ],
+        "format": "esm"
+      },
+      "generated-rule-entry.ts": {
+        "bytes": 1943,
+        "imports": [
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-array-constructor.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-array-constructor.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-duplicate-enum-values.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-duplicate-enum-values.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-extra-non-null-assertion.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-extra-non-null-assertion.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-loss-of-precision.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-loss-of-precision.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-misused-new.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-misused-new.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-namespace.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-namespace.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-non-null-asserted-optional-chain.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-non-null-asserted-optional-chain.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-this-alias.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-this-alias.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-unsafe-declaration-merging.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-unsafe-declaration-merging.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-unused-vars.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-unused-vars.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-var-requires.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-var-requires.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/prefer-as-const.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/prefer-as-const.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/triple-slash-reference.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/triple-slash-reference.ts"
+          },
+          {
+            "path": "vendor/packages/eslint-plugin/src/rules/no-explicit-any.ts",
+            "kind": "import-statement",
+            "original": "./vendor/packages/eslint-plugin/src/rules/no-explicit-any.ts"
+          }
+        ],
+        "format": "esm"
+      }
+    },
+    "outputs": {
+      "generated/rules.cjs": {
+        "imports": [
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@eslint-community/eslint-utils",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/types",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/types",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "eslint/use-at-your-own-risk",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "node:path",
+            "kind": "require-call",
+            "external": true
+          },
+          {
+            "path": "@typescript-eslint/scope-manager",
+            "kind": "require-call",
+            "external": true
+          }
+        ],
+        "exports": [],
+        "entryPoint": "generated-rule-entry.ts",
+        "inputs": {
+          "generated-rule-entry.ts": {
+            "bytesInOutput": 1196
+          },
+          "vendor/packages/utils/src/ast-utils/index.ts": {
+            "bytesInOutput": 3068
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/astUtilities.ts": {
+            "bytesInOutput": 471
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/index.ts": {
+            "bytesInOutput": 0
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/PatternMatcher.ts": {
+            "bytesInOutput": 125
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/predicates.ts": {
+            "bytesInOutput": 1382
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/ReferenceTracker.ts": {
+            "bytesInOutput": 389
+          },
+          "vendor/packages/utils/src/ast-utils/eslint-utils/scopeAnalysis.ts": {
+            "bytesInOutput": 178
+          },
+          "vendor/packages/utils/src/ast-utils/helpers.ts": {
+            "bytesInOutput": 723
+          },
+          "vendor/packages/utils/src/ast-utils/misc.ts": {
+            "bytesInOutput": 148
+          },
+          "vendor/packages/utils/src/ts-estree.ts": {
+            "bytesInOutput": 56
+          },
+          "vendor/packages/utils/src/ast-utils/predicates.ts": {
+            "bytesInOutput": 3847
+          },
+          "vendor/packages/utils/src/index.ts": {
+            "bytesInOutput": 57
+          },
+          "vendor/packages/utils/src/eslint-utils/index.ts": {
+            "bytesInOutput": 179
+          },
+          "vendor/packages/utils/src/eslint-utils/deepMerge.ts": {
+            "bytesInOutput": 858
+          },
+          "vendor/packages/utils/src/eslint-utils/applyDefault.ts": {
+            "bytesInOutput": 459
+          },
+          "vendor/packages/utils/src/eslint-utils/RuleCreator.ts": {
+            "bytesInOutput": 1066
+          },
+          "vendor/packages/utils/src/eslint-utils/nullThrows.ts": {
+            "bytesInOutput": 308
+          },
+          "vendor/packages/utils/src/ts-eslint/index.ts": {
+            "bytesInOutput": 83
+          },
+          "vendor/packages/utils/src/ts-eslint/Scope.ts": {
+            "bytesInOutput": 229
+          },
+          "vendor/packages/eslint-plugin/src/util/createRule.ts": {
+            "bytesInOutput": 112
+          },
+          "vendor/packages/eslint-plugin/src/util/index.ts": {
+            "bytesInOutput": 0
+          },
+          "vendor/packages/eslint-plugin/src/util/collectUnusedVariables.ts": {
+            "bytesInOutput": 15327
+          },
+          "vendor/packages/eslint-plugin/src/util/isTypeImport.ts": {
+            "bytesInOutput": 350
+          },
+          "vendor/packages/eslint-plugin/src/util/isTypeOnlyReference.ts": {
+            "bytesInOutput": 858
+          },
+          "vendor/packages/eslint-plugin/src/util/referenceContainsTypePredicate.ts": {
+            "bytesInOutput": 347
+          },
+          "vendor/packages/eslint-plugin/src/util/referenceContainsTypeQuery.ts": {
+            "bytesInOutput": 335
+          },
+          "vendor/packages/eslint-plugin/src/util/escapeRegExp.ts": {
+            "bytesInOutput": 232
+          },
+          "vendor/packages/eslint-plugin/src/util/astUtils.ts": {
+            "bytesInOutput": 525
+          },
+          "vendor/packages/eslint-plugin/src/util/isNullLiteral.ts": {
+            "bytesInOutput": 107
+          },
+          "vendor/packages/eslint-plugin/src/util/getStaticStringValue.ts": {
+            "bytesInOutput": 682
+          },
+          "vendor/packages/eslint-plugin/src/util/misc.ts": {
+            "bytesInOutput": 338
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-array-constructor.ts": {
+            "bytesInOutput": 1615
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-duplicate-enum-values.ts": {
+            "bytesInOutput": 2560
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-extra-non-null-assertion.ts": {
+            "bytesInOutput": 1074
+          },
+          "vendor/packages/eslint-plugin/src/util/getESLintCoreRule.ts": {
+            "bytesInOutput": 248
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-loss-of-precision.ts": {
+            "bytesInOutput": 990
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-misused-new.ts": {
+            "bytesInOutput": 2285
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-namespace.ts": {
+            "bytesInOutput": 1725
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-non-null-asserted-optional-chain.ts": {
+            "bytesInOutput": 2055
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-this-alias.ts": {
+            "bytesInOutput": 2066
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-unnecessary-type-constraint.ts": {
+            "bytesInOutput": 2732
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-unsafe-declaration-merging.ts": {
+            "bytesInOutput": 1574
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-unused-vars.ts": {
+            "bytesInOutput": 30226
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-var-requires.ts": {
+            "bytesInOutput": 2902
+          },
+          "vendor/packages/eslint-plugin/src/rules/prefer-as-const.ts": {
+            "bytesInOutput": 2275
+          },
+          "vendor/packages/eslint-plugin/src/rules/triple-slash-reference.ts": {
+            "bytesInOutput": 3578
+          },
+          "vendor/packages/eslint-plugin/src/rules/no-explicit-any.ts": {
+            "bytesInOutput": 5454
+          }
+        },
+        "bytes": 101970
+      }
+    }
+  }
+}

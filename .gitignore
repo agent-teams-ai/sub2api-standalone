@@ -25,6 +25,8 @@ coverage.html
 
 # 依赖（使用 go mod）
 vendor/
+!frontend/tools/eslint-syntax/vendor/
+!frontend/tools/eslint-syntax/vendor/**
 !frontend/vendor/
 
 # Go 编译缓存
