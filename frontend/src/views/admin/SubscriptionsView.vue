@@ -67,7 +67,8 @@
             <!-- Filters -->
             <div class="w-full sm:w-40">
               <Select
-                v-model="filters.status"
+                :model-value="filters.status"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
                 :options="statusOptions"
                 :placeholder="t('admin.subscriptions.allStatus')"
                 @change="applyFilters"
@@ -75,7 +76,8 @@
             </div>
             <div class="w-full sm:w-48">
               <Select
-                v-model="filters.group_id"
+                :model-value="filters.group_id"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.group_id = value }"
                 :options="groupOptions"
                 :placeholder="t('admin.subscriptions.allGroups')"
                 @change="applyFilters"
@@ -83,7 +85,8 @@
             </div>
             <div class="w-full sm:w-40">
               <Select
-                v-model="filters.platform"
+                :model-value="filters.platform"
+                @update:model-value="value =&gt; { if (typeof value === 'string') filters.platform = value }"
                 :options="platformFilterOptions"
                 :placeholder="t('admin.subscriptions.allPlatforms')"
                 @change="applyFilters"
@@ -578,7 +581,8 @@
         <div>
           <label class="input-label">{{ t('admin.subscriptions.form.group') }}</label>
           <Select
-            v-model="assignForm.group_id"
+            :model-value="assignForm.group_id"
+            @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) assignForm.group_id = value }"
             :disabled="submitting"
             :options="subscriptionGroupOptions"
             :placeholder="t('admin.subscriptions.selectGroup')"

@@ -31,6 +31,7 @@ const GatewayClaudeOAuthIssuer = "https://claude.com"
 // Private source-owned intent and qualification. Plaintext provider credentials
 // never enter repository input, browser DTOs, or the Gateway wire.
 type GatewayClaudeConnectIntent struct {
+	Connection                            *GatewayConnectionSelection
 	Scope                                 GatewayNativeCredentialScope
 	Operation, StateHash, Envelope, State string
 	Deadline                              time.Time
@@ -87,20 +88,22 @@ type GatewayNativeClaudeDispatchEntry struct {
 }
 
 type gatewayClaudeBundle struct {
-	Kind         string    `json:"kind"`
-	Revision     int64     `json:"revision"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	Account      string    `json:"account"`
-	Organization string    `json:"organization"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	ObservedAt   time.Time `json:"observed_at,omitzero"`
+	Connection   *GatewayConnectionSelection `json:"connection,omitempty"`
+	Kind         string                      `json:"kind"`
+	Revision     int64                       `json:"revision"`
+	AccessToken  string                      `json:"access_token"`
+	RefreshToken string                      `json:"refresh_token"`
+	Account      string                      `json:"account"`
+	Organization string                      `json:"organization"`
+	ExpiresAt    time.Time                   `json:"expires_at"`
+	ObservedAt   time.Time                   `json:"observed_at,omitzero"`
 	info         []GatewayAccountInfoObservation
 }
 type gatewayClaudeConnectSecret struct {
-	Kind     string `json:"kind"`
-	State    string `json:"state"`
-	Verifier string `json:"verifier"`
+	Connection *GatewayConnectionSelection `json:"connection,omitempty"`
+	Kind       string                      `json:"kind"`
+	State      string                      `json:"state"`
+	Verifier   string                      `json:"verifier"`
 }
 
 type GatewayNativeClaudeOAuth struct {
@@ -164,7 +167,7 @@ func (s *GatewayNativeClaudeOAuth) seal(scope GatewayNativeCredentialScope, valu
 
 func (s *GatewayNativeClaudeOAuth) BeginConnectMethod(ctx context.Context, scope GatewayNativeCredentialScope, operation, method string) (GatewayNativeOAuthConnectResult, error) {
 	var empty GatewayNativeOAuthConnectResult
-	if s == nil || !claudeScope(ctx, scope, operation) || method != "browser" {
+	if s == nil || !claudeScope(ctx, scope, operation) || method != "browser" || !gatewayConnectionMatchesContext(ctx, GatewayClaudeOAuthMessagesProfile, method) {
 		return empty, ErrGatewayNativeIdentity
 	}
 	state, verifier := make([]byte, 32), make([]byte, 32)
@@ -174,21 +177,27 @@ func (s *GatewayNativeClaudeOAuth) BeginConnectMethod(ctx context.Context, scope
 	if _, err := rand.Read(verifier); err != nil {
 		return empty, ErrGatewayNativeIdentity
 	}
-	secret := gatewayClaudeConnectSecret{Kind: "claude-connect/v1", State: hex.EncodeToString(state), Verifier: base64.RawURLEncoding.EncodeToString(verifier)}
+	secret := gatewayClaudeConnectSecret{Connection: gatewayConnectionSelectionFromContext(ctx), Kind: "claude-connect/v1", State: hex.EncodeToString(state), Verifier: base64.RawURLEncoding.EncodeToString(verifier)}
 	envelope, err := s.seal(scope, secret)
 	if err != nil {
 		return empty, err
 	}
 	digest := sha256.Sum256([]byte(secret.State))
-	in, err := s.repository.PutGatewayClaudeConnect(ctx, GatewayClaudeConnectIntent{Scope: scope, Operation: operation, StateHash: hex.EncodeToString(digest[:]), Envelope: envelope, State: "prepared", Deadline: time.Now().UTC().Add(10 * time.Minute)})
+	in, err := s.repository.PutGatewayClaudeConnect(ctx, GatewayClaudeConnectIntent{Connection: secret.Connection, Scope: scope, Operation: operation, StateHash: hex.EncodeToString(digest[:]), Envelope: envelope, State: "prepared", Deadline: time.Now().UTC().Add(10 * time.Minute)})
 	if err != nil {
 		return empty, err
 	}
+	if !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return empty, ErrGatewayNativeIdentity
+	}
 	out := claudeConnectView(in)
+	if in.Connection != nil && in.StateHash != hex.EncodeToString(digest[:]) {
+		return out, nil
+	}
 	if in.State != "prepared" || !time.Now().Before(in.Deadline) {
 		return out, nil
 	}
-	if s.open(scope, in.Envelope, &secret) != nil || secret.Kind != "claude-connect/v1" {
+	if s.open(scope, in.Envelope, &secret) != nil || !SameGatewayConnectionSelection(secret.Connection, in.Connection) || secret.Kind != "claude-connect/v1" {
 		return empty, ErrGatewayNativeIdentity
 	}
 	challenge := sha256.Sum256([]byte(secret.Verifier))
@@ -208,7 +217,7 @@ func claudeConnectView(in GatewayClaudeConnectIntent) GatewayNativeOAuthConnectR
 	if state == "exchanging" || state == "erased" {
 		state = "unknown"
 	}
-	out := GatewayNativeOAuthConnectResult{Operation: in.Operation, Account: in.Scope.Account, State: state, Method: "browser"}
+	out := GatewayNativeOAuthConnectResult{Connection: in.Connection, Operation: in.Operation, Account: in.Scope.Account, State: state, Method: "browser"}
 	if in.State == "completed" {
 		out.Outcome = "staged"
 	}
@@ -219,6 +228,9 @@ func (s *GatewayNativeClaudeOAuth) ReadConnect(ctx context.Context, scope Gatewa
 		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadGatewayClaudeConnect(ctx, scope, operation)
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return GatewayNativeOAuthConnectResult{}, ErrGatewayNativeIdentity
+	}
 	return claudeConnectView(in), err
 }
 
@@ -237,8 +249,8 @@ func (s *GatewayNativeClaudeOAuth) CompleteOwnerCallback(ctx context.Context, sc
 		return empty, ErrGatewayNativeIdentity
 	}
 	in, err := s.repository.ReadGatewayClaudeConnect(ctx, scope, operation)
-	if err != nil {
-		return empty, err
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return empty, ErrGatewayNativeIdentity
 	}
 	digest := sha256.Sum256([]byte(state))
 	if hex.EncodeToString(digest[:]) != in.StateHash {
@@ -255,7 +267,7 @@ func (s *GatewayNativeClaudeOAuth) CompleteOwnerCallback(ctx context.Context, sc
 		return empty, err
 	}
 	var secret gatewayClaudeConnectSecret
-	if s.open(scope, in.Envelope, &secret) != nil || secret.Kind != "claude-connect/v1" || secret.State != state {
+	if s.open(scope, in.Envelope, &secret) != nil || !SameGatewayConnectionSelection(secret.Connection, in.Connection) || secret.Kind != "claude-connect/v1" || secret.State != state {
 		return empty, ErrGatewayNativeIdentity
 	}
 	bundle, err := s.exchange(ctx, map[string]any{"code": code, "state": state, "grant_type": "authorization_code", "client_id": oauth.ClientID, "redirect_uri": oauth.RedirectURI, "code_verifier": secret.Verifier}, nil)
@@ -265,6 +277,7 @@ func (s *GatewayNativeClaudeOAuth) CompleteOwnerCallback(ctx context.Context, sc
 	if s.connectEntry(ctx, scope, operation) != nil {
 		return empty, ErrGatewayNativeIdentity
 	}
+	bundle.Connection = in.Connection
 	envelope, err := s.seal(scope, bundle)
 	if err != nil {
 		return empty, err
@@ -293,6 +306,12 @@ func claudeToken(value string) bool {
 }
 
 func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string]any, previous *gatewayClaudeBundle) (gatewayClaudeBundle, error) {
+	return s.exchangeWithPolicy(ctx, body, previous, false)
+}
+
+// Setup-token grants can return an inference-only access token. The original
+// browser/refresh path keeps its stricter refreshable, ninety-day policy.
+func (s *GatewayNativeClaudeOAuth) exchangeWithPolicy(ctx context.Context, body map[string]any, previous *gatewayClaudeBundle, allowAccessOnly bool) (gatewayClaudeBundle, error) {
 	var empty gatewayClaudeBundle
 	var infoOrder int64
 	if source, ok := s.repository.(interface {
@@ -347,7 +366,13 @@ func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string
 			UUID string `json:"uuid"`
 		} `json:"organization"`
 	}
-	if json.Unmarshal(response, &token) != nil || !claudeToken(token.AccessToken) || !claudeToken(token.RefreshToken) || !strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > 90*24*60*60 {
+	maximumExpiry := int64(90 * 24 * 60 * 60)
+	if allowAccessOnly {
+		maximumExpiry = 366 * 24 * 60 * 60
+	}
+	if json.Unmarshal(response, &token) != nil || !claudeToken(token.AccessToken) ||
+		(!allowAccessOnly || token.RefreshToken != "") && !claudeToken(token.RefreshToken) ||
+		!strings.EqualFold(token.TokenType, "bearer") || token.ExpiresIn <= 0 || token.ExpiresIn > maximumExpiry {
 		return empty, ErrGatewayNativeIdentity
 	}
 	hasInference := false
@@ -379,7 +404,10 @@ func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string
 	if !claudeUUID(b.Account) || !claudeUUID(b.Organization) {
 		return empty, ErrGatewayNativeIdentity
 	}
-	if infoOrder > 0 {
+	if infoOrder > 0 || s.repository == nil {
+		// Generic native imports call this bounded exchange without an ordinary
+		// repository. Their existing connection journal assigns observation order
+		// while staging the credential and its authenticated account facts.
 		// A refresh may omit the entire optional account object. That partial
 		// response cannot erase facts from an earlier authenticated account read.
 		if token.Account != nil {
@@ -397,7 +425,7 @@ func (s *GatewayNativeClaudeOAuth) exchange(ctx context.Context, body map[string
 
 func (s *GatewayNativeClaudeOAuth) bundle(scope GatewayNativeCredentialScope, envelope string, p GatewayNativeOAuthPhysical) (gatewayClaudeBundle, error) {
 	var b gatewayClaudeBundle
-	if s.open(scope, envelope, &b) != nil || b.Kind != "claude-oauth/v1" || b.Revision < 1 || b.Revision != p.CredentialRevision || !claudeToken(b.AccessToken) || !claudeToken(b.RefreshToken) || !claudeUUID(b.Account) || !claudeUUID(b.Organization) || b.Account != p.Subject || b.Organization != p.ProviderAccount || p.Issuer != GatewayClaudeOAuthIssuer || b.ExpiresAt.IsZero() {
+	if s.open(scope, envelope, &b) != nil || b.Kind != "claude-oauth/v1" || !SameGatewayConnectionSelection(b.Connection, p.Connection) || b.Revision < 1 || b.Revision != p.CredentialRevision || !claudeToken(b.AccessToken) || !claudeToken(b.RefreshToken) || !claudeUUID(b.Account) || !claudeUUID(b.Organization) || b.Account != p.Subject || b.Organization != p.ProviderAccount || p.Issuer != GatewayClaudeOAuthIssuer || b.ExpiresAt.IsZero() {
 		return b, ErrGatewayNativeIdentity
 	}
 	if !b.ObservedAt.IsZero() && (!gatewayInfoInstant(b.ObservedAt.UTC().Format(time.RFC3339Nano)) || b.ObservedAt.After(b.ExpiresAt)) {
@@ -550,6 +578,7 @@ func (s *GatewayNativeClaudeOAuth) Refresh(ctx context.Context, scope GatewayNat
 	if err != nil {
 		return GatewayNativeOAuthRefreshOutcome{Operation: refreshOperation, State: "unknown"}, err
 	}
+	b.Connection = previous.Connection
 	next, err := s.seal(scope, b)
 	if err != nil {
 		return GatewayNativeOAuthRefreshOutcome{Operation: refreshOperation, State: "unknown"}, err

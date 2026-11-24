@@ -50,14 +50,23 @@ func gatewayNativeProviderProfile(profile string) bool {
 		return true
 	}
 	switch profile {
-	case GatewayKimiCodeResponsesProfile, GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile, GatewayGrokOAuthResponsesProfile, GatewayNVIDIABuildChatProfile:
+	case GatewayKimiCodeResponsesProfile, GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile, GatewayGrokOAuthResponsesProfile, GatewayNVIDIABuildChatProfile, GatewayClaudeOAuthMessagesProfile:
 		return true
+	}
+	// Inventory determines the native structural codec only. Actual admission
+	// still requires an exact qualified binding, stored credential publication
+	// and account-scoped model membership at the last HTTP fence.
+	if definition, found := LookupGatewayConnectionProfile(profile); found {
+		switch definition.DispatchFamily {
+		case "openai_responses", "grok_responses", "provider_by_inbound", "provider_by_model", "mimo_responses", "mimo_chat_bridge", "openrouter_responses", "bedrock_messages", "vertex_messages", "vertex_gemini", "gemini_oauth", "antigravity":
+			return true
+		}
 	}
 	return false
 }
 
 // Reject lossy/unsupported input before admission and custody. Only text and
-// client function/custom tools enter this slice. Schema and tool/user bytes are
+// client function/custom/search tools enter this slice. Schema and tool/user bytes are
 // opaque and preserved; nested schema keys never select transport authority.
 func ValidateGatewayNativeProviderResponsesBounded(profile string, body []byte, requestBytes int64) error {
 	_, _, err := gatewayNativePrepareProviderResponses(profile, body, requestBytes)
@@ -86,7 +95,7 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 			continue
 		}
 		null := bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
-		if name == "reasoning" && !null {
+		if name == "reasoning" && !null && profile != GatewayClaudeOAuthMessagesProfile {
 			return deny()
 		}
 		if null {
@@ -150,11 +159,15 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 		if model != GatewayGrokOAuthModel {
 			return deny()
 		}
+	case GatewayClaudeOAuthMessagesProfile:
+		if model != GatewayClaudeOAuthModel {
+			return deny()
+		}
 	}
 	if _, ok := gatewayOAuthSeconds(fields["max_output_tokens"]); !ok || !gatewayNativeProviderTextInput(profile, fields["input"]) {
 		return deny()
 	}
-	if GatewayNativeOfficialAPIProfileIDValid(profile) {
+	if GatewayNativeOfficialAPIProfileIDValid(profile) || profile == GatewayClaudeOAuthMessagesProfile {
 		tokens, _ := gatewayOAuthSeconds(fields["max_output_tokens"])
 		if tokens < 1 || tokens > 65536 {
 			return deny()
@@ -228,7 +241,14 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 		} else {
 			choice, valid := gatewayClaudeObject(raw, "type", "name", "namespace")
 			var kind, name string
-			if !valid || json.Unmarshal(choice["type"], &kind) != nil || (kind != "function" && kind != "custom") || json.Unmarshal(choice["name"], &name) != nil || name == "" {
+			if !valid || json.Unmarshal(choice["type"], &kind) != nil {
+				return deny()
+			}
+			if kind == "tool_search" {
+				if len(choice) != 1 {
+					return deny()
+				}
+			} else if (kind != "function" && kind != "custom") || json.Unmarshal(choice["name"], &name) != nil || name == "" {
 				return deny()
 			}
 			if namespace := choice["namespace"]; namespace != nil && (kind != "function" || !gatewayNativeProviderToolName(namespace)) {
@@ -242,7 +262,7 @@ func gatewayNativePrepareProviderResponses(profile string, body []byte, requestB
 	if err != nil || int64(len(wire)) > requestBytes {
 		return deny()
 	}
-	if !gatewayNativeProviderNamespaceReferences(fields["input"], fields["tool_choice"], mapping) {
+	if !gatewayNativeProviderToolReferences(fields["input"], fields["tool_choice"], mapping) || !gatewayNativeProviderLoweredToolsBounded(wire) {
 		return deny()
 	}
 	if profile == GatewayAnthropicAPIKeyProfile {
@@ -286,13 +306,11 @@ func gatewayNativeProviderTextInput(profile string, raw []byte) bool {
 			if json.Unmarshal(fields["content"], &parts) != nil {
 				return false
 			}
-			partKeys := []string{"type", "text", "annotations"}
-			// OpenRouter returns an empty logprobs array on every output_text
-			// part and a client replays the item unchanged (confirmed in
-			// production: the only refused item of a replayed history).
-			if profile == GatewayOpenRouterResponsesProfile {
-				partKeys = append(partKeys, "logprobs")
-			}
+			// The native Chat/Messages Responses codecs emit this exact empty
+			// marker on assistant output_text. Replaying their own output is
+			// valid; measured probabilities have no representation in those
+			// protocols. OpenRouter retains its existing upstream array grammar.
+			partKeys := []string{"type", "text", "annotations", "logprobs"}
 			for _, raw := range parts {
 				part, ok := gatewayClaudeObject(raw, partKeys...)
 				if !ok || (string(part["type"]) != `"input_text"` && string(part["type"]) != `"output_text"`) || json.Unmarshal(part["text"], &text) != nil {
@@ -300,7 +318,8 @@ func gatewayNativeProviderTextInput(profile string, raw []byte) bool {
 				}
 				if logprobs := part["logprobs"]; logprobs != nil {
 					var entries []json.RawMessage
-					if json.Unmarshal(logprobs, &entries) != nil {
+					if json.Unmarshal(logprobs, &entries) != nil || profile != GatewayOpenRouterResponsesProfile &&
+						(role != "assistant" || string(part["type"]) != `"output_text"` || len(entries) != 0 || bytes.Equal(bytes.TrimSpace(logprobs), []byte("null"))) {
 						return false
 					}
 				}
@@ -323,6 +342,27 @@ func gatewayNativeProviderTextInput(profile string, raw []byte) bool {
 		case "function_call_output", "custom_tool_call_output":
 			fields, ok = gatewayClaudeObject(raw, "type", "id", "call_id", "output")
 			if !ok || !gatewayNativeProviderString(fields["call_id"]) || !gatewayNativeProviderString(fields["output"]) {
+				return false
+			}
+		case "tool_search_call", "tool_search_output":
+			// Only the explicit client protocol is reversible through the
+			// existing native function codec. Server search and opaque output
+			// variants cannot silently become a caller-executed function.
+			fields, ok = gatewayClaudeObject(raw, "type", "id", "call_id", "execution", "status", "arguments", "tools")
+			if !ok || string(fields["execution"]) != `"client"` || !gatewayNativeProviderToolName(fields["call_id"]) {
+				return false
+			}
+			if id := fields["id"]; id != nil && !gatewayNativeProviderToolName(id) {
+				return false
+			}
+			if status := fields["status"]; status != nil && string(status) != `"completed"` {
+				return false
+			}
+			if kind == "tool_search_call" {
+				if _, valid := gatewayNativeCanonicalObject(fields["arguments"]); !valid || fields["tools"] != nil {
+					return false
+				}
+			} else if fields["arguments"] != nil || fields["tools"] == nil || !gatewayNativeProviderToolsBounded(fields["tools"], false) {
 				return false
 			}
 		case "reasoning":
@@ -416,17 +456,33 @@ func gatewayNativeProviderUUID(raw []byte) bool {
 // pure codec preserves their namespace identities and opaque schemas. It does
 // not preserve custom children, so they are rejected instead of silently lost.
 func gatewayNativeProviderTools(raw []byte) bool {
+	return gatewayNativeProviderToolsBounded(raw, true)
+}
+
+func gatewayNativeProviderToolsBounded(raw []byte, clientSearch bool) bool {
 	var tools []json.RawMessage
 	if json.Unmarshal(raw, &tools) != nil || len(tools) > 128 {
 		return false
 	}
 	leaves := 0
+	searchDeclared := false
 	namespaces := map[string]bool{}
 	for _, raw := range tools {
 		kindFields, ok := GatewayNativePayloadFields(raw, "type")
 		var kind string
 		if !ok || json.Unmarshal(kindFields["type"], &kind) != nil {
 			return false
+		}
+		if kind == "tool_search" {
+			if !clientSearch || searchDeclared || !gatewayNativeProviderClientSearchTool(raw) {
+				return false
+			}
+			searchDeclared = true
+			leaves++
+			if leaves > 128 {
+				return false
+			}
+			continue
 		}
 		if kind != "namespace" {
 			if !gatewayNativeProviderLeafTool(raw) {
@@ -468,6 +524,26 @@ func gatewayNativeProviderTools(raw []byte) bool {
 	return true
 }
 
+func gatewayNativeProviderClientSearchTool(raw []byte) bool {
+	fields, valid := gatewayClaudeObject(raw, "type", "execution", "description", "parameters")
+	if !valid || string(fields["execution"]) != `"client"` {
+		return false
+	}
+	if description := fields["description"]; description != nil && !gatewayNativeProviderString(description) {
+		return false
+	}
+	schema, valid := gatewayNativeCanonicalObject(fields["parameters"], "type")
+	return valid && string(schema["type"]) == `"object"`
+}
+
+// Search discoveries become effective function declarations in the native
+// codec. Enforce the same total bound after promotion, so several individually
+// bounded discovery outputs cannot bypass the qualified tool-count limit.
+func gatewayNativeProviderLoweredToolsBounded(body []byte) bool {
+	fields, valid := GatewayNativePayloadFields(body, "tools")
+	return valid && (fields["tools"] == nil || gatewayNativeProviderToolsBounded(fields["tools"], false))
+}
+
 func gatewayNativeProviderLeafTool(raw []byte) bool {
 	tool, valid := gatewayClaudeObject(raw, "type", "name", "description", "parameters", "strict", "format")
 	var kind, description string
@@ -500,13 +576,33 @@ func gatewayNativeProviderToolName(raw []byte) bool {
 	return json.Unmarshal(raw, &name) == nil && name != "" && len(name) <= 128 && strings.TrimSpace(name) == name
 }
 
-// A namespace history/choice reference must name a declared function. Otherwise
-// the pure codec would leave it unflattened and change the qualified protocol.
-func gatewayNativeProviderNamespaceReferences(input, choice []byte, mapping apicompat.ResponsesClientToolMapping) bool {
+// History and choice must resolve against the actual declaration mapping.
+// Otherwise the codec would leave an undeclared search or namespace call
+// unlowered and change the qualified provider protocol.
+func gatewayNativeProviderToolReferences(input, choice []byte, mapping apicompat.ResponsesClientToolMapping) bool {
 	reference := func(raw []byte) bool {
 		fields, ok := GatewayNativePayloadFields(raw, "namespace", "name", "type")
 		if !ok {
 			return false
+		}
+		// The codec consumes decoded JSON strings. Match that discriminator
+		// semantics so an escaped type cannot bypass declaration or choice
+		// checks. Ordinary input messages may still omit type entirely.
+		var kind string
+		if rawType := fields["type"]; rawType != nil && (bytes.Equal(bytes.TrimSpace(rawType), []byte("null")) || json.Unmarshal(rawType, &kind) != nil) {
+			return false
+		}
+		switch kind {
+		case "tool_search":
+			// This is a choice, not a declaration. The codec replaces the
+			// complete object, so accepting any other key would silently drop
+			// its semantics (including a conflicting server execution mode).
+			_, exact := gatewayClaudeObject(raw, "type")
+			return exact && mapping.ToolSearch
+		case "tool_search_call", "tool_search_output":
+			if !mapping.ToolSearch {
+				return false
+			}
 		}
 		if fields["namespace"] == nil {
 			return true

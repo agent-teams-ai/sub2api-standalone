@@ -22,45 +22,33 @@ func TestPrepareBedrockRequestBody_BasicFields(t *testing.T) {
 	assert.Equal(t, int64(1024), gjson.GetBytes(result, "max_tokens").Int())
 }
 
-func TestPrepareBedrockRequestBody_OutputFormatInlineSchema(t *testing.T) {
-	t.Run("schema inlined into last user message array content", func(t *testing.T) {
-		input := `{"model":"claude-sonnet-4-5","output_format":{"type":"json","schema":{"name":"string"}},"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`
+func TestPrepareBedrockRequestBody_PreservesStructuredOutput(t *testing.T) {
+	format := `{"type":"json_schema","schema":{"type":"object","properties":{"result":{"type":"string","enum":["pass","fail"]}},"required":["result"],"additionalProperties":false}}`
+	for _, tc := range []struct {
+		name     string
+		fields   string
+		messages string
+	}{
+		{"canonical array content", `"output_config":{"format":` + format + `}`, `[{"role":"user","content":[{"type":"text","text":"hello"}]}]`},
+		{"deprecated string content", `"output_format":` + format, `[{"role":"user","content":"compute this"}]`},
+		{"canonical wins over deprecated alias", `"output_config":{"format":` + format + `},"output_format":{"type":"json_schema","schema":{"type":"string"}}`, `[{"role":"user","content":"hello"}]`},
+		{"schema does not depend on messages", `"output_config":{"format":` + format + `}`, `[]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"model":"claude-sonnet-4-5",` + tc.fields + `,"messages":` + tc.messages + `}`
+			result, err := PrepareBedrockRequestBody([]byte(input), "us.anthropic.claude-sonnet-4-5-v1", "")
+			require.NoError(t, err)
+			assert.False(t, gjson.GetBytes(result, "output_format").Exists())
+			assert.JSONEq(t, format, gjson.GetBytes(result, "output_config.format").Raw)
+			assert.JSONEq(t, tc.messages, gjson.GetBytes(result, "messages").Raw, "structured output must not rewrite user messages")
+		})
+	}
+
+	t.Run("invalid format remains subject to upstream rejection", func(t *testing.T) {
+		input := `{"output_format":{"type":"json_schema"},"messages":[{"role":"user","content":"hi"}]}`
 		result, err := PrepareBedrockRequestBody([]byte(input), "us.anthropic.claude-sonnet-4-5-v1", "")
 		require.NoError(t, err)
-
-		assert.False(t, gjson.GetBytes(result, "output_format").Exists())
-		// schema 应内联到最后一条 user message 的 content 数组末尾
-		contentArr := gjson.GetBytes(result, "messages.0.content").Array()
-		require.Len(t, contentArr, 2)
-		assert.Equal(t, "text", contentArr[1].Get("type").String())
-		assert.Contains(t, contentArr[1].Get("text").String(), `"name":"string"`)
-	})
-
-	t.Run("schema inlined into string content", func(t *testing.T) {
-		input := `{"model":"claude-sonnet-4-5","output_format":{"type":"json","schema":{"result":"number"}},"messages":[{"role":"user","content":"compute this"}]}`
-		result, err := PrepareBedrockRequestBody([]byte(input), "us.anthropic.claude-sonnet-4-5-v1", "")
-		require.NoError(t, err)
-
-		assert.False(t, gjson.GetBytes(result, "output_format").Exists())
-		contentArr := gjson.GetBytes(result, "messages.0.content").Array()
-		require.Len(t, contentArr, 2)
-		assert.Equal(t, "compute this", contentArr[0].Get("text").String())
-		assert.Contains(t, contentArr[1].Get("text").String(), `"result":"number"`)
-	})
-
-	t.Run("no schema field just removes output_format", func(t *testing.T) {
-		input := `{"model":"claude-sonnet-4-5","output_format":{"type":"json"},"messages":[{"role":"user","content":"hi"}]}`
-		result, err := PrepareBedrockRequestBody([]byte(input), "us.anthropic.claude-sonnet-4-5-v1", "")
-		require.NoError(t, err)
-
-		assert.False(t, gjson.GetBytes(result, "output_format").Exists())
-	})
-
-	t.Run("no messages just removes output_format", func(t *testing.T) {
-		input := `{"model":"claude-sonnet-4-5","output_format":{"type":"json","schema":{"name":"string"}}}`
-		result, err := PrepareBedrockRequestBody([]byte(input), "us.anthropic.claude-sonnet-4-5-v1", "")
-		require.NoError(t, err)
-
+		assert.JSONEq(t, `{"type":"json_schema"}`, gjson.GetBytes(result, "output_config.format").Raw)
 		assert.False(t, gjson.GetBytes(result, "output_format").Exists())
 	})
 }
@@ -206,7 +194,7 @@ func TestPrepareBedrockRequestBody_FullIntegration(t *testing.T) {
 		"model": "claude-opus-4-6",
 		"stream": true,
 		"max_tokens": 16384,
-		"output_format": {"type": "json", "schema": {"result": "string"}},
+		"output_format": {"type": "json_schema", "schema": {"type": "object", "properties": {"result": {"type": "string"}}, "required": ["result"], "additionalProperties": false}},
 		"output_config": {"max_tokens": 100},
 		"system": [{"type": "text", "text": "You are helpful", "cache_control": {"type": "ephemeral", "scope": "global", "ttl": "5m"}}],
 		"messages": [
@@ -234,14 +222,13 @@ func TestPrepareBedrockRequestBody_FullIntegration(t *testing.T) {
 	assert.Equal(t, "context-1m-2025-08-07", betaArr[0].String())
 	assert.Equal(t, "compact-2026-01-12", betaArr[1].String())
 
-	// output_format 应被移除，schema 内联到最后一条 user message
+	// 使用 Bedrock 原生结构化输出，不将 schema 追加到用户消息。
 	assert.False(t, gjson.GetBytes(result, "output_format").Exists())
-	assert.False(t, gjson.GetBytes(result, "output_config").Exists())
-	// content 数组：原始 text block + 内联 schema block
+	assert.JSONEq(t, gjson.Get(input, "output_format").Raw, gjson.GetBytes(result, "output_config.format").Raw)
+	assert.False(t, gjson.GetBytes(result, "output_config.max_tokens").Exists())
 	contentArr := gjson.GetBytes(result, "messages.0.content").Array()
-	require.Len(t, contentArr, 2)
+	require.Len(t, contentArr, 1)
 	assert.Equal(t, "hello", contentArr[0].Get("text").String())
-	assert.Contains(t, contentArr[1].Get("text").String(), `"result":"string"`)
 
 	// tools 中的 custom 应被移除
 	assert.False(t, gjson.GetBytes(result, "tools.0.custom").Exists())
@@ -1049,13 +1036,14 @@ func TestPrepareBedrockSonnet55PreservesEffort(t *testing.T) {
 	result, err := PrepareBedrockRequestBodyWithTokens(input, "global.anthropic.claude-sonnet-5-5", nil, false)
 	require.NoError(t, err)
 	assert.Equal(t, "medium", gjson.GetBytes(result, "output_config.effort").String())
-	assert.False(t, gjson.GetBytes(result, "output_config.format").Exists())
-	assert.Contains(t, gjson.GetBytes(result, "messages.0.content.1.text").String(), `"type":"object"`, "schema should still be included in the final user message")
+	assert.JSONEq(t, gjson.GetBytes(input, "output_config.format").Raw, gjson.GetBytes(result, "output_config.format").Raw)
+	assert.JSONEq(t, gjson.GetBytes(input, "messages").Raw, gjson.GetBytes(result, "messages").Raw)
 	assert.False(t, gjson.GetBytes(result, "model").Exists())
 
 	oldModel, err := PrepareBedrockRequestBodyWithTokens(input, "us.anthropic.claude-sonnet-4-6", nil, false)
 	require.NoError(t, err)
-	assert.False(t, gjson.GetBytes(oldModel, "output_config").Exists())
+	assert.False(t, gjson.GetBytes(oldModel, "output_config.effort").Exists())
+	assert.JSONEq(t, gjson.GetBytes(input, "output_config.format").Raw, gjson.GetBytes(oldModel, "output_config.format").Raw)
 }
 
 func TestSanitizeBedrockCCFields(t *testing.T) {

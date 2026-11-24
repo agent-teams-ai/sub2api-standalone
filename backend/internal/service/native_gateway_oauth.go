@@ -200,6 +200,14 @@ func gatewayOAuthSeconds(raw json.RawMessage) (int64, bool) {
 }
 
 func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string) (GatewayNativeOAuthIdentity, error) {
+	return v.verifyAudience(ctx, encoded, gatewayOAuthAudience)
+}
+
+// Only native desktop/mobile client configurations may select a token audience.
+func (v *GatewayNativeOAuthVerifier) verifyAudience(ctx context.Context, encoded, audience string) (GatewayNativeOAuthIdentity, error) {
+	if audience != gatewayOAuthAudience && audience != gatewayCodexMobileClientID {
+		return GatewayNativeOAuthIdentity{}, ErrGatewayNativeIdentity
+	}
 	deny := func() (GatewayNativeOAuthIdentity, error) {
 		return GatewayNativeOAuthIdentity{}, ErrGatewayNativeIdentity
 	}
@@ -260,12 +268,12 @@ func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string)
 	} else if json.Unmarshal(claims["aud"], &audiences) != nil {
 		return deny()
 	}
-	if len(audiences) != 1 || audiences[0] != gatewayOAuthAudience {
+	if len(audiences) != 1 || audiences[0] != audience {
 		return deny()
 	}
 	if _, exists := claims["azp"]; exists {
 		azp, ok := gatewayOAuthString(claims, "azp")
-		if !ok || azp != gatewayOAuthAudience {
+		if !ok || azp != audience {
 			return deny()
 		}
 	}
@@ -291,7 +299,7 @@ func (v *GatewayNativeOAuthVerifier) Verify(ctx context.Context, encoded string)
 	now = v.now()
 	token, err := jwt.Parse(encoded, func(*jwt.Token) (any, error) { return key, nil },
 		jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(GatewayOAuthIssuer),
-		jwt.WithAudience(gatewayOAuthAudience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
+		jwt.WithAudience(audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
 	if err != nil || !token.Valid {
 		return deny()
 	}
@@ -384,16 +392,20 @@ func (v *GatewayNativeOAuthVerifier) key(ctx context.Context, kid string) (key *
 // Write-only ingress; all metadata travels inside the encrypted bundle. No
 // GetBundle API, plaintext Account credentials, cache publication, or probe.
 type GatewayNativeOAuthBundle struct {
-	AccessToken       string          `json:"access_token"`
-	RefreshToken      string          `json:"refresh_token"`
-	IDToken           string          `json:"id_token"`
-	SensitiveMetadata json.RawMessage `json:"sensitive_metadata"`
+	Connection        *GatewayConnectionSelection `json:"connection,omitempty"`
+	AccessToken       string                      `json:"access_token"`
+	RefreshToken      string                      `json:"refresh_token"`
+	IDToken           string                      `json:"id_token"`
+	SensitiveMetadata json.RawMessage             `json:"sensitive_metadata"`
 	// Only a fresh fixed-origin token exchange sets this; never part of replay bytes.
 	requestStarted time.Time
 	info           []GatewayAccountInfoObservation
 }
 
 func (b GatewayNativeOAuthBundle) bytes() ([]byte, error) {
+	if b.Connection != nil && (!GatewayConnectionSelectionValid(*b.Connection) || b.Connection.ProfileID != GatewayCodexOAuthResponsesProfile) {
+		return nil, ErrGatewayNativeIdentity
+	}
 	for _, token := range []string{b.AccessToken, b.RefreshToken, b.IDToken} {
 		if len(token) == 0 || len(token) > 32768 || strings.TrimSpace(token) != token || strings.ContainsAny(token, "\r\n\x00") || !utf8.ValidString(token) {
 			return nil, ErrGatewayNativeIdentity
@@ -478,7 +490,7 @@ func NewGatewayNativeOAuthEnrollment(v *GatewayNativeOAuthVerifier, c *GatewayNa
 	return &GatewayNativeOAuthEnrollment{verifier: v, custody: c, repository: r, intentKey: append([]byte(nil), intentKey...)}, nil
 }
 func (e *GatewayNativeOAuthEnrollment) Stage(ctx context.Context, s GatewayNativeCredentialScope, operation string, b GatewayNativeOAuthBundle) (GatewayNativeOAuthOutcome, error) {
-	if e == nil || !GatewayNativeOAuthScopeAuthorized(ctx, s) || !GatewayNativeCredentialRefValid(operation) {
+	if e == nil || !GatewayNativeOAuthScopeAuthorized(ctx, s) || !GatewayNativeCredentialRefValid(operation) || !GatewayConnectionSelectionAuthorized(ctx, b.Connection) {
 		return GatewayNativeOAuthOutcome{}, gatewayOAuthFail("stage_metadata", ErrGatewayNativeIdentity)
 	}
 	// Snapshot the whole intent before the first network/repository call.
@@ -521,7 +533,7 @@ func (e *GatewayNativeOAuthEnrollment) Stage(ctx context.Context, s GatewayNativ
 	if err != nil {
 		return GatewayNativeOAuthOutcome{}, gatewayOAuthFail("stage_identity", err)
 	}
-	// Replay commitment above remains the original four-field input. Enrichment
+	// Replay commitment preserves the original legacy fields and any accepted connection. Enrichment
 	// occurs only after fresh verification, without another JWKS read or clock.
 	if !b.requestStarted.IsZero() {
 		snapshot, err = gatewayOAuthTimedBundle(snapshot, b.requestStarted, identity, e.custody)

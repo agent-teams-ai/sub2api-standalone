@@ -285,6 +285,9 @@ func (s *OpenAIGatewayService) ForwardGatewayRoute(ctx context.Context, c *gin.C
 			defer lifetime.finish()
 		}
 	}
+	if GatewayNativeConnectionDispatchBound(ctx) {
+		return ForwardGatewayNativeConnection(ctx, c, route, body)
+	}
 	if ctx != nil && route.Profile == GatewayGrokOAuthResponsesProfile {
 		return s.forwardGatewayGrokRoute(ctx, c, route, body)
 	}
@@ -318,7 +321,7 @@ func (s *OpenAIGatewayService) ForwardGatewayRoute(ctx context.Context, c *gin.C
 			return nil, false, ErrGatewayNativeIdentity
 		}
 		prepared, mapping, prepareErr := adaptResponsesClientToolsForFunctionUpstream(body, "OpenRouter")
-		if prepareErr != nil || len(prepared) > 4<<20 {
+		if prepareErr != nil || len(prepared) > 4<<20 || !gatewayNativeProviderToolReferences(fields["input"], fields["tool_choice"], mapping) || !gatewayNativeProviderLoweredToolsBounded(prepared) {
 			gatewayNativeAdmissionDiagnostic(gatewayAdmissionMapping)
 			return nil, false, ErrGatewayNativeIdentity
 		}
@@ -432,6 +435,9 @@ func (s *OpenAIGatewayService) ForwardGatewayRoute(ctx context.Context, c *gin.C
 // used to construct Authorization and URL. The fresh row is locked until Do
 // returns headers/error; status changes after that boundary are accepted effects.
 func (s *OpenAIGatewayService) checkGatewayNativeDispatch(request *http.Request, a *Account) (func(), error) {
+	if release, handled, err := CheckGatewayNativeConnectionDispatch(request, a); handled {
+		return release, err
+	}
 	noop := func() {}
 	state, _ := request.Context().Value(gatewayNativeContextKey{}).(*gatewayNativeDispatch)
 	if state == nil {
@@ -562,6 +568,9 @@ func (s *OpenAIGatewayService) checkGatewayNativeDispatch(request *http.Request,
 func gatewayNativeReasoningScope(c *gin.Context) string {
 	if c == nil || c.Request == nil {
 		return ""
+	}
+	if state, _ := c.Request.Context().Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); state != nil {
+		return state.binding.native.Generation
 	}
 	state, _ := c.Request.Context().Value(gatewayNativeContextKey{}).(*gatewayNativeDispatch)
 	if state == nil {

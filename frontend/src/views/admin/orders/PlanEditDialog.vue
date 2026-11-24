@@ -8,7 +8,7 @@
         </div>
         <div>
           <label class="input-label">{{ t('payment.admin.group') }} <span class="text-red-500">*</span></label>
-          <Select v-model="planForm.group_id" :options="groupOptions" :placeholder="t('payment.admin.selectGroup')" class="w-full">
+          <Select :model-value="planForm.group_id" @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) planForm.group_id = value }" :options="groupOptions" :placeholder="t('payment.admin.selectGroup')" class="w-full">
             <template #selected="{ option }">
               <span v-if="option?.platform" :class="platformTextClass(String(option.platform))">{{ option.label }}</span>
               <span v-else>{{ option?.label || t('payment.admin.selectGroup') }}</span>
@@ -49,7 +49,7 @@
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div><label class="input-label">{{ t('payment.admin.validity') }} <span class="text-red-500">*</span></label><input v-model.number="planForm.validity_days" type="number" min="1" class="input" required /></div>
-        <div><label class="input-label">{{ t('payment.admin.validityUnit') }} <span class="text-red-500">*</span></label><Select v-model="planForm.validity_unit" :options="validityUnitOptions" /></div>
+        <div><label class="input-label">{{ t('payment.admin.validityUnit') }} <span class="text-red-500">*</span></label><Select :model-value="planForm.validity_unit" @update:model-value="value =&gt; { if (typeof value === 'string') planForm.validity_unit = value }" :options="validityUnitOptions" /></div>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div><label class="input-label">{{ t('payment.admin.sortOrder') }}</label><input v-model.number="planForm.sort_order" type="number" min="0" class="input" /></div>

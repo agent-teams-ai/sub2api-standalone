@@ -421,11 +421,11 @@ onMounted(async () => {
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
         <label class="text-xs text-gray-600 dark:text-gray-300">
           {{ t('admin.ops.systemLogs.level') }}
-          <Select v-model="runtimeConfig.level" class="mt-1" :options="runtimeLevelOptions" />
+          <Select :model-value="runtimeConfig.level" @update:model-value="value =&gt; { if (value === 'debug' || value === 'error' || value === 'info' || value === 'warn') runtimeConfig.level = value }" class="mt-1" :options="runtimeLevelOptions" />
         </label>
         <label class="text-xs text-gray-600 dark:text-gray-300">
           {{ t('admin.ops.systemLogs.stacktraceThreshold') }}
-          <Select v-model="runtimeConfig.stacktrace_level" class="mt-1" :options="stacktraceLevelOptions" />
+          <Select :model-value="runtimeConfig.stacktrace_level" @update:model-value="value =&gt; { if (value === 'error' || value === 'fatal' || value === 'none') runtimeConfig.stacktrace_level = value }" class="mt-1" :options="stacktraceLevelOptions" />
         </label>
         <label class="text-xs text-gray-600 dark:text-gray-300">
           {{ t('admin.ops.systemLogs.samplingInitial') }}
@@ -479,7 +479,7 @@ onMounted(async () => {
     <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-5">
       <label class="text-xs text-gray-600 dark:text-gray-300">
         {{ t('admin.ops.systemLogs.timeRange') }}
-        <Select v-model="filters.time_range" class="mt-1" :options="timeRangeOptions" />
+        <Select :model-value="filters.time_range" @update:model-value="value =&gt; { if (value === '1h' || value === '24h' || value === '30d' || value === '30m' || value === '5m' || value === '6h' || value === '7d') filters.time_range = value }" class="mt-1" :options="timeRangeOptions" />
       </label>
       <label class="text-xs text-gray-600 dark:text-gray-300">
         {{ t('admin.ops.systemLogs.startTime') }}
@@ -491,7 +491,7 @@ onMounted(async () => {
       </label>
       <label class="text-xs text-gray-600 dark:text-gray-300">
         {{ t('admin.ops.systemLogs.level') }}
-        <Select v-model="filters.level" class="mt-1" :options="filterLevelOptions" />
+        <Select :model-value="filters.level" @update:model-value="value =&gt; { if (typeof value === 'string') filters.level = value }" class="mt-1" :options="filterLevelOptions" />
       </label>
       <label class="text-xs text-gray-600 dark:text-gray-300">
         {{ t('admin.ops.systemLogs.component') }}

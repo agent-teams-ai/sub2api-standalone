@@ -36,6 +36,7 @@ type GatewayNativeOAuthRefreshFence interface {
 }
 
 type GatewayNativeOAuthPhysical struct {
+	Connection         *GatewayConnectionSelection
 	CredentialRevision int64
 	// Computed by the existing maintenance read; never a stored mirror flag.
 	AccountInfoInitialized bool `json:"-"`
@@ -111,7 +112,7 @@ func (p GatewayNativeOAuthPhysical) AccountInfoObservations(version int64) []Gat
 }
 
 func sameGatewayOAuthPhysical(a, b GatewayNativeOAuthPhysical) bool {
-	return a.Scope == b.Scope && a.Operation == b.Operation && SameGatewayNativeDescriptor(a.Route, b.Route) &&
+	return SameGatewayConnectionSelection(a.Connection, b.Connection) && a.Scope == b.Scope && a.Operation == b.Operation && SameGatewayNativeDescriptor(a.Route, b.Route) &&
 		a.Issuer == b.Issuer && a.Subject == b.Subject && a.ProviderAccount == b.ProviderAccount && a.QualifiedAt.Equal(b.QualifiedAt)
 }
 
@@ -139,6 +140,15 @@ func NewGatewayNativeOAuthDispatch(r GatewayNativeOAuthDispatchRepository, c *Ga
 	if r == nil || !GatewayNativeCredentialCustodyReady(c) || v == nil || len(versions) > 1 {
 		return nil, ErrGatewayNativeIdentity
 	}
+	client, headers := newGatewayCodexAccountCheckClient(transport)
+	var modelVersions *GatewayCodexVersionResolver
+	if len(versions) == 1 {
+		modelVersions = versions[0]
+	}
+	return &GatewayNativeOAuthDispatch{modelVersions: modelVersions, repository: r, custody: c, verifier: v, accountCheckHeaders: headers, client: client}, nil
+}
+
+func newGatewayCodexAccountCheckClient(transport http.RoundTripper) (*http.Client, http.Header) {
 	var headers http.Header
 	if transport == nil {
 		// Match the maintained accounts/check Firefox transport without sharing its
@@ -158,12 +168,7 @@ func NewGatewayNativeOAuthDispatch(r GatewayNativeOAuthDispatchRepository, c *Ga
 		transport = bounded
 		headers = browser.Headers.Clone()
 	}
-	var modelVersions *GatewayCodexVersionResolver
-	if len(versions) == 1 {
-		modelVersions = versions[0]
-	}
-	return &GatewayNativeOAuthDispatch{modelVersions: modelVersions, repository: r, custody: c, verifier: v, accountCheckHeaders: headers, client: &http.Client{Transport: transport, Timeout: 5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return ErrGatewayNativeIdentity }}}, nil
+	return &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrGatewayNativeIdentity }}, headers
 }
 
 // F1 readback selects the exact scoped inert row; no latest/name/public DTO or
@@ -192,7 +197,7 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 	if err != nil || release == nil {
 		return out, ErrGatewayNativeIdentity
 	}
-	if physical.Scope != scope || physical.Operation != operation || gatewayOAuthPhysicalValid(a, physical) != nil {
+	if physical.Scope != scope || physical.Operation != operation || !GatewayConnectionSelectionAuthorized(ctx, physical.Connection) || gatewayOAuthPhysicalValid(a, physical) != nil {
 		release()
 		return out, ErrGatewayNativeIdentity
 	}
@@ -209,7 +214,7 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 		bundle, err = s.custody.openOAuthVersion(a.GetCredential("oauth_bundle"), scope, version)
 	}
 	release()
-	if err != nil {
+	if err != nil || !SameGatewayConnectionSelection(bundle.Connection, physical.Connection) {
 		return out, ErrGatewayNativeIdentity
 	}
 	var infoOrder int64
@@ -228,6 +233,13 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 	}
 	credentialInfo := gatewayCodexCredentialInfo(bundle, s.custody, time.Now())
 	provider, info, err := s.accountCheckInfo(bounded, bundle.AccessToken)
+	var subscriptionInfo, trainingInfo *GatewayAccountInfoFields
+	if err == nil && infoOrder > 0 && info.Subscription.Status == "known" && info.Subscription.Value != nil && info.Subscription.Value.EndsAt == nil {
+		subscriptionInfo = gatewayCodexSubscriptionInfo(bounded, s.client, s.accountCheckHeaders, bundle.AccessToken, provider, info)
+	}
+	if err == nil && infoOrder > 0 {
+		trainingInfo = gatewayCodexTrainingInfo(bounded, s.client, s.accountCheckHeaders, bundle.AccessToken)
+	}
 	bundle = GatewayNativeOAuthBundle{}
 	if err != nil {
 		return out, nil
@@ -240,6 +252,12 @@ func (s *GatewayNativeOAuthDispatch) Descriptor(ctx context.Context, scope Gatew
 			{Source: "verified_claims", Order: infoOrder, CredentialRevision: version, ValidUntil: &identity.expiresAt, Fields: identity.info},
 			{Source: "account_check", Order: infoOrder, CredentialRevision: version, Fields: info},
 			{Source: "credential", Order: infoOrder, CredentialRevision: version, Fields: credentialInfo},
+		}
+		if subscriptionInfo != nil {
+			physical.proof.info = append(physical.proof.info, GatewayAccountInfoObservation{Source: "subscription_status", Order: infoOrder, CredentialRevision: version, Fields: *subscriptionInfo})
+		}
+		if trainingInfo != nil {
+			physical.proof.info = append(physical.proof.info, GatewayAccountInfoObservation{Source: "training_settings", Order: infoOrder, CredentialRevision: version, Fields: *trainingInfo})
 		}
 	}
 	if err = s.repository.QualifyGatewayNativeOAuthDispatch(bounded, physical, version); err != nil {
@@ -558,7 +576,7 @@ func (s *OpenAIGatewayService) checkGatewayOAuthDispatch(request *http.Request, 
 	bounded, cancel := context.WithTimeout(request.Context(), 5*time.Second)
 	defer cancel()
 	bundle, err := binding.dispatch.custody.openOAuthVersion(fresh.GetCredential("oauth_bundle"), p.Scope, version)
-	if err != nil {
+	if err != nil || !SameGatewayConnectionSelection(bundle.Connection, p.Connection) {
 		return deny()
 	}
 	identity, err := binding.dispatch.verifier.Verify(bounded, bundle.IDToken)

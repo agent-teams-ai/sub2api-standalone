@@ -19,21 +19,28 @@ import (
 // Engine credential version is independent of immutable birth generation and
 // owner authorizationEpoch. This component has no inference/activation route.
 type GatewayNativeOAuthRefreshIntent struct {
-	Scope            GatewayNativeCredentialScope
-	AccountID        int64
-	CreatedAt        time.Time
-	ExpectedVersion  int64
-	Operation        string
-	Intent           string
-	ConnectOperation string
-	info             *gatewayOAuthRefreshInfo
+	NativePublication *GatewayConnectionPublication
+	Scope             GatewayNativeCredentialScope
+	AccountID         int64
+	CreatedAt         time.Time
+	ExpectedVersion   int64
+	Operation         string
+	Intent            string
+	ConnectOperation  string
+	info              *gatewayOAuthRefreshInfo
+	nativeInfo        []GatewayAccountInfoObservation
 }
 
 func (in GatewayNativeOAuthRefreshIntent) Authorized(ctx context.Context) bool {
-	return GatewayNativeOAuthScopeAuthorized(ctx, in.Scope) && in.AccountID > 0 &&
+	return GatewayNativeOAuthScopeAuthorized(ctx, in.Scope) &&
+		(in.NativePublication == nil || GatewayConnectionPublicationValid(*in.NativePublication) && GatewayConnectionSelectionAuthorized(ctx, &in.NativePublication.Connection)) && in.AccountID > 0 &&
 		!in.CreatedAt.IsZero() && in.CreatedAt.Nanosecond()%1000 == 0 &&
 		in.ExpectedVersion >= 1 && in.ExpectedVersion < math.MaxInt64 &&
 		GatewayNativeCredentialRefValid(in.Operation) && GatewayNativeCredentialRefValid(in.Intent)
+}
+
+func (in GatewayNativeOAuthRefreshIntent) NativeAccountInfoObservations() []GatewayAccountInfoObservation {
+	return append([]GatewayAccountInfoObservation(nil), in.nativeInfo...)
 }
 
 // Only safe operation metadata leaves Refresh. Fence/envelope/principal are
@@ -94,7 +101,7 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 		return GatewayNativeOAuthRefreshOutcome{Operation: in.Operation, State: "unknown"}, ErrGatewayNativeIdentity
 	}
 	previous, err := s.custody.openOAuthVersion(prepared.Envelope, in.Scope, in.ExpectedVersion)
-	if err != nil {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, previous.Connection) {
 		return unknown()
 	} // invalid AEAD makes zero token/JWKS calls
 	if ctx.Err() != nil || (s.authorizeEntry != nil && s.authorizeEntry(ctx, in.Scope, in.ConnectOperation) != nil) {
@@ -130,6 +137,11 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 		return unknown()
 	}
 	if infoOrder > 0 {
+		if time.Until(prepared.Deadline) > 4*time.Second {
+			if training := gatewayCodexTrainingInfo(callCtx, s.client, nil, next.AccessToken); training != nil {
+				next.info = append(next.info, GatewayAccountInfoObservation{Source: "training_settings", Fields: *training})
+			}
+		}
 		for i := range next.info {
 			next.info[i].Order = infoOrder
 			next.info[i].CredentialRevision = in.ExpectedVersion + 1
@@ -138,7 +150,11 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 	}
 	// SQL publishes whole ciphertext and version atomically; a lost ACK is read
 	// back by the same operation without decrypting or entering a second time.
-	outcome, err := s.repository.CompleteGatewayNativeOAuthRefresh(callCtx, in, prepared.Fence, envelope)
+	// A completed rotation must still be persisted when optional metadata HTTP
+	// observes caller cancellation. SQL retains the original deadline/identity fence.
+	completeCtx, stopComplete := gatewayOAuthRefreshCompletionContext(callCtx, prepared.Deadline)
+	defer stopComplete()
+	outcome, err := s.repository.CompleteGatewayNativeOAuthRefresh(completeCtx, in, prepared.Fence, envelope)
 	if err != nil {
 		readCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		readback, readErr := s.repository.PrepareGatewayNativeOAuthRefresh(readCtx, in)
@@ -150,6 +166,18 @@ func (s *GatewayNativeOAuthRefresh) Refresh(ctx context.Context, in GatewayNativ
 	}
 	return outcome, nil
 }
+
+// Caller cancellation cannot discard an already issued rotation, but detached
+// completion must still expire with its prepared lease. The separate bounded
+// readback/unknown contexts may outlive that lease because they do not publish.
+func gatewayOAuthRefreshCompletionContext(ctx context.Context, preparedDeadline time.Time) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(2 * time.Second)
+	if preparedDeadline.Before(deadline) {
+		deadline = preparedDeadline
+	}
+	return context.WithDeadline(context.WithoutCancel(ctx), deadline)
+}
+
 func (s *GatewayNativeOAuthRefresh) exchange(ctx context.Context, refresh, issuer, subject string) (GatewayNativeOAuthBundle, error) {
 	deny := func() (GatewayNativeOAuthBundle, error) { return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity }
 	// No proxy/origin/header input, ordinary OAuth service, inference, or retry.
@@ -202,7 +230,7 @@ func (s *GatewayNativeOAuthRefresh) exchange(ctx context.Context, refresh, issue
 	if err != nil {
 		return deny()
 	}
-	bundle := GatewayNativeOAuthBundle{AccessToken: access, RefreshToken: nextRefresh, IDToken: id, SensitiveMetadata: metadata}
+	bundle := GatewayNativeOAuthBundle{Connection: gatewayConnectionSelectionFromContext(ctx), AccessToken: access, RefreshToken: nextRefresh, IDToken: id, SensitiveMetadata: metadata}
 	if _, err = bundle.bytes(); err != nil {
 		return deny()
 	}
@@ -276,7 +304,7 @@ func (s *GatewayNativeOAuthRefresh) Maintain(ctx context.Context, scope GatewayN
 		return out, err
 	}
 	previous, err := s.custody.openOAuthVersion(current.Envelope, scope, current.Version)
-	if err != nil {
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, previous.Connection) {
 		return out, ErrGatewayNativeIdentity
 	}
 	due, qualified := gatewayOAuthBundleDue(previous, time.Now(), s.custody)

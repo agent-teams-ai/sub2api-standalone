@@ -271,9 +271,9 @@
             </div>
 
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-              <Select v-model="filters.result" :options="resultOptions" @change="reloadLogsFromFirstPage" />
-              <Select v-model="filters.group_id" :options="groupFilterOptions" @change="reloadLogsFromFirstPage" />
-              <Select v-model="filters.endpoint" :options="endpointOptions" @change="reloadLogsFromFirstPage" />
+              <Select :model-value="filters.result" @update:model-value="value =&gt; { if (typeof value === 'string') filters.result = value }" :options="resultOptions" @change="reloadLogsFromFirstPage" />
+              <Select :model-value="filters.group_id" @update:model-value="value =&gt; { if (typeof value === 'number') filters.group_id = value }" :options="groupFilterOptions" @change="reloadLogsFromFirstPage" />
+              <Select :model-value="filters.endpoint" @update:model-value="value =&gt; { if (typeof value === 'string') filters.endpoint = value }" :options="endpointOptions" @change="reloadLogsFromFirstPage" />
               <input v-model.trim="filters.search" type="search" class="input" :placeholder="t('admin.riskControl.filters.search')" @keyup.enter="reloadLogsFromFirstPage" />
               <input v-model="filters.from" type="datetime-local" class="input" :title="t('admin.riskControl.filters.from')" @change="reloadLogsFromFirstPage" />
               <input v-model="filters.to" type="datetime-local" class="input" :title="t('admin.riskControl.filters.to')" @change="reloadLogsFromFirstPage" />
@@ -405,7 +405,7 @@
               </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.mode') }}</label>
-                <Select v-model="configForm.mode" :options="modeOptions" />
+                <Select :model-value="configForm.mode" @update:model-value="value =&gt; { if (value === 'off' || value === 'observe' || value === 'pre_block') configForm.mode = value }" :options="modeOptions" />
                 <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ modeDescription(configForm.mode) }}</p>
               </div>
               <div>

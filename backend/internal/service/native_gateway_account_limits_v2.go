@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"math"
 	"time"
 )
 
@@ -168,85 +167,12 @@ func ValidateGatewayAccountLimitsSnapshotV2(snapshot GatewayAccountLimitsSnapsho
 	return true
 }
 func ValidateGatewayAccountLimitWindowsV2(windows []GatewayAccountLimitWindowV2) bool {
-	if len(windows) > 8 {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, w := range windows {
-		switch w.ID {
-		case "five_hour", "weekly", "monthly", "primary", "secondary", "unknown", "request_rate", "token_rate":
-		default:
-			return false
-		}
-		switch w.Provider {
+	return validateGatewayAccountLimitWindows(windows, func(provider string) bool {
+		switch provider {
 		case "kimi", "glm", "minimax", "grok":
+			return true
 		default:
 			return false
 		}
-		identity := w.Provider + "/" + w.ID + "/" + w.Dimension + "/" + w.Unit
-		if seen[identity] {
-			return false
-		}
-		seen[identity] = true
-		if w.Dimension != "plan_quota" && w.Dimension != "rate_limit" {
-			return false
-		}
-		switch w.Unit {
-		case "credits", "tokens", "requests", "unknown":
-		default:
-			return false
-		}
-		switch w.Period.Kind {
-		case "duration":
-			if w.Period.DurationSeconds == nil || *w.Period.DurationSeconds <= 0 || *w.Period.DurationSeconds > gatewayLimitsMaxInteger {
-				return false
-			}
-		case "monthly_billing_cycle", "unknown":
-			if w.Period.DurationSeconds != nil {
-				return false
-			}
-		default:
-			return false
-		}
-		if w.Label != nil {
-			switch *w.Label {
-			case "5h":
-				if w.Period.Kind != "duration" || *w.Period.DurationSeconds != 18000 {
-					return false
-				}
-			case "Week":
-				if w.Period.Kind != "duration" || *w.Period.DurationSeconds != 604800 {
-					return false
-				}
-			case "Month":
-				if w.Period.Kind != "monthly_billing_cycle" {
-					return false
-				}
-			default:
-				return false
-			}
-		}
-		if w.UsedPercent != nil && (math.IsNaN(*w.UsedPercent) || math.IsInf(*w.UsedPercent, 0) || *w.UsedPercent < 0) {
-			return false
-		}
-		for _, raw := range []*string{w.ObservedAt, w.ResetAt} {
-			if raw != nil {
-				t, err := time.Parse(time.RFC3339Nano, *raw)
-				if err != nil || t.Year() < 1 || t.Year() > 9999 {
-					return false
-				}
-			}
-		}
-		if w.UsedPercent != nil && w.ObservedAt == nil {
-			return false
-		}
-		// Rate observations cannot masquerade as subscription quota windows.
-		if (w.ID == "request_rate" || w.ID == "token_rate") && w.Dimension != "rate_limit" {
-			return false
-		}
-		if w.Dimension == "rate_limit" && w.Label != nil {
-			return false
-		}
-	}
-	return true
+	})
 }

@@ -135,7 +135,8 @@
       <div>
         <label class="input-label">{{ t('admin.users.attributes.type') }}</label>
         <Select
-          v-model="form.type"
+          :model-value="form.type"
+          @update:model-value="value =&gt; { const option = attributeTypes.find(option =&gt; option === value); if (option !== undefined) form.type = option }"
           :options="attributeTypes.map(type => ({ value: type, label: t(`admin.users.attributes.types.${type}`) }))"
         />
       </div>

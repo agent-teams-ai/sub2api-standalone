@@ -294,5 +294,3671 @@
     "typesafe",
     "command_code",
     "cline"
-  ]
+  ],
+  "admin_connection_methods": [
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Sign in",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "refresh_token",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Refresh token",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "refresh_token",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "mobile_refresh_token",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Mobile refresh token",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "mobile_refresh_token",
+      "surfaces": [
+        "create",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "codex_session",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Codex session or auth.json",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "codex_session",
+      "surfaces": [
+        "create",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "agent_identity",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Agent Identity",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "agent_identity",
+      "surfaces": [
+        "create",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-codex-oauth-responses-v1",
+      "method_id": "codex_pat",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "Codex personal access token",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI Codex"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "ChatGPT subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "codex_pat",
+      "surfaces": [
+        "create",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-claude-oauth-messages-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Sign in",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic Claude"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Claude subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-claude-oauth-messages-v1",
+      "method_id": "cookie_oauth",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Sign in with session key",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic Claude"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Claude subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "cookie",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-claude-oauth-messages-v1",
+      "method_id": "setup_token_code",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Setup token",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic Claude"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Claude subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "setup-token",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-claude-oauth-messages-v1",
+      "method_id": "setup_token_cookie",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Setup token with session key",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic Claude"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Claude subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "setup-token",
+      "input_method": "cookie",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-messages-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "API key",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "Anthropic API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-bedrock-messages-v1",
+      "method_id": "aws_sigv4",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "AWS credentials",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic"
+      },
+      "product": {
+        "id": "bedrock",
+        "label": "Amazon Bedrock"
+      },
+      "category": "bedrock",
+      "credential_mode": "sigv4",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-bedrock-messages-v1",
+      "method_id": "bedrock_api_key",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Bedrock API key",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic"
+      },
+      "product": {
+        "id": "bedrock",
+        "label": "Amazon Bedrock"
+      },
+      "category": "bedrock",
+      "credential_mode": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "anthropic-vertex-messages-v1",
+      "method_id": "vertex_service_account",
+      "method_revision": 1,
+      "platform": "anthropic",
+      "label": "Service account",
+      "provider": {
+        "id": "anthropic",
+        "label": "Anthropic"
+      },
+      "product": {
+        "id": "vertex",
+        "label": "Vertex AI"
+      },
+      "category": "service_account",
+      "credential_mode": "service_account",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "gemini-openai-chat-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "API key",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "Gemini API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "gemini-vertex-chat-v1",
+      "method_id": "vertex_service_account",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "Service account",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "vertex",
+        "label": "Vertex AI"
+      },
+      "category": "service_account",
+      "credential_mode": "service_account",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "gemini-vertex-chat-v1",
+      "method_id": "vertex_api_key",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "Vertex API key",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "vertex",
+        "label": "Vertex AI"
+      },
+      "category": "service_account",
+      "credential_mode": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-api-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "API key",
+      "provider": {
+        "id": "openai",
+        "label": "OpenAI"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "OpenAI API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "grok-api-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "grok",
+      "label": "API key",
+      "provider": {
+        "id": "grok",
+        "label": "Grok"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "Grok API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "grok-subscription-responses-oauth-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "grok",
+      "label": "Sign in",
+      "provider": {
+        "id": "grok",
+        "label": "Grok Subscription"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Grok subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "grok-subscription-responses-oauth-v1",
+      "method_id": "refresh_token",
+      "method_revision": 1,
+      "platform": "grok",
+      "label": "Refresh token",
+      "provider": {
+        "id": "grok",
+        "label": "Grok Subscription"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Grok subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "refresh_token",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "grok-subscription-responses-oauth-v1",
+      "method_id": "sso",
+      "method_revision": 1,
+      "platform": "grok",
+      "label": "Grok SSO",
+      "provider": {
+        "id": "grok",
+        "label": "Grok Subscription"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Grok subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "sso_cookie",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "grok-subscription-responses-oauth-v1",
+      "method_id": "sso",
+      "method_revision": 1,
+      "platform": "grok",
+      "label": "Email and password",
+      "provider": {
+        "id": "grok",
+        "label": "Grok Subscription"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Grok subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "email_password",
+      "surfaces": [
+        "flow"
+      ],
+      "configuration_requirements": [
+        "grok_password_login"
+      ]
+    },
+    {
+      "profile_id": "gemini-google-one-responses-oauth-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "Sign in with Google",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "google_one",
+        "label": "Google One"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "oauth_type": "google_one",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "gemini-code-assist-responses-oauth-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "Sign in with Google",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "code_assist",
+        "label": "Code Assist"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "oauth_type": "code_assist",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "gemini-ai-studio-responses-oauth-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "gemini",
+      "label": "Sign in with Google",
+      "provider": {
+        "id": "gemini",
+        "label": "Gemini"
+      },
+      "product": {
+        "id": "ai_studio",
+        "label": "AI Studio (custom OAuth client)"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "oauth_type": "ai_studio",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": [
+        "custom_oauth_client"
+      ]
+    },
+    {
+      "profile_id": "antigravity-responses-oauth-v1",
+      "method_id": "browser",
+      "method_revision": 1,
+      "platform": "antigravity",
+      "label": "Sign in",
+      "provider": {
+        "id": "antigravity",
+        "label": "Antigravity"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Antigravity subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "manual",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow",
+        "legacy_reauth"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "antigravity-responses-oauth-v1",
+      "method_id": "refresh_token",
+      "method_revision": 1,
+      "platform": "antigravity",
+      "label": "Refresh token",
+      "provider": {
+        "id": "antigravity",
+        "label": "Antigravity"
+      },
+      "product": {
+        "id": "subscription",
+        "label": "Antigravity subscription"
+      },
+      "category": "oauth-based",
+      "add_method": "oauth",
+      "input_method": "refresh_token",
+      "surfaces": [
+        "create",
+        "reauth",
+        "flow"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "antigravity-target-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "antigravity",
+      "label": "Upstream API key",
+      "provider": {
+        "id": "antigravity",
+        "label": "Antigravity"
+      },
+      "product": {
+        "id": "upstream",
+        "label": "Configured upstream"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "kimi-payg-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "kimi",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "kimi",
+        "label": "Kimi"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "Kimi API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "kimi-code-global-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "kimi",
+      "account_mode": "coding",
+      "label": "API key",
+      "provider": {
+        "id": "kimi",
+        "label": "Kimi Code"
+      },
+      "product": {
+        "id": "coding_plan",
+        "label": "Kimi Coding Plan"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "glm-payg-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "zhipu",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "glm",
+        "label": "GLM"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "GLM API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "glm-coding-global-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "zhipu",
+      "account_mode": "coding",
+      "label": "API key",
+      "provider": {
+        "id": "glm",
+        "label": "GLM Coding Plan"
+      },
+      "product": {
+        "id": "coding_plan",
+        "label": "GLM Coding Plan"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "deepseek-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "deepseek",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "deepseek",
+        "label": "DeepSeek"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "DeepSeek API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "minimax-payg-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "minimax",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "minimax",
+        "label": "MiniMax"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "MiniMax API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "minimax-mplan-global-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "minimax",
+      "account_mode": "coding",
+      "label": "API key",
+      "provider": {
+        "id": "minimax",
+        "label": "MiniMax M Plan"
+      },
+      "product": {
+        "id": "m_plan",
+        "label": "MiniMax M Plan"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "opencode-go-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "opencode_go",
+      "account_mode": "go",
+      "label": "API key",
+      "provider": {
+        "id": "opencode",
+        "label": "OpenCode"
+      },
+      "product": {
+        "id": "go",
+        "label": "OpenCode Go"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "opencode-zen-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "opencode_go",
+      "account_mode": "zen",
+      "label": "API key",
+      "provider": {
+        "id": "opencode",
+        "label": "OpenCode"
+      },
+      "product": {
+        "id": "zen",
+        "label": "OpenCode Zen"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "command-code-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "command_code",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "commandcode",
+        "label": "Command Code"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "Command Code"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "cline-chat-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "cline",
+      "account_mode": "payg",
+      "label": "API key",
+      "provider": {
+        "id": "cline",
+        "label": "Cline"
+      },
+      "product": {
+        "id": "credits_pass_free",
+        "label": "Cline credits and ClinePass"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "typesafe-systemone-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "typesafe",
+      "label": "API key",
+      "provider": {
+        "id": "typesafe",
+        "label": "TypeSafe / Jev"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "TypeSafe API"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openai-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "API key",
+      "provider": {
+        "id": "mimo",
+        "label": "MiMo"
+      },
+      "product": {
+        "id": "unknown",
+        "label": "MiMo"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "mimo-token-plan-responses-chat-bridge-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "API key",
+      "provider": {
+        "id": "mimo",
+        "label": "MiMo"
+      },
+      "product": {
+        "id": "unknown",
+        "label": "MiMo"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "openrouter-openai-responses-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "API key",
+      "provider": {
+        "id": "openrouter",
+        "label": "OpenRouter"
+      },
+      "product": {
+        "id": "pay_as_you_go",
+        "label": "OpenRouter credits"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    },
+    {
+      "profile_id": "nvidia-build-chat-apikey-v1",
+      "method_id": "api_key",
+      "method_revision": 1,
+      "platform": "openai",
+      "label": "API key",
+      "provider": {
+        "id": "nvidia",
+        "label": "NVIDIA Build"
+      },
+      "product": {
+        "id": "unknown",
+        "label": "NVIDIA API trial (evaluation only)"
+      },
+      "category": "apikey",
+      "surfaces": [
+        "create"
+      ],
+      "configuration_requirements": []
+    }
+  ],
+  "native_connection_inventory": {
+    "contract": "native-connection-inventory/v1",
+    "profiles": [
+      {
+        "profileId": "openai-codex-oauth-responses-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "openai",
+          "label": "OpenAI Codex"
+        },
+        "product": {
+          "id": "subscription",
+          "label": "ChatGPT subscription"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "codex_responses",
+        "metadataSources": [
+          "verified_claims",
+          "account_check",
+          "credential",
+          "training_settings",
+          "subscription_status"
+        ],
+        "limitsContract": "account-limits/v1",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "callbackMode": "automatic",
+              "completionInputKind": "callback_url"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "device_code",
+            "revision": 1,
+            "label": "Device sign in",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "device"
+            },
+            "adminActions": []
+          },
+          {
+            "methodId": "refresh_token",
+            "revision": 1,
+            "label": "Refresh token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "refresh_token",
+                  "kind": "secret",
+                  "label": "Refresh token",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "refresh_token",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "auth_json",
+            "revision": 1,
+            "label": "Codex auth.json (refreshable)",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "content",
+                  "kind": "document",
+                  "label": "auth.json",
+                  "required": true,
+                  "maxBytes": 65536
+                }
+              ]
+            },
+            "adminActions": []
+          },
+          {
+            "methodId": "mobile_refresh_token",
+            "revision": 1,
+            "label": "Mobile refresh token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "refresh_token",
+                  "kind": "secret",
+                  "label": "Refresh token",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "mobile_refresh_token",
+                "surfaces": [
+                  "create",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "codex_session",
+            "revision": 1,
+            "label": "Codex session or auth.json",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session",
+              "delegated_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "content",
+                  "kind": "document",
+                  "label": "Session credential",
+                  "required": true,
+                  "maxBytes": 65536
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "codex_session",
+                "surfaces": [
+                  "create",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "agent_identity",
+            "revision": 1,
+            "label": "Agent Identity",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "delegated_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "content",
+                  "kind": "document",
+                  "label": "Agent Identity auth.json",
+                  "required": true,
+                  "maxBytes": 65536
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "agent_identity",
+                "surfaces": [
+                  "create",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "codex_pat",
+            "revision": 1,
+            "label": "Codex personal access token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "access_token",
+                  "kind": "secret",
+                  "label": "Personal access token",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "codex_pat",
+                "surfaces": [
+                  "create",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "anthropic-claude-oauth-messages-v1",
+        "platform": "anthropic",
+        "provider": {
+          "id": "anthropic",
+          "label": "Anthropic Claude"
+        },
+        "product": {
+          "id": "subscription",
+          "label": "Claude subscription"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "claude_messages",
+        "metadataSources": [
+          "account_check",
+          "credential"
+        ],
+        "limitsContract": "account-limits/v1",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "callbackMode": "manual",
+              "completionInputKind": "authorization_code"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "cookie_oauth",
+            "revision": 1,
+            "label": "Sign in with session key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "session_key",
+                  "kind": "secret",
+                  "label": "Session key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "cookie",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "setup_token_code",
+            "revision": 1,
+            "label": "Setup token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "callbackMode": "manual",
+              "completionInputKind": "authorization_code"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "setup-token",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "setup_token_cookie",
+            "revision": 1,
+            "label": "Setup token with session key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "session_key",
+                  "kind": "secret",
+                  "label": "Session key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "setup-token",
+                "input_method": "cookie",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "anthropic-messages-apikey-v1",
+        "platform": "anthropic",
+        "provider": {
+          "id": "anthropic",
+          "label": "Anthropic"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "Anthropic API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "anthropic_messages",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "anthropic-bedrock-messages-v1",
+        "platform": "anthropic",
+        "provider": {
+          "id": "anthropic",
+          "label": "Anthropic"
+        },
+        "product": {
+          "id": "bedrock",
+          "label": "Amazon Bedrock"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "bedrock_messages",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "aws_sigv4",
+            "revision": 1,
+            "label": "AWS credentials",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "cloud_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "access_key_id",
+                  "kind": "secret",
+                  "label": "Access key ID",
+                  "required": true,
+                  "maxBytes": 256
+                },
+                {
+                  "fieldId": "secret_access_key",
+                  "kind": "secret",
+                  "label": "Secret access key",
+                  "required": true,
+                  "maxBytes": 4096
+                },
+                {
+                  "fieldId": "session_token",
+                  "kind": "secret",
+                  "label": "Session token",
+                  "required": false,
+                  "maxBytes": 16384
+                },
+                {
+                  "fieldId": "region",
+                  "kind": "text",
+                  "label": "AWS region",
+                  "required": true,
+                  "maxBytes": 64
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "bedrock",
+                "credential_mode": "sigv4",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "bedrock_api_key",
+            "revision": 1,
+            "label": "Bedrock API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "cloud_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "region",
+                  "kind": "text",
+                  "label": "AWS region",
+                  "required": true,
+                  "maxBytes": 64
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "bedrock",
+                "credential_mode": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "anthropic-vertex-messages-v1",
+        "platform": "anthropic",
+        "provider": {
+          "id": "anthropic",
+          "label": "Anthropic"
+        },
+        "product": {
+          "id": "vertex",
+          "label": "Vertex AI"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "vertex_messages",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "vertex_service_account",
+            "revision": 1,
+            "label": "Service account",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "cloud_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "service_account_json",
+                  "kind": "document",
+                  "label": "Service account JSON",
+                  "required": true,
+                  "maxBytes": 49152
+                },
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "location",
+                  "kind": "text",
+                  "label": "Location",
+                  "required": false,
+                  "maxBytes": 64
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "service_account",
+                "credential_mode": "service_account",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "gemini-openai-chat-apikey-v1",
+        "platform": "gemini",
+        "provider": {
+          "id": "gemini",
+          "label": "Gemini"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "Gemini API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "gemini_chat",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "gemini-vertex-chat-v1",
+        "platform": "gemini",
+        "provider": {
+          "id": "gemini",
+          "label": "Gemini"
+        },
+        "product": {
+          "id": "vertex",
+          "label": "Vertex AI"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "vertex_gemini",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "vertex_service_account",
+            "revision": 1,
+            "label": "Service account",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "cloud_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "service_account_json",
+                  "kind": "document",
+                  "label": "Service account JSON",
+                  "required": true,
+                  "maxBytes": 49152
+                },
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "location",
+                  "kind": "text",
+                  "label": "Location",
+                  "required": false,
+                  "maxBytes": 64
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "service_account",
+                "credential_mode": "service_account",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "vertex_api_key",
+            "revision": 1,
+            "label": "Vertex API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "cloud_identity"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project (optional for Express)",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "location",
+                  "kind": "text",
+                  "label": "Location",
+                  "required": false,
+                  "maxBytes": 64
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "service_account",
+                "credential_mode": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "openai-api-responses-apikey-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "openai",
+          "label": "OpenAI"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "OpenAI API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "openai_responses",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "grok-api-responses-apikey-v1",
+        "platform": "grok",
+        "provider": {
+          "id": "grok",
+          "label": "Grok"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "Grok API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "grok_responses",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "grok-subscription-responses-oauth-v1",
+        "platform": "grok",
+        "provider": {
+          "id": "grok",
+          "label": "Grok Subscription"
+        },
+        "product": {
+          "id": "subscription",
+          "label": "Grok subscription"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "grok_responses",
+        "metadataSources": [
+          "account_check",
+          "credential",
+          "plan_quota"
+        ],
+        "limitsContract": "account-limits/v2",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "callbackMode": "manual",
+              "completionInputKind": "authorization_code"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "refresh_token",
+            "revision": 1,
+            "label": "Refresh token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "refresh_token",
+                  "kind": "secret",
+                  "label": "Refresh token",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "refresh_token",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "sso",
+            "revision": 1,
+            "label": "Grok SSO",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "sso_token",
+                  "kind": "secret",
+                  "label": "SSO token",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "sso_cookie",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              },
+              {
+                "label": "Email and password",
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "email_password",
+                "surfaces": [
+                  "flow"
+                ],
+                "configuration_requirements": [
+                  "grok_password_login"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "gemini-google-one-responses-oauth-v1",
+        "platform": "gemini",
+        "provider": {
+          "id": "gemini",
+          "label": "Gemini"
+        },
+        "product": {
+          "id": "google_one",
+          "label": "Google One"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "gemini_oauth",
+        "metadataSources": [
+          "account_check",
+          "credential",
+          "user_declaration"
+        ],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in with Google",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "preflightFields": [
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Google Cloud project",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "tier_id",
+                  "kind": "text",
+                  "label": "Declared tier (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ],
+              "callbackMode": "manual",
+              "completionInputKind": "callback_url"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "oauth_type": "google_one",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "gemini-code-assist-responses-oauth-v1",
+        "platform": "gemini",
+        "provider": {
+          "id": "gemini",
+          "label": "Gemini"
+        },
+        "product": {
+          "id": "code_assist",
+          "label": "Code Assist"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "gemini_oauth",
+        "metadataSources": [
+          "account_check",
+          "credential",
+          "user_declaration"
+        ],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in with Google",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "preflightFields": [
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Google Cloud project",
+                  "required": true,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "tier_id",
+                  "kind": "text",
+                  "label": "Declared tier (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ],
+              "callbackMode": "manual",
+              "completionInputKind": "callback_url"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "oauth_type": "code_assist",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "gemini-ai-studio-responses-oauth-v1",
+        "platform": "gemini",
+        "provider": {
+          "id": "gemini",
+          "label": "Gemini"
+        },
+        "product": {
+          "id": "ai_studio",
+          "label": "AI Studio (custom OAuth client)"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "gemini_oauth",
+        "metadataSources": [
+          "account_check",
+          "credential",
+          "user_declaration"
+        ],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in with Google",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [
+              "custom_oauth_client"
+            ],
+            "interaction": {
+              "kind": "browser",
+              "preflightFields": [
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Google Cloud project",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "tier_id",
+                  "kind": "text",
+                  "label": "Declared tier (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ],
+              "callbackMode": "manual",
+              "completionInputKind": "callback_url"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "oauth_type": "ai_studio",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": [
+                  "custom_oauth_client"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "antigravity-responses-oauth-v1",
+        "platform": "antigravity",
+        "provider": {
+          "id": "antigravity",
+          "label": "Antigravity"
+        },
+        "product": {
+          "id": "subscription",
+          "label": "Antigravity subscription"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "antigravity",
+        "metadataSources": [
+          "credential",
+          "plan_quota"
+        ],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "browser",
+            "revision": 1,
+            "label": "Sign in",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "browser",
+              "preflightFields": [
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ],
+              "callbackMode": "manual",
+              "completionInputKind": "callback_url"
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "manual",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow",
+                  "legacy_reauth"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          },
+          {
+            "methodId": "refresh_token",
+            "revision": 1,
+            "label": "Refresh token",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "subscription_session"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "refresh_token",
+                  "kind": "secret",
+                  "label": "Refresh token",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "oauth-based",
+                "add_method": "oauth",
+                "input_method": "refresh_token",
+                "surfaces": [
+                  "create",
+                  "reauth",
+                  "flow"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "antigravity-target-responses-apikey-v1",
+        "platform": "antigravity",
+        "provider": {
+          "id": "antigravity",
+          "label": "Antigravity"
+        },
+        "product": {
+          "id": "upstream",
+          "label": "Configured upstream"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "antigravity",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "Upstream API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [
+              "qualified_server_target"
+            ],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "target_id",
+                  "kind": "select",
+                  "label": "Target",
+                  "required": true,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "project_id",
+                  "kind": "text",
+                  "label": "Project (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "kimi-payg-responses-apikey-v1",
+        "platform": "kimi",
+        "accountMode": "payg",
+        "provider": {
+          "id": "kimi",
+          "label": "Kimi"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "Kimi API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "kimi-code-global-responses-apikey-v1",
+        "platform": "kimi",
+        "accountMode": "coding",
+        "provider": {
+          "id": "kimi",
+          "label": "Kimi Code"
+        },
+        "product": {
+          "id": "coding_plan",
+          "label": "Kimi Coding Plan"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "account-limits/v2",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "glm-payg-responses-apikey-v1",
+        "platform": "zhipu",
+        "accountMode": "payg",
+        "provider": {
+          "id": "glm",
+          "label": "GLM"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "GLM API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "organization",
+                  "kind": "text",
+                  "label": "Organization (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "project",
+                  "kind": "text",
+                  "label": "Project (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "glm-coding-global-responses-apikey-v1",
+        "platform": "zhipu",
+        "accountMode": "coding",
+        "provider": {
+          "id": "glm",
+          "label": "GLM Coding Plan"
+        },
+        "product": {
+          "id": "coding_plan",
+          "label": "GLM Coding Plan"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [
+          "plan_quota"
+        ],
+        "limitsContract": "account-limits/v2",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                },
+                {
+                  "fieldId": "organization",
+                  "kind": "text",
+                  "label": "Organization (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                },
+                {
+                  "fieldId": "project",
+                  "kind": "text",
+                  "label": "Project (optional)",
+                  "required": false,
+                  "maxBytes": 128
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "deepseek-responses-apikey-v1",
+        "platform": "deepseek",
+        "accountMode": "payg",
+        "provider": {
+          "id": "deepseek",
+          "label": "DeepSeek"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "DeepSeek API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "minimax-payg-responses-apikey-v1",
+        "platform": "minimax",
+        "accountMode": "payg",
+        "provider": {
+          "id": "minimax",
+          "label": "MiniMax"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "MiniMax API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "minimax-mplan-global-responses-apikey-v1",
+        "platform": "minimax",
+        "accountMode": "coding",
+        "provider": {
+          "id": "minimax",
+          "label": "MiniMax M Plan"
+        },
+        "product": {
+          "id": "m_plan",
+          "label": "MiniMax M Plan"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [
+          "plan_quota"
+        ],
+        "limitsContract": "account-limits/v2",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "opencode-go-responses-apikey-v1",
+        "platform": "opencode_go",
+        "accountMode": "go",
+        "provider": {
+          "id": "opencode",
+          "label": "OpenCode"
+        },
+        "product": {
+          "id": "go",
+          "label": "OpenCode Go"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_model",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "opencode-zen-responses-apikey-v1",
+        "platform": "opencode_go",
+        "accountMode": "zen",
+        "provider": {
+          "id": "opencode",
+          "label": "OpenCode"
+        },
+        "product": {
+          "id": "zen",
+          "label": "OpenCode Zen"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_model",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "command-code-responses-apikey-v1",
+        "platform": "command_code",
+        "accountMode": "payg",
+        "provider": {
+          "id": "commandcode",
+          "label": "Command Code"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "Command Code"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_model",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "cline-chat-apikey-v1",
+        "platform": "cline",
+        "accountMode": "payg",
+        "provider": {
+          "id": "cline",
+          "label": "Cline"
+        },
+        "product": {
+          "id": "credits_pass_free",
+          "label": "Cline credits and ClinePass"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "provider_by_inbound",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "typesafe-systemone-apikey-v1",
+        "platform": "typesafe",
+        "provider": {
+          "id": "typesafe",
+          "label": "TypeSafe / Jev"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "TypeSafe API"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "typesafe_systemone",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "openai-responses-apikey-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "mimo",
+          "label": "MiMo"
+        },
+        "product": {
+          "id": "unknown",
+          "label": "MiMo"
+        },
+        "region": {
+          "id": "unknown",
+          "label": "Default"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "mimo_responses",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "mimo-token-plan-responses-chat-bridge-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "mimo",
+          "label": "MiMo"
+        },
+        "product": {
+          "id": "unknown",
+          "label": "MiMo"
+        },
+        "region": {
+          "id": "unknown",
+          "label": "Default"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "mimo_chat_bridge",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "openrouter-openai-responses-apikey-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "openrouter",
+          "label": "OpenRouter"
+        },
+        "product": {
+          "id": "pay_as_you_go",
+          "label": "OpenRouter credits"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "openrouter_responses",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "deny",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "profileId": "nvidia-build-chat-apikey-v1",
+        "platform": "openai",
+        "provider": {
+          "id": "nvidia",
+          "label": "NVIDIA Build"
+        },
+        "product": {
+          "id": "unknown",
+          "label": "NVIDIA API trial (evaluation only)"
+        },
+        "region": {
+          "id": "global",
+          "label": "Global"
+        },
+        "protocol": "openai-responses",
+        "dispatchFamily": "nvidia_chat",
+        "metadataSources": [],
+        "limitsContract": "unsupported",
+        "unavailableFallback": "qualified_anchor",
+        "methods": [
+          {
+            "methodId": "api_key",
+            "revision": 1,
+            "label": "API key",
+            "create": true,
+            "reconnect": true,
+            "allowedCredentialPolicies": [
+              "provider_key"
+            ],
+            "requirements": [
+              "owner_scoped_custody/v1",
+              "effect_fence/v1",
+              "native_dispatch/v1"
+            ],
+            "configurationRequirements": [],
+            "interaction": {
+              "kind": "credential_form",
+              "inputFields": [
+                {
+                  "fieldId": "api_key",
+                  "kind": "secret",
+                  "label": "API key",
+                  "required": true,
+                  "maxBytes": 32768
+                }
+              ]
+            },
+            "adminActions": [
+              {
+                "category": "apikey",
+                "surfaces": [
+                  "create"
+                ],
+                "configuration_requirements": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
 }

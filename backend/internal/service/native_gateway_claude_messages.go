@@ -22,29 +22,48 @@ import (
 const gatewayClaudeMessagesURL = claudeAPIURL
 
 // ValidateGatewayNativeClaudeResponses runs BEFORE credential/provider entry.
-// This first bounded slice supports text histories and ordinary function tools.
-// Images, hosted/custom tools, stateful Responses IDs and format constraints are
-// rejected explicitly; converters must not silently discard these modalities.
+// Text, reversible client tools and the bounded review output schema use the
+// same source-owned codecs as the other native Anthropic paths. Images, hosted
+// tools and stateful Responses IDs still fail before credential/provider entry.
 func ValidateGatewayNativeClaudeResponses(body []byte) error {
-	_, _, err := gatewayClaudePrepareResponses(body)
-	return err
+	return ValidateGatewayNativeClaudeResponsesBounded(body, 4<<20)
 }
 
 // The admitted request bound covers the actual expanded provider wire as well
 // as the canonical payload. Attribution never creates an unbudgeted allowance.
 func ValidateGatewayNativeClaudeResponsesBounded(body []byte, requestBytes int64) error {
-	wire, _, err := gatewayClaudePrepareResponses(body)
-	if err != nil || requestBytes < 1 || int64(len(body)) > requestBytes || int64(len(wire)) > requestBytes {
+	if requestBytes < 1 || requestBytes > 4<<20 || int64(len(body)) > requestBytes {
+		return ErrGatewayNativeIdentity
+	}
+	projected, err := gatewayClaudeRestoreThinking(body, nil)
+	if err != nil {
+		return err
+	}
+	_, _, _, _, err = gatewayClaudePrepareBoundedResponses(projected, requestBytes)
+	if err != nil {
 		return ErrGatewayNativeIdentity
 	}
 	return nil
 }
 
-func gatewayClaudePrepareResponses(body []byte) ([]byte, map[string]string, error) {
-	wire, err := gatewayClaudeMessagesBody(body)
+func gatewayClaudePrepareBoundedResponses(body []byte, requestBytes int64) ([]byte, map[string]string, apicompat.ResponsesClientToolMapping, func([]apicompat.ResponsesOutput) bool, error) {
+	empty := apicompat.ResponsesClientToolMapping{}
+	canonical, mapping, err := gatewayNativePrepareProviderResponses(GatewayClaudeOAuthMessagesProfile, body, requestBytes)
 	if err != nil {
-		return nil, nil, ErrGatewayNativeIdentity
+		return nil, nil, empty, nil, ErrGatewayNativeIdentity
 	}
+	wire, validate, err := gatewayClaudeMessagesBody(canonical)
+	if err != nil {
+		return nil, nil, empty, nil, ErrGatewayNativeIdentity
+	}
+	wire, headers, err := gatewayClaudeAttributeResponses(wire)
+	if err != nil || int64(len(wire)) > requestBytes {
+		return nil, nil, empty, nil, ErrGatewayNativeIdentity
+	}
+	return wire, headers, mapping, validate, nil
+}
+
+func gatewayClaudeAttributeResponses(wire []byte) ([]byte, map[string]string, error) {
 	// Snapshot the maintained runtime identity once. Billing and outbound UA
 	// must agree even if the administrator's version resolver changes mid-call.
 	headers := claude.DefaultHeaders()
@@ -135,42 +154,42 @@ func gatewayClaudeObject(raw []byte, allowed ...string) (map[string]json.RawMess
 	return fields, true
 }
 
-func gatewayClaudeMessagesBody(body []byte) ([]byte, error) {
+func gatewayClaudeMessagesBody(body []byte) ([]byte, func([]apicompat.ResponsesOutput) bool, error) {
 	if len(body) == 0 || len(body) > gatewayNativeResponseLimit {
-		return nil, ErrGatewayNativeIdentity
+		return nil, nil, ErrGatewayNativeIdentity
 	}
-	fields, ok := gatewayClaudeObject(body, "model", "input", "instructions", "stream", "store", "service_tier", "max_output_tokens", "tools", "tool_choice", "reasoning", "parallel_tool_calls", "temperature", "top_p")
+	fields, ok := gatewayClaudeObject(body, "model", "input", "instructions", "stream", "store", "service_tier", "max_output_tokens", "tools", "tool_choice", "reasoning", "parallel_tool_calls", "temperature", "top_p", "text", "include", "prompt_cache_key", "client_metadata")
 	if !ok {
-		return nil, ErrGatewayNativeIdentity
+		return nil, nil, ErrGatewayNativeIdentity
 	}
 	var req apicompat.ResponsesRequest
-	if json.Unmarshal(body, &req) != nil || req.Model != GatewayClaudeOAuthModel || !req.Stream || req.Store == nil || *req.Store || req.ServiceTier != "default" || req.MaxOutputTokens == nil || *req.MaxOutputTokens < 1 || *req.MaxOutputTokens > 65536 {
-		return nil, ErrGatewayNativeIdentity
+	if json.Unmarshal(body, &req) != nil || req.Model != GatewayClaudeOAuthModel || !req.Stream || req.Store == nil || *req.Store || req.ServiceTier != "" && req.ServiceTier != "default" || req.MaxOutputTokens == nil || *req.MaxOutputTokens < 1 || *req.MaxOutputTokens > 65536 {
+		return nil, nil, ErrGatewayNativeIdentity
 	}
 	for name, raw := range fields {
 		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		if name == "temperature" || name == "top_p" {
 			var value float64
 			if json.Unmarshal(raw, &value) != nil || value < 0 || value > 1 {
-				return nil, ErrGatewayNativeIdentity
+				return nil, nil, ErrGatewayNativeIdentity
 			}
 		}
 	}
 	if !gatewayClaudeInput(fields["input"]) {
-		return nil, ErrGatewayNativeIdentity
+		return nil, nil, ErrGatewayNativeIdentity
 	}
 	if raw := fields["reasoning"]; raw != nil {
 		reasoning, valid := gatewayClaudeObject(raw, "effort")
 		var effort string
 		if !valid || json.Unmarshal(reasoning["effort"], &effort) != nil {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		switch effort {
 		case "none", "low", "medium", "high", "xhigh":
 		default:
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		// The existing converter maps none to a provider output effort; explicitly
 		// clear it instead, so none means no thinking and never an invalid effort.
@@ -181,22 +200,24 @@ func gatewayClaudeMessagesBody(body []byte) ([]byte, error) {
 	if raw := fields["tools"]; raw != nil {
 		var tools []json.RawMessage
 		if json.Unmarshal(raw, &tools) != nil || len(tools) > 128 {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		for _, rawTool := range tools {
 			tool, valid := gatewayClaudeObject(rawTool, "type", "name", "description", "parameters", "strict")
 			var kind, name string
 			if !valid || json.Unmarshal(tool["type"], &kind) != nil || kind != "function" || json.Unmarshal(tool["name"], &name) != nil || name == "" || len(name) > 128 {
-				return nil, ErrGatewayNativeIdentity
+				return nil, nil, ErrGatewayNativeIdentity
 			}
-			// Current pure converter does not preserve strict schema enforcement.
-			if strict := tool["strict"]; strict != nil && !bytes.Equal(bytes.TrimSpace(strict), []byte("false")) {
-				return nil, ErrGatewayNativeIdentity
+			if strict := tool["strict"]; strict != nil {
+				var enabled bool
+				if json.Unmarshal(strict, &enabled) != nil {
+					return nil, nil, ErrGatewayNativeIdentity
+				}
 			}
 			schema, valid := gatewayNativeCanonicalObject(tool["parameters"], "type")
 			var schemaType string
 			if !valid || json.Unmarshal(schema["type"], &schemaType) != nil || schemaType != "object" {
-				return nil, ErrGatewayNativeIdentity
+				return nil, nil, ErrGatewayNativeIdentity
 			}
 		}
 	}
@@ -204,46 +225,54 @@ func gatewayClaudeMessagesBody(body []byte) ([]byte, error) {
 		var choice string
 		if json.Unmarshal(raw, &choice) == nil {
 			if choice != "auto" && choice != "none" && choice != "required" {
-				return nil, ErrGatewayNativeIdentity
+				return nil, nil, ErrGatewayNativeIdentity
 			}
 		} else {
 			choiceFields, valid := gatewayClaudeObject(raw, "type", "name")
 			var kind, name string
 			if !valid || json.Unmarshal(choiceFields["type"], &kind) != nil || kind != "function" || json.Unmarshal(choiceFields["name"], &name) != nil || name == "" {
-				return nil, ErrGatewayNativeIdentity
+				return nil, nil, ErrGatewayNativeIdentity
 			}
 		}
 	}
-	converted, err := apicompat.ResponsesToAnthropicRequest(&req)
+	converted, err := apicompat.ResponsesToAnthropicRequestPreservingThinking(&req)
 	if err != nil {
-		return nil, ErrGatewayNativeIdentity
+		return nil, nil, ErrGatewayNativeIdentity
+	}
+	var validate func([]apicompat.ResponsesOutput) bool
+	if converted.OutputConfig != nil && converted.OutputConfig.Format != nil {
+		converted.OutputConfig.Format.Schema, validate, err = gatewayAnthropicOutputSchema(converted.OutputConfig.Format.Schema)
+		if err != nil {
+			return nil, nil, ErrGatewayNativeIdentity
+		}
 	}
 	if len(converted.Messages) == 0 || converted.Thinking != nil && converted.Thinking.BudgetTokens >= converted.MaxTokens {
-		return nil, ErrGatewayNativeIdentity
+		return nil, nil, ErrGatewayNativeIdentity
 	}
 	if converted.Thinking != nil {
 		if req.Temperature != nil && *req.Temperature != 1 || req.TopP != nil {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		var choice struct {
 			Type string `json:"type"`
 		}
 		if len(converted.ToolChoice) > 0 && (json.Unmarshal(converted.ToolChoice, &choice) != nil || choice.Type == "any" || choice.Type == "tool") {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 	}
 	if req.ParallelToolCalls != nil && len(converted.Tools) > 0 {
 		choice := map[string]any{"type": "auto"}
 		if len(converted.ToolChoice) > 0 && json.Unmarshal(converted.ToolChoice, &choice) != nil {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 		choice["disable_parallel_tool_use"] = !*req.ParallelToolCalls
 		converted.ToolChoice, err = json.Marshal(choice)
 		if err != nil {
-			return nil, ErrGatewayNativeIdentity
+			return nil, nil, ErrGatewayNativeIdentity
 		}
 	}
-	return json.Marshal(converted)
+	wire, err := gatewayNativeMarshalAnthropicRequest(converted, req.Tools)
+	return wire, validate, err
 }
 
 func gatewayClaudeInput(raw json.RawMessage) bool {
@@ -257,7 +286,7 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 	}
 	calls, outputs := map[string]bool{}, map[string]bool{}
 	for _, rawItem := range items {
-		item, ok := gatewayClaudeObject(rawItem, "type", "role", "content", "call_id", "name", "arguments", "output")
+		item, ok := gatewayClaudeObject(rawItem, "type", "role", "content", "call_id", "name", "arguments", "output", "id", "status", "summary", "encrypted_content")
 		if !ok {
 			return false
 		}
@@ -266,12 +295,28 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 			return false
 		}
 		switch kind {
+		case "reasoning":
+			if _, valid := gatewayClaudeObject(rawItem, "type", "id", "status", "summary", "encrypted_content"); !valid || !gatewayClaudeOutputMetadata(item, true) {
+				return false
+			}
+			var value string
+			var summary []apicompat.ResponsesSummary
+			if json.Unmarshal(item["encrypted_content"], &value) != nil || json.Unmarshal(item["summary"], &summary) != nil {
+				return false
+			}
+			block, valid := gatewayClaudeSignedThinking(value)
+			if !valid || !gatewayClaudeThinkingSummaryMatches(block, summary) {
+				return false
+			}
 		case "", "message":
-			if _, valid := gatewayClaudeObject(rawItem, "type", "role", "content"); !valid {
+			if _, valid := gatewayClaudeObject(rawItem, "type", "role", "content", "id", "status"); !valid {
 				return false
 			}
 			var role string
 			if json.Unmarshal(item["role"], &role) != nil || (role != "user" && role != "assistant" && role != "system" && role != "developer") {
+				return false
+			}
+			if !gatewayClaudeOutputMetadata(item, role == "assistant") {
 				return false
 			}
 			if json.Unmarshal(item["content"], &text) == nil {
@@ -285,12 +330,22 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 				return false
 			}
 			for _, rawPart := range parts {
-				part, valid := gatewayClaudeObject(rawPart, "type", "text")
+				part, valid := gatewayClaudeObject(rawPart, "type", "text", "annotations", "logprobs")
 				var typ string
 				if !valid || json.Unmarshal(part["type"], &typ) != nil || (typ != "input_text" && typ != "output_text" && typ != "text") ||
 					role == "user" && typ == "output_text" || role == "assistant" && typ == "input_text" ||
 					json.Unmarshal(part["text"], &text) != nil || strings.TrimSpace(text) == "" {
 					return false
+				}
+				// The native Responses encoder includes these empty output fields.
+				// Nonempty values carry unsupported semantics and cannot be dropped.
+				for _, name := range []string{"annotations", "logprobs"} {
+					if value := part[name]; value != nil {
+						var entries []json.RawMessage
+						if role != "assistant" || typ != "output_text" || json.Unmarshal(value, &entries) != nil || len(entries) != 0 {
+							return false
+						}
+					}
 				}
 			}
 		case "function_call", "function_call_output":
@@ -299,7 +354,7 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 				return false
 			}
 			if kind == "function_call" {
-				if _, valid := gatewayClaudeObject(rawItem, "type", "call_id", "name", "arguments"); !valid {
+				if _, valid := gatewayClaudeObject(rawItem, "type", "call_id", "name", "arguments", "id", "status"); !valid || !gatewayClaudeOutputMetadata(item, true) {
 					return false
 				}
 				var name, arguments string
@@ -331,7 +386,25 @@ func gatewayClaudeInput(raw json.RawMessage) bool {
 	return true
 }
 
-func gatewayNativeClaudeResponses(ctx context.Context, c *gin.Context, entry GatewayNativeClaudeDispatchEntry, wire []byte, headers map[string]string, transport http.RoundTripper) (*OpenAIForwardResult, error) {
+// A completed Responses output can be replayed as history without making its
+// item ID a server-side lookup or accepting an incomplete provider result.
+func gatewayClaudeOutputMetadata(item map[string]json.RawMessage, output bool) bool {
+	if raw := item["id"]; raw != nil {
+		var id string
+		if !output || json.Unmarshal(raw, &id) != nil || !gatewayConnectionTextValid(id, 512, false) {
+			return false
+		}
+	}
+	if raw := item["status"]; raw != nil {
+		var status string
+		if !output || json.Unmarshal(raw, &status) != nil || status != "completed" {
+			return false
+		}
+	}
+	return true
+}
+
+func gatewayNativeClaudeResponses(ctx context.Context, c *gin.Context, entry GatewayNativeClaudeDispatchEntry, wire []byte, headers map[string]string, transport http.RoundTripper, validateFinal func([]apicompat.ResponsesOutput) bool, codec apicompat.GeminiContinuationCodec) (*OpenAIForwardResult, error) {
 	if entry.Release == nil || entry.Claim == nil {
 		return nil, ErrGatewayNativeIdentity
 	}
@@ -380,13 +453,21 @@ func gatewayNativeClaudeResponses(ctx context.Context, c *gin.Context, entry Gat
 	// check. The owned response body and cancellation remain with the lifetime;
 	// a long SSE response must not retain a database connection.
 	entry.Release()
-	return gatewayNativeAnthropicResponse(ctx, c, response, GatewayClaudeOAuthModel, start, cancel, &observation, nil)
+	return gatewayNativeAnthropicResponse(ctx, c, response, GatewayClaudeOAuthModel, start, cancel, &observation, validateFinal, codec)
 }
 
 // The shared response consumer owns only strict Messages protocol, bounded SSE,
 // conversion, delivery and usage. Credential kind/headers remain with callers.
-func gatewayNativeAnthropicResponse(ctx context.Context, c *gin.Context, response *http.Response, model string, start time.Time, cancel context.CancelFunc, observation *GatewayNativeUsage, validateFinal func([]apicompat.ResponsesOutput) bool) (*OpenAIForwardResult, error) {
+func gatewayNativeAnthropicResponse(ctx context.Context, c *gin.Context, response *http.Response, model string, start time.Time, cancel context.CancelFunc, observation *GatewayNativeUsage, validateFinal func([]apicompat.ResponsesOutput) bool, codecs ...apicompat.GeminiContinuationCodec) (*OpenAIForwardResult, error) {
 	nativeMessages := gatewayNativeClaudeMessagesMode(ctx)
+	var thinking apicompat.GeminiContinuationCodec
+	if len(codecs) > 1 || nativeMessages && len(codecs) > 0 && codecs[0] != nil {
+		return nil, ErrGatewayNativeIdentity
+	}
+	if len(codecs) == 1 {
+		thinking = codecs[0]
+	}
+	sealedThinking := make(map[string]string)
 	if response.StatusCode != http.StatusOK || gatewayNativeUpstreamMediaCategory(response.Header.Get("Content-Type")) != "sse" || (response.Header.Get("Content-Encoding") != "" && !strings.EqualFold(response.Header.Get("Content-Encoding"), "identity")) {
 		return nil, ErrGatewayNativeEffectUnknown
 	}
@@ -400,6 +481,7 @@ func gatewayNativeAnthropicResponse(ctx context.Context, c *gin.Context, respons
 	scanner.Buffer(make([]byte, 4096), gatewayNativeSSEFrameLimit+1)
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = model
+	state.PreserveThinkingSignatures = thinking != nil
 	var restorer *apicompat.ResponsesClientToolStreamRestorer
 	if mapping, ok := grokResponsesClientToolMapping(c); ok {
 		restorer = apicompat.NewResponsesClientToolStreamRestorer(mapping)
@@ -643,10 +725,15 @@ func gatewayNativeAnthropicResponse(ctx context.Context, c *gin.Context, respons
 			convertedEvents := apicompat.AnthropicEventToResponsesEvents(&event, state)
 			if event.Type == "message_stop" && validateFinal != nil {
 				toolTurn := false
+				visible := make([]apicompat.ResponsesOutput, 0, len(state.Outputs))
 				for _, item := range state.Outputs {
 					toolTurn = toolTurn || item.Type == "function_call"
+					if thinking != nil && item.Type == "reasoning" {
+						continue
+					}
+					visible = append(visible, item)
 				}
-				if state.StopReason == "tool_use" && !toolTurn || state.StopReason != "tool_use" && !validateFinal(state.Outputs) {
+				if state.StopReason == "tool_use" && !toolTurn || state.StopReason != "tool_use" && !validateFinal(visible) {
 					return nil, ErrGatewayNativeEffectUnknown
 				}
 			}
@@ -656,6 +743,13 @@ func gatewayNativeAnthropicResponse(ctx context.Context, c *gin.Context, respons
 					convertedEvents = restorer.Restore(converted)
 				}
 				for _, restored := range convertedEvents {
+					if thinking != nil {
+						var err error
+						restored, err = gatewayClaudeSealThinkingEvent(restored, thinking, sealedThinking)
+						if err != nil {
+							return nil, err
+						}
+					}
 					encoded, err := apicompat.ResponsesEventToSSE(restored)
 					if err != nil {
 						return nil, ErrGatewayNativeEffectUnknown

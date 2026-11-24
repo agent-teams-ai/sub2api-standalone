@@ -52,6 +52,7 @@ func TestGatewayNativeUsageActualSeam(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Len(t, got, 1)
+			require.Nil(t, got[0].NativeContext, "legacy receipt keeps its scalar usage wire")
 			require.True(t, got[0].Finalized)
 			require.Equal(t, tc.state, got[0].State)
 			if tc.name == "unknown" {

@@ -52,7 +52,7 @@
       <fieldset v-if="isAnthropic" class="border-0 p-0">
         <legend class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</legend>
         <div class="mt-2 flex gap-4">
-          <label class="flex cursor-pointer items-center">
+          <label v-if="adminAddMethodAvailable('oauth')" class="flex cursor-pointer items-center">
             <input
               v-model="addMethod"
               type="radio"
@@ -63,7 +63,7 @@
               t('admin.accounts.types.oauth')
             }}</span>
           </label>
-          <label class="flex cursor-pointer items-center">
+          <label v-if="adminAddMethodAvailable('setup-token')" class="flex cursor-pointer items-center">
             <input
               v-model="addMethod"
               type="radio"
@@ -129,10 +129,8 @@
         :error="currentError"
         :show-help="isAnthropic"
         :show-proxy-warning="isAnthropic"
-        :show-cookie-option="isAnthropic"
-        :show-refresh-token-option="isOpenAI || isAntigravity || isGrok"
-        :show-sso-option="isGrok"
-        :show-email-password-option="false"
+        :input-methods="adminInputMethods"
+        :input-labels="adminInputLabels"
         :allow-multiple="false"
         :method-label="t('admin.accounts.inputMethod')"
         :platform="isOpenAI ? 'openai' : isGemini ? 'gemini' : isAntigravity ? 'antigravity' : isGrok ? 'grok' : 'anthropic'"
@@ -190,10 +188,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { adminConnectionMethods, adminOAuthInputMethods, adminOAuthInputLabels } from '@/constants/platformCatalog'
 import {
   useAccountOAuth,
   type AddMethod,
@@ -219,12 +218,11 @@ interface OAuthFlowExposed {
   reset: () => void
 }
 
-interface Props {
-  show: boolean
-  account: Account | null
-}
+const props = defineProps({
+  show: { type: Boolean, required: true },
+  account: { type: [Object, null] as PropType<Account | null>, required: true }
+})
 
-const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
   reauthorized: [account: Account]
@@ -246,6 +244,17 @@ const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 // State
 const addMethod = ref<AddMethod>('oauth')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
+const geminiAIStudioOAuthEnabled = ref(false)
+const adminAddMethodAvailable = (method: AddMethod) => adminConnectionMethods({
+  platform: props.account?.platform ?? '', surface: 'reauth', category: 'oauth-based'
+}).some((entry) => entry.add_method === method)
+const adminOAuthSelection = computed(() => ({
+  platform: props.account?.platform ?? '', surface: 'reauth' as const, category: 'oauth-based' as const,
+  addMethod: addMethod.value, oauthType: geminiOAuthType.value
+}))
+const adminRequirements = computed(() => geminiAIStudioOAuthEnabled.value ? ['custom_oauth_client'] : [])
+const adminInputMethods = computed(() => adminOAuthInputMethods(adminOAuthSelection.value, adminRequirements.value))
+const adminInputLabels = computed(() => adminOAuthInputLabels(adminOAuthSelection.value, adminRequirements.value))
 
 // Computed - check platform
 const isOpenAI = computed(() => props.account?.platform === 'openai')
@@ -263,9 +272,10 @@ const isGrok = computed(() => props.account?.platform === 'grok')
 const grokInitialInputMethod = computed<AuthInputMethod>(() => {
   if (!isGrok.value) return 'manual'
   const creds = (props.account?.credentials || {}) as Record<string, unknown>
-  const hasRT =
+  const legacyHasRT =
     (typeof creds.refresh_token === 'string' && creds.refresh_token.trim() !== '') ||
     (typeof creds.has_refresh_token === 'boolean' && creds.has_refresh_token)
+  const hasRT = props.account?.credentials_status?.has_refresh_token ?? legacyHasRT
   if (hasRT) return 'refresh_token'
   return 'sso_cookie'
 })
@@ -301,20 +311,9 @@ const currentError = computed(() => {
 })
 
 // Computed — footer "complete auth" only for code-exchange flows, not SSO/password/RT.
-const isManualInputMethod = computed(() => {
-  const method = oauthFlowRef.value?.inputMethod
-  if (method === 'sso_cookie' || method === 'email_password' || method === 'refresh_token') {
-    return false
-  }
-  // OpenAI/Gemini/Antigravity/Grok use manual code paste by default (no cookie auth)
-  return (
-    isOpenAILike.value ||
-    isGemini.value ||
-    isAntigravity.value ||
-    isGrok.value ||
-    method === 'manual'
-  )
-})
+const isManualInputMethod = computed(() =>
+  adminInputMethods.value.includes('manual') && oauthFlowRef.value?.inputMethod === 'manual'
+)
 
 const canExchangeCode = computed(() => {
   const authCode = oauthFlowRef.value?.authCode || ''
@@ -325,8 +324,9 @@ const canExchangeCode = computed(() => {
 
 // Watchers
 watch(
-  () => props.show,
-  (newVal) => {
+  [() => props.show, () => props.account],
+  ([newVal]) => {
+    resetState()
     if (newVal && props.account) {
       // Initialize addMethod based on current account type (Claude only)
       if (
@@ -344,14 +344,26 @@ watch(
               ? 'ai_studio'
               : 'code_assist'
       }
-    } else {
-      resetState()
     }
-  }
+  },
+  { immediate: true }
+)
+
+watch(
+  [() => props.show, () => props.account?.id, () => props.account?.platform],
+  async ([show, , platform], _previous, onCleanup) => {
+    let current = true
+    onCleanup(() => { current = false })
+    geminiAIStudioOAuthEnabled.value = false
+    if (!show || platform !== 'gemini') return
+    const capabilities = await geminiOAuth.getCapabilities()
+    if (current) geminiAIStudioOAuthEnabled.value = !!capabilities?.ai_studio_oauth_enabled
+  },
+  { immediate: true }
 )
 
 // Methods
-const resetState = () => {
+function resetState() {
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
   claudeOAuth.resetState()
@@ -367,7 +379,7 @@ const handleClose = () => {
 }
 
 const handleGenerateUrl = async () => {
-  if (!props.account) return
+  if (!props.account || !isManualInputMethod.value) return
 
   if (isOpenAILike.value) {
     await openaiOAuth.generateAuthUrl(props.account.proxy_id)
@@ -386,7 +398,7 @@ const handleGenerateUrl = async () => {
 }
 
 const handleExchangeCode = async () => {
-  if (!props.account) return
+  if (!props.account || !isManualInputMethod.value) return
 
   const authCode = oauthFlowRef.value?.authCode || ''
   if (!authCode.trim()) return
@@ -569,7 +581,7 @@ const handleExchangeCode = async () => {
 }
 
 const handleCookieAuth = async (sessionKey: string) => {
-  if (!props.account || isOpenAILike.value) return
+  if (!props.account || !adminInputMethods.value.includes('cookie')) return
 
   claudeOAuth.loading.value = true
   claudeOAuth.error.value = ''
@@ -628,7 +640,7 @@ const applyGrokReauthTokenInfo = async (tokenInfo: {
 
 /** Re-auth the existing account with one refresh token. */
 const handleValidateRefreshToken = async (refreshTokenInput: string) => {
-  if (!props.account) return
+  if (!props.account || !adminInputMethods.value.includes('refresh_token')) return
   if (isGrok.value) {
     await handleGrokValidateRefreshToken(refreshTokenInput)
     return
@@ -696,7 +708,7 @@ const handleValidateRefreshToken = async (refreshTokenInput: string) => {
 
 /** Re-auth with a single SSO cookie → Build OAuth (not batch create). */
 const handleGrokImportSSO = async (ssoInput: string) => {
-  if (!props.account || !isGrok.value) return
+  if (!props.account || !isGrok.value || !adminInputMethods.value.includes('sso_cookie')) return
   const ssoToken = ssoInput
     .split('\n')
     .map((line) => line.trim())

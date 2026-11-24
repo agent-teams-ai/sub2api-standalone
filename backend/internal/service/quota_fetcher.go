@@ -16,4 +16,7 @@ type QuotaFetcher interface {
 type QuotaResult struct {
 	UsageInfo *UsageInfo     // 转换后的使用信息
 	Raw       map[string]any // 原始响应，可存入 account.Extra
+	// Transient output of the current authenticated collector, never reconstructed
+	// from Raw or cached UsageInfo. The caller supplies the pre-HTTP identity/order.
+	AccountInfo *GatewayAccountInfoFields
 }

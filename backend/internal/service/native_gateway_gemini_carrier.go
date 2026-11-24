@@ -17,11 +17,34 @@ import (
 type gatewayGeminiContinuationCodec struct {
 	custody *GatewayNativeCredentialCustody
 	binding []byte
+	// Empty preserves the original Gemini AAD. Other protected native codecs
+	// reuse this keyring engine with their own fixed domain, never credentials.
+	domain string
 }
 
 func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuationCodec, error) {
 	if c == nil || c.Request == nil {
 		return nil, nil
+	}
+	if connection, ok := c.Request.Context().Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && connection != nil {
+		if !gatewayNativeConnectionGeminiProfile(connection.binding.native.Profile) {
+			return nil, nil
+		}
+		if !GatewayNativeConnectionAccountAuthorized(c.Request.Context(), connection.account) || !GatewayAccountModelIDValid(connection.requestedModel) {
+			return nil, ErrGatewayNativeIdentity
+		}
+		native := connection.binding.native
+		native.CreatedAt = native.CreatedAt.UTC()
+		binding, err := json.Marshal(struct {
+			Scope   GatewayNativeCredentialScope `json:"scope"`
+			Native  GatewayNativePublishedRoute  `json:"native"`
+			Version int64                        `json:"version"`
+			Model   string                       `json:"model"`
+		}{connection.binding.in.Scope, native, connection.physical.CredentialVersion, connection.requestedModel})
+		if err != nil {
+			return nil, ErrGatewayNativeIdentity
+		}
+		return &gatewayGeminiContinuationCodec{custody: connection.binding.service.custody, binding: binding}, nil
 	}
 	state, _ := c.Request.Context().Value(gatewayNativeContextKey{}).(*gatewayNativeDispatch)
 	if state == nil || state.route.Profile != GatewayGeminiAPIKeyProfile {
@@ -45,8 +68,17 @@ func gatewayNativeGeminiContinuation(c *gin.Context) (apicompat.GeminiContinuati
 	return &gatewayGeminiContinuationCodec{custody: state.custody, binding: binding}, nil
 }
 
+func gatewayNativeConnectionGeminiProfile(profile string) bool {
+	definition, found := LookupGatewayConnectionProfile(profile)
+	return found && (definition.DispatchFamily == "gemini_chat" || definition.DispatchFamily == "vertex_gemini" || definition.DispatchFamily == "gemini_oauth" || definition.DispatchFamily == "antigravity")
+}
+
 func (c *gatewayGeminiContinuationCodec) aad(id string) []byte {
-	return append([]byte("account-gateway/native/gemini-thoughts/v1/"+id+"\x00"), c.binding...)
+	domain := c.domain
+	if domain == "" {
+		domain = "gemini"
+	}
+	return append([]byte("account-gateway/native/"+domain+"-thoughts/v1/"+id+"\x00"), c.binding...)
 }
 
 func (c *gatewayGeminiContinuationCodec) Seal(raw []byte) (string, error) {

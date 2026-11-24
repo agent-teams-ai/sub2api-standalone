@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 )
 
@@ -62,11 +63,13 @@ func (s *OpenAIGatewayService) forwardGatewayClaudeRoute(ctx context.Context, c 
 	}
 	var wire []byte
 	var headers map[string]string
+	var validateFinal func([]apicompat.ResponsesOutput) bool
+	var thinking apicompat.GeminiContinuationCodec
 	var err error
 	if nativeMessages {
 		wire, headers, err = gatewayClaudePrepareNativeMessages(body, binding.requestBytes, binding.tokens)
 	} else {
-		wire, headers, err = gatewayClaudePrepareResponses(body)
+		err = ValidateGatewayNativeClaudeResponsesBounded(body, binding.requestBytes)
 	}
 	if err != nil || int64(len(wire)) > binding.requestBytes {
 		return nil, false, ErrGatewayNativeIdentity
@@ -81,6 +84,29 @@ func (s *OpenAIGatewayService) forwardGatewayClaudeRoute(ctx context.Context, c 
 		}
 		return nil, false, ErrGatewayNativeIdentity
 	}
+	defer entry.Release()
+	if !nativeMessages {
+		if entry.Physical.Connection != nil {
+			ctx, err = WithGatewayConnectionSelection(ctx, *entry.Physical.Connection)
+			if err != nil {
+				return nil, false, ErrGatewayNativeIdentity
+			}
+		}
+		thinking, err = gatewayClaudeContinuation(ctx, binding.dispatch.custody, binding.scope, route, entry.Physical.Connection, nil, entry.Physical.CredentialRevision)
+		if err != nil {
+			return nil, false, ErrGatewayNativeIdentity
+		}
+		restored, err := gatewayClaudeRestoreThinking(body, thinking)
+		if err != nil {
+			return nil, false, ErrGatewayNativeIdentity
+		}
+		var mapping apicompat.ResponsesClientToolMapping
+		wire, headers, mapping, validateFinal, err = gatewayClaudePrepareBoundedResponses(restored, binding.requestBytes)
+		if err != nil {
+			return nil, false, ErrGatewayNativeIdentity
+		}
+		setGrokResponsesClientToolMapping(c, mapping)
+	}
 	ctx = WithHTTPUpstreamRedirectsDisabled(ctx)
 	c.Request = c.Request.Clone(ctx)
 	c.Request.Header = make(http.Header)
@@ -93,7 +119,7 @@ func (s *OpenAIGatewayService) forwardGatewayClaudeRoute(ctx context.Context, c 
 		// lifetime and disables redirects. No ordinary retry/failover path runs.
 		return s.httpUpstream.Do(request, "", route.AccountID, 0)
 	})
-	result, err := gatewayNativeClaudeResponses(ctx, c, entry, wire, headers, transport)
+	result, err := gatewayNativeClaudeResponses(ctx, c, entry, wire, headers, transport, validateFinal, thinking)
 	if err != nil {
 		if entered.Load() {
 			err = ErrGatewayNativeEffectUnknown

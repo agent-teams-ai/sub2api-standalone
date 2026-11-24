@@ -34,7 +34,8 @@
               {{ t('admin.scheduledTests.model') }}
             </label>
             <Select
-              v-model="newPlan.model_id"
+              :model-value="newPlan.model_id"
+              @update:model-value="value =&gt; { if (typeof value === 'string') newPlan.model_id = value }"
               :options="modelOptions"
               :placeholder="t('admin.scheduledTests.model')"
               :searchable="modelOptions.length > 5"
@@ -244,7 +245,8 @@
                   {{ t('admin.scheduledTests.model') }}
                 </label>
                 <Select
-                  v-model="editForm.model_id"
+                  :model-value="editForm.model_id"
+                  @update:model-value="value =&gt; { if (typeof value === 'string') editForm.model_id = value }"
                   :options="modelOptions"
                   :placeholder="t('admin.scheduledTests.model')"
                   :searchable="modelOptions.length > 5"

@@ -137,7 +137,8 @@
             <div>
               <label class="input-label">{{ t('setup.database.sslMode') }}</label>
               <Select
-                v-model="formData.database.sslmode"
+                :model-value="formData.database.sslmode"
+                @update:model-value="value =&gt; { if (typeof value === 'string') formData.database.sslmode = value }"
                 :options="[
                   { value: 'disable', label: t('setup.database.ssl.disable') },
                   { value: 'require', label: t('setup.database.ssl.require') },

@@ -189,6 +189,9 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 // （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
 func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
 	apiKey = strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	if account != nil && account.Extra[GatewayNativeConnectionAccountExtraKey] == true {
+		apiKey = account.GetCredential("api_key")
+	}
 	if apiKey == "" {
 		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 	}

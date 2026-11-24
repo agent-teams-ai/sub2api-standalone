@@ -50,7 +50,8 @@
       <!-- Type filter + Action buttons -->
       <div class="flex items-center gap-3">
         <Select
-          v-model="typeFilter"
+          :model-value="typeFilter"
+          @update:model-value="value =&gt; { if (typeof value === 'string') typeFilter = value }"
           :options="typeOptions"
           class="w-56"
           @change="loadHistory(1)"

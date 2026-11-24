@@ -167,7 +167,11 @@ func Run(ctx context.Context, options Options) error {
 		return ErrDenied
 	}
 	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, svcCfg, nil, nil, nil, nil, nil, lifetimeUpstream, nil, nil, nil, nil, nil, nil, nil, nil)
-	if c.OpenRouter != nil && gateway.SetGatewayOpenRouterModels(service.NewGatewayOpenRouterModels(options.OpenRouterModelsTransport)) != nil {
+	hasOpenRouter := c.OpenRouter != nil
+	for _, profile := range c.NativeProfiles {
+		hasOpenRouter = hasOpenRouter || profile.ProfileID == service.GatewayOpenRouterResponsesProfile
+	}
+	if hasOpenRouter && gateway.SetGatewayOpenRouterModels(service.NewGatewayOpenRouterModels(options.OpenRouterModelsTransport)) != nil {
 		return ErrDenied
 	}
 	adminRepo, ok := repo.(service.AdminAccountRepository)
@@ -183,7 +187,7 @@ func Run(ctx context.Context, options Options) error {
 	auth := authorize(c.Peers)
 	tcfg := gatewaytransport.Config{Gateway: gateway, Custody: custody, Authorize: auth,
 		Enrollment: gatewaytransport.Enrollment{OriginRef: origin, EngineIncarnation: inc, QualificationRef: c.Profile.QualificationRef},
-		Profile:    c.qualifiedProfile(), CodingPlans: c.codingPlanProfiles(), OfficialAPIs: c.officialAPIProfiles(), Grok: c.grokProfile(), OpenRouter: c.openRouterProfile(), NVIDIA: c.nvidiaProfile(), Codex: c.codexProfile(), MaxEntries: int(c.MaxEntries), CallbackTimeout: 5 * time.Second,
+		Profile:    c.qualifiedProfile(), CodingPlans: c.codingPlanProfiles(), OfficialAPIs: c.officialAPIProfiles(), Grok: c.grokProfile(), OpenRouter: c.openRouterProfile(), NVIDIA: c.nvidiaProfile(), Codex: c.codexProfile(), NativeProfiles: c.nativeProfiles(), MaxEntries: int(c.MaxEntries), CallbackTimeout: 5 * time.Second,
 		IOTimeout: 30 * time.Second, ProviderReadIdle: service.GatewayNativeProviderReadIdle, CleanupTimeout: 5 * time.Second, EnvelopeBytes: 5 << 20, CallbackBytes: 262144}
 	var oauth *privateOAuth
 	if c.OAuth != nil || c.Claude != nil || c.Grok != nil || len(c.CodingPlans) > 0 || c.OpenRouter != nil || c.NVIDIA != nil || c.AnthropicAPI != nil || c.GeminiAPI != nil {
@@ -222,11 +226,6 @@ func Run(ctx context.Context, options Options) error {
 		tcfg.ClaudeOAuth = oauth.claude
 		tcfg.Claude = c.claudeProfile()
 	}
-	if oauth != nil {
-		if composePrivateModels(oauth, oauth.owners, gateway) != nil {
-			return ErrDenied
-		}
-	}
 	if oauth == nil {
 		owners := options.OAuthOwnerAuthority
 		if owners == nil {
@@ -234,17 +233,44 @@ func Run(ctx context.Context, options Options) error {
 		}
 		oauth = &privateOAuth{owners: owners}
 	}
+	if oauth.cleanup == nil {
+		if authority, ok := oauth.owners.(NativeOAuthCleanupAuthority); ok {
+			oauth.cleanup = authority.AuthorizeNativeOAuthCleanup
+		}
+	}
+	if composePrivateModels(oauth, oauth.owners, gateway, db, custody) != nil {
+		return ErrDenied
+	}
+	defer func() {
+		if oauth.gemini != nil {
+			oauth.gemini.Stop()
+		}
+	}()
+	connectionAdapters, err := composePrivateNativeConnections(c, repo, db, custody, gateway, oauth, tcfg.QualifiedProfiles())
+	if err != nil {
+		return ErrDenied
+	}
+	tcfg.Connections = oauth.nativeConnections
 	if _, available := oauth.owners.(NativeAccountInfoAuthority); available {
 		if composePrivateAccountInfo(oauth, db, oauth.owners) != nil {
 			return ErrDenied
 		}
 	}
 	a.compose(&tcfg)
-	transport, err := gatewaytransport.New(ctx, tcfg)
+	prepared, err := gatewaytransport.Prepare(ctx, tcfg)
 	if err != nil || ctx.Err() != nil {
 		return ErrDenied
 	}
-	handler := privateHandler(c.Profile, adminSvc, gateway, custody, transport, auth, oauth)
+	oauth.connections, err = composePrivateConnectionBindings(c, prepared.QualifiedProfiles(), prepared.Enrollment(), oauth, custody, auth, connectionAdapters...)
+	if err != nil {
+		return ErrDenied
+	}
+	catalog, err := privateCatalogOnly(privateAccountCapabilitiesForProfiles(prepared.QualifiedProfiles(), oauth), oauth.connections.capabilities, auth)
+	if err != nil {
+		return ErrDenied
+	}
+	handler := &privateStartupHandler{}
+	handler.install(catalog)
 	listener, err := net.Listen("tcp", c.ListenAddress)
 	if err != nil {
 		return ErrDenied
@@ -262,6 +288,11 @@ func Run(ctx context.Context, options Options) error {
 		}
 	}
 	defer closeServers()
+	go func() { served <- server.Serve(&boundedListener{Listener: listener, slots: make(chan struct{}, 128)}) }()
+	transport, err := prepared.Start(ctx)
+	if err != nil || ctx.Err() != nil {
+		return ErrDenied
+	}
 	if c.PublicListenAddress != "" {
 		publicListener, listenErr := net.Listen("tcp", c.PublicListenAddress)
 		if listenErr != nil {
@@ -273,7 +304,7 @@ func Run(ctx context.Context, options Options) error {
 			served <- publicServer.Serve(&boundedListener{Listener: publicListener, slots: make(chan struct{}, publicSocketBudget(c.PublicMaxActive))})
 		}()
 	}
-	go func() { served <- server.Serve(&boundedListener{Listener: listener, slots: make(chan struct{}, 128)}) }()
+	handler.install(privateHandler(c.Profile, adminSvc, gateway, custody, transport, auth, oauth))
 	if ctx.Err() != nil {
 		closeServers()
 		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -289,7 +320,7 @@ func Run(ctx context.Context, options Options) error {
 		return ErrDenied
 	}
 	_ = ready.Close()
-	if len(c.CodingPlans) > 0 || c.Grok != nil {
+	if len(c.CodingPlans) > 0 || c.Grok != nil || oauth != nil && oauth.nativeConnections != nil {
 		quotaCtx, stopQuota := context.WithCancel(ctx)
 		quotaDone := make(chan struct{})
 		go func() { defer close(quotaDone); runPrivateProviderQuota(quotaCtx, db, c, gateway, custody, oauth) }()
@@ -328,6 +359,8 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 	if len(oauthMode) == 1 {
 		oauth = oauthMode[0]
 	}
+	modelsV2 := oauth != nil && (oauth.nativeConnections != nil || oauth.models != nil)
+	limitsV3 := oauth != nil && (oauth.nativeConnections != nil || oauth.limits != nil || oauth.limitsV2 != nil)
 	router := gin.New()
 	authorizeCandidate := func(c *gin.Context) {
 		peer, err := auth(c.Request)
@@ -348,6 +381,15 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 		c.Header("Cache-Control", "private, no-store")
 		c.JSON(http.StatusOK, capabilities)
 	})
+	if oauth != nil && oauth.connections != nil {
+		router.GET("/private/native/v2/account-capabilities", authorizeCandidate, func(c *gin.Context) {
+			c.Header("Cache-Control", "private, no-store")
+			c.JSON(http.StatusOK, oauth.connections.capabilities)
+		})
+		router.POST("/private/native/v2/connections/:action", func(c *gin.Context) {
+			oauth.connections.ServeHTTP(c.Writer, c.Request)
+		})
+	}
 	secondary, hasOpenRouter := transport.OpenRouterProfile()
 	var second []admin.GatewayNativeProfile
 	if hasOpenRouter {
@@ -368,6 +410,11 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 	if oauth != nil && oauth.models != nil {
 		if admin.RegisterGatewayAccountModelsRoutes(router.Group(""), oauth.models, authorizeCandidate) != nil {
 			panic("invalid private account models composition")
+		}
+	}
+	if oauth != nil && (oauth.nativeConnections != nil || oauth.models != nil || oauth.limits != nil || oauth.limitsV2 != nil) {
+		if registerPrivateConnectionAccountRoutes(router, oauth, authorizeCandidate) != nil {
+			panic("invalid private connection account metadata composition")
 		}
 	}
 	if oauth != nil && oauth.limitsRefresh != nil {
@@ -604,13 +651,35 @@ func privateHandler(profile ProfileConfig, adminSvc service.AdminService, gatewa
 			return
 		}
 		switch {
-		case r.URL.Path == "/private/native/v1/account-capabilities" || oauth != nil && (oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh-capabilities" || oauth.limits != nil && r.URL.Path == "/private/native/v1/account-limits/capabilities" || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/capabilities"):
+		case oauth != nil && oauth.connections != nil && strings.HasPrefix(r.URL.Path, privateConnectionPrefix):
+			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+				http.Error(w, "private native bootstrap denied", http.StatusBadRequest)
+				return
+			}
+			controller := http.NewResponseController(w)
+			deadline := time.Now().Add(privateConnectionTimeout(strings.TrimPrefix(r.URL.Path, privateConnectionPrefix)) + 5*time.Second)
+			if controller.SetReadDeadline(time.Now().Add(5*time.Second)) != nil || controller.SetWriteDeadline(deadline) != nil {
+				http.Error(w, "private native bootstrap denied", http.StatusServiceUnavailable)
+				return
+			}
+			if r.URL.Path == privateConnectionPrefix+"cleanup" {
+				cleanup.ServeHTTP(w, r)
+			} else {
+				management.ServeHTTP(w, r)
+			}
+		case oauth != nil && oauth.connections != nil && r.URL.Path == "/private/native/v2/account-capabilities":
+			if r.Method != http.MethodGet {
+				http.Error(w, "private native bootstrap denied", http.StatusBadRequest)
+				return
+			}
+			management.ServeHTTP(w, r)
+		case r.URL.Path == "/private/native/v1/account-capabilities" || limitsV3 && r.URL.Path == "/private/native/v3/account-limits/capabilities" || oauth != nil && (oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh-capabilities" || oauth.limits != nil && r.URL.Path == "/private/native/v1/account-limits/capabilities" || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/capabilities"):
 			if r.Method != http.MethodGet {
 				http.Error(w, "private native bootstrap denied", 400)
 				return
 			}
 			management.ServeHTTP(w, r)
-		case oauth != nil && (oauth.info != nil && r.URL.Path == "/private/native/v1/account-info/read" || oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh" || oauth.models != nil && r.URL.Path == "/private/native/v1/account-models/read" || oauth.limits != nil && (r.URL.Path == "/private/native/v1/account-limits/read" || r.URL.Path == "/private/native/v1/account-admission/read") || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/read"):
+		case modelsV2 && r.URL.Path == "/private/native/v2/account-models/read" || limitsV3 && r.URL.Path == "/private/native/v3/account-limits/read" || oauth != nil && (oauth.info != nil && (r.URL.Path == "/private/native/v1/account-info/read" || r.URL.Path == "/private/native/v2/account-info/read") || oauth.limitsRefresh != nil && r.URL.Path == "/private/native/v1/account-limits/refresh" || oauth.models != nil && r.URL.Path == "/private/native/v1/account-models/read" || oauth.limits != nil && (r.URL.Path == "/private/native/v1/account-limits/read" || r.URL.Path == "/private/native/v1/account-admission/read") || oauth.limitsV2 != nil && r.URL.Path == "/private/native/v2/account-limits/read"):
 			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
 				http.Error(w, "private native bootstrap denied", 400)
 				return
@@ -807,19 +876,29 @@ type NativeOAuthCleanupAuthority interface {
 	AuthorizeNativeOAuthCleanup(context.Context, service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error)
 }
 
+// The early HTTP lane needs only owner/lease admission. The protected native
+// repository later obtains a full cleanup grant bound to the stored descriptor.
+type NativeOAuthCleanupOwnerAuthority interface {
+	AuthorizeNativeOAuthCleanupOwner(context.Context, service.GatewayNativeOAuthCleanupRequest) (string, error)
+}
+
 type privateOAuth struct {
-	connect       *service.GatewayNativeOAuthConnect
-	dispatch      *service.GatewayNativeOAuthDispatch
-	owners        NativeOAuthOwnerAuthority
-	refresh       *service.GatewayNativeOAuthRefresh
-	cleanup       service.GatewayNativeOAuthCleanupAuthorizer
-	limitsRefresh *service.GatewayAccountLimitsRefresher
-	limits        *service.GatewayAccountLimitsReader
-	models        *service.GatewayAccountModelsReader
-	claude        *service.GatewayNativeClaudeOAuth
-	grok          *service.GatewayNativeGrokOAuth
-	limitsV2      *service.GatewayAccountLimitsReaderV2
-	info          *service.GatewayAccountInfoReader
+	connect           *service.GatewayNativeOAuthConnect
+	dispatch          *service.GatewayNativeOAuthDispatch
+	owners            NativeOAuthOwnerAuthority
+	refresh           *service.GatewayNativeOAuthRefresh
+	cleanup           service.GatewayNativeOAuthCleanupAuthorizer
+	limitsRefresh     *service.GatewayAccountLimitsRefresher
+	limits            *service.GatewayAccountLimitsReader
+	models            *service.GatewayAccountModelsReader
+	legacyModels      *service.GatewayLegacyOAuthAccountModels
+	claude            *service.GatewayNativeClaudeOAuth
+	grok              *service.GatewayNativeGrokOAuth
+	limitsV2          *service.GatewayAccountLimitsReaderV2
+	info              *service.GatewayAccountInfoReader
+	connections       *privateConnections
+	nativeConnections *service.GatewayNativeConnections
+	gemini            *service.GeminiOAuthService
 }
 
 func composePrivateOAuth(repo service.AccountRepository, db *sql.DB, custody *service.GatewayNativeCredentialCustody, cfg *OAuthConfig, owners NativeOAuthOwnerAuthority) (*privateOAuth, error) {
@@ -995,7 +1074,7 @@ func composePrivateClaude(out *privateOAuth, repo service.AccountRepository, db 
 
 // The same logical owner+epoch authority fences metadata reads across providers.
 // Profiles without a supported catalogue retain the explicit unsupported union.
-func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, gateway *service.OpenAIGatewayService) error {
+func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, gateway *service.OpenAIGatewayService, db *sql.DB, custody *service.GatewayNativeCredentialCustody) error {
 	if out == nil {
 		return ErrDenied
 	}
@@ -1003,7 +1082,18 @@ func composePrivateModels(out *privateOAuth, owners NativeOAuthOwnerAuthority, g
 	if !ok {
 		return nil
 	}
-	var err error
+	claude, err := repository.NewGatewayNativeClaudeRepository(db)
+	if err != nil {
+		return ErrDenied
+	}
+	grok, err := repository.NewGatewayNativeGrokRepository(db)
+	if err != nil {
+		return ErrDenied
+	}
+	out.legacyModels, err = service.NewGatewayLegacyOAuthAccountModels(claude, grok, custody)
+	if err != nil {
+		return ErrDenied
+	}
 	out.models, err = service.NewGatewayAccountModelsReader(out.dispatch, gateway, func(ctx context.Context, in service.GatewayAccountLimitsInput) (service.GatewayNativeRoute, error) {
 		consumer, e := service.GatewayNativeConsumer(ctx)
 		if e != nil {

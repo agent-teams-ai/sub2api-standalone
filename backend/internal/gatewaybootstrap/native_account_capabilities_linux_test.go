@@ -14,14 +14,21 @@ import (
 func TestNativeAccountCapabilitiesExposeImportsOnlyWithComposedCodex(t *testing.T) {
 	profile := fixtureConfig().Profile
 	transport := &gatewaytransport.Handler{}
+	profiles := []gatewaytransport.QualifiedProfile{{Profile: service.GatewayCodexOAuthResponsesProfile,
+		BaseURL: service.GatewayCodexOAuthBaseURL, Model: service.GatewayCodexOAuthModel, QualificationRef: "fixture-codex-qualification"}}
 	for _, partial := range []*privateOAuth{nil, {}, {connect: &service.GatewayNativeOAuthConnect{}}, {dispatch: &service.GatewayNativeOAuthDispatch{}}} {
-		catalog := privateAccountCapabilities(profile, transport, partial)
+		catalog := privateAccountCapabilitiesForProfiles(profiles, partial)
 		for _, capability := range catalog.Profiles {
 			require.NotEqual(t, service.GatewayCodexOAuthResponsesProfile, capability.ProfileID)
 		}
 	}
 	composed := &privateOAuth{connect: &service.GatewayNativeOAuthConnect{}, dispatch: &service.GatewayNativeOAuthDispatch{}}
-	catalog := privateAccountCapabilities(profile, transport, composed)
+	// Service composition alone does not qualify a provider mount. A transport
+	// without the Codex mount must not advertise unusable import endpoints.
+	for _, capability := range privateAccountCapabilities(profile, transport, composed).Profiles {
+		require.NotEqual(t, service.GatewayCodexOAuthResponsesProfile, capability.ProfileID)
+	}
+	catalog := privateAccountCapabilitiesForProfiles(profiles, composed)
 	found := false
 	for _, capability := range catalog.Profiles {
 		if capability.ProfileID != service.GatewayCodexOAuthResponsesProfile {

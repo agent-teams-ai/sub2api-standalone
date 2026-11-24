@@ -397,6 +397,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 
 	var finalEvents []apicompat.ResponsesStreamEvent
 	if continuation != nil {
+		if native, ok := resp.Body.(interface {
+			GeminiNativeParts() []apicompat.GeminiGeneratePart
+		}); ok {
+			continuation.SetNativeParts(native.GeminiNativeParts())
+		}
 		var err error
 		finalEvents, err = continuation.Finalize(state, gemini)
 		if err != nil {

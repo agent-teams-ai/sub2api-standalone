@@ -33,10 +33,14 @@ func grokArgs(s service.GatewayNativeCredentialScope, op string) []any {
 }
 
 const grokWhere = ` WHERE consumer=$1 AND operation_ref=$2 AND owner_ref=$3 AND account_ref=$4 AND generation=$5 AND purpose=$6`
-const grokColumns = `consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,state,deadline`
+const grokColumns = `consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,state,deadline,COALESCE(connection_binding::text,'')`
 
 func scanGrok(row *sql.Row) (v service.GatewayGrokConnectIntent, err error) {
-	err = row.Scan(&v.Scope.Consumer, &v.Operation, &v.Scope.Owner, &v.Scope.Account, &v.Scope.Generation, &v.Scope.Purpose, &v.StateHash, &v.Envelope, &v.State, &v.Deadline)
+	var binding []byte
+	err = row.Scan(&v.Scope.Consumer, &v.Operation, &v.Scope.Owner, &v.Scope.Account, &v.Scope.Generation, &v.Scope.Purpose, &v.StateHash, &v.Envelope, &v.State, &v.Deadline, &binding)
+	if err == nil {
+		v.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	if err != nil {
 		err = service.ErrGatewayNativeIdentity
 	}
@@ -47,11 +51,15 @@ func grokAuthorized(ctx context.Context, s service.GatewayNativeCredentialScope,
 }
 func (r *gatewayGrokRepository) PutGatewayGrokConnect(ctx context.Context, in service.GatewayGrokConnectIntent) (service.GatewayGrokConnectIntent, error) {
 	hash, e := hex.DecodeString(in.StateHash)
-	if !grokAuthorized(ctx, in.Scope, in.Operation) || e != nil || len(hash) != 32 || hex.EncodeToString(hash) != in.StateHash || in.State != "prepared" || !strings.HasPrefix(in.Envelope, "gco1.") || !time.Now().Before(in.Deadline) || in.Deadline.After(time.Now().Add(10*time.Minute)) {
+	if !grokAuthorized(ctx, in.Scope, in.Operation) || !service.GatewayConnectionSelectionAuthorized(ctx, in.Connection) || e != nil || len(hash) != 32 || hex.EncodeToString(hash) != in.StateHash || in.State != "prepared" || !strings.HasPrefix(in.Envelope, "gco1.") || !time.Now().Before(in.Deadline) || in.Deadline.After(time.Now().Add(10*time.Minute)) {
 		return service.GatewayGrokConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
-	args := append(grokArgs(in.Scope, in.Operation), in.StateHash, in.Envelope, in.Deadline)
-	_, err := r.db.ExecContext(ctx, `INSERT INTO gateway_grok_connect_intents (consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,deadline) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(consumer,operation_ref) DO NOTHING`, args...)
+	binding, err := service.EncodeGatewayConnectionSelection(in.Connection)
+	if err != nil {
+		return service.GatewayGrokConnectIntent{}, err
+	}
+	args := append(grokArgs(in.Scope, in.Operation), in.StateHash, in.Envelope, in.Deadline, binding)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO gateway_grok_connect_intents (consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,deadline,connection_binding) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,'')::jsonb) ON CONFLICT(consumer,operation_ref) DO NOTHING`, args...)
 	if err != nil {
 		return service.GatewayGrokConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
@@ -61,7 +69,11 @@ func (r *gatewayGrokRepository) ReadGatewayGrokConnect(ctx context.Context, s se
 	if !grokAuthorized(ctx, s, op) {
 		return service.GatewayGrokConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
-	return scanGrok(r.db.QueryRowContext(ctx, `SELECT `+grokColumns+` FROM gateway_grok_connect_intents`+grokWhere, grokArgs(s, op)...))
+	in, err := scanGrok(r.db.QueryRowContext(ctx, `SELECT `+grokColumns+` FROM gateway_grok_connect_intents`+grokWhere, grokArgs(s, op)...))
+	if err != nil || !service.GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return service.GatewayGrokConnectIntent{}, service.ErrGatewayNativeIdentity
+	}
+	return in, nil
 }
 func (r *gatewayGrokRepository) ClaimGatewayGrokConnect(ctx context.Context, s service.GatewayNativeCredentialScope, op, hash string) (service.GatewayGrokConnectIntent, error) {
 	if !grokAuthorized(ctx, s, op) {
@@ -84,7 +96,7 @@ func (r *gatewayGrokRepository) CompleteGatewayGrokConnect(ctx context.Context, 
 	}
 	defer func() { _ = tx.Rollback() }()
 	current, err := scanGrok(tx.QueryRowContext(ctx, `SELECT `+grokColumns+` FROM gateway_grok_connect_intents`+grokWhere+` FOR UPDATE`, grokArgs(s, op)...))
-	if err != nil || current.State != "exchanging" || current.StateHash != in.Intent.StateHash || current.Envelope != in.Intent.Envelope {
+	if err != nil || current.State != "exchanging" || current.StateHash != in.Intent.StateHash || current.Envelope != in.Intent.Envelope || !service.SameGatewayConnectionSelection(current.Connection, in.Intent.Connection) || !service.GatewayConnectionSelectionAuthorized(ctx, current.Connection) {
 		return out, service.ErrGatewayNativeIdentity
 	}
 	// Same principal may reconnect only to its original durable logical owner.
@@ -113,7 +125,7 @@ func (r *gatewayGrokRepository) CompleteGatewayGrokConnect(ctx context.Context, 
 	if err != nil {
 		return out, service.ErrGatewayNativeIdentity
 	}
-	p := service.GatewayNativeOAuthPhysical{Scope: s, Operation: op, Route: grokRoute(id, birth, s.Generation), Issuer: service.GatewayGrokOAuthIssuer, Subject: account, ProviderAccount: org, CredentialRevision: 1}
+	p := service.GatewayNativeOAuthPhysical{Connection: current.Connection, Scope: s, Operation: op, Route: grokRoute(id, birth, s.Generation), Issuer: service.GatewayGrokOAuthIssuer, Subject: account, ProviderAccount: org, CredentialRevision: 1}
 	for _, observation := range in.Identity.AccountInfo() {
 		observation.CredentialRevision = p.CredentialRevision
 		if storeGatewayAccountInfoTx(ctx, tx, p, observation, false) != nil {
@@ -160,18 +172,22 @@ func (r *gatewayGrokRepository) physicalTxMode(ctx context.Context, s service.Ga
 		return deny(tx)
 	}
 	var birth time.Time
+	var binding []byte
 	var state string
 	projection := "a.credentials->>'oauth_bundle'"
 	if cache {
 		projection = "''"
 	}
-	err = tx.QueryRowContext(ctx, `SELECT a.created_at,c.subject_ref,c.team_ref,`+projection+`,c.refresh_state,c.credential_revision
+	err = tx.QueryRowContext(ctx, `SELECT a.created_at,c.subject_ref,c.team_ref,`+projection+`,c.refresh_state,c.credential_revision,COALESCE(c.connection_binding::text,'')
  FROM gateway_grok_connect_intents c JOIN accounts a ON a.id=c.account_id AND a.created_at=c.native_created_at
  JOIN gateway_grok_principal_claims p ON p.subject_ref=c.subject_ref AND p.team_ref=c.team_ref AND p.consumer=c.consumer AND p.owner_ref=c.owner_ref AND p.account_ref=c.account_ref
  WHERE c.consumer=$1 AND c.operation_ref=$2 AND c.owner_ref=$3 AND c.account_ref=$4 AND c.generation=$5 AND c.purpose=$6 AND c.state='completed'
  AND a.deleted_at IS NULL AND a.platform='grok' AND a.type='oauth' AND a.status='disabled' AND NOT a.schedulable AND a.proxy_id IS NULL AND a.parent_account_id IS NULL
  AND a.extra=jsonb_build_object('gateway_grok_profile_v1',$7::text,'gateway_grok_generation_v1',c.generation::text,'gateway_grok_scope_v1',jsonb_build_object('consumer',c.consumer,'owner',c.owner_ref,'account',c.account_ref,'generation',c.generation::text,'purpose',c.purpose))
- AND public.gateway_oauth_envelope_valid(a.credentials->'oauth_bundle') AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id) FOR SHARE OF c,p`, append(grokArgs(s, op), service.GatewayGrokOAuthResponsesProfile)...).Scan(&birth, &p.Subject, &p.ProviderAccount, &envelope, &state, &p.CredentialRevision)
+ AND public.gateway_oauth_envelope_valid(a.credentials->'oauth_bundle') AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id) FOR SHARE OF c,p`, append(grokArgs(s, op), service.GatewayGrokOAuthResponsesProfile)...).Scan(&birth, &p.Subject, &p.ProviderAccount, &envelope, &state, &p.CredentialRevision, &binding)
+	if err == nil {
+		p.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	p.Route = grokRoute(id, birth, s.Generation)
 	if err != nil || !refresh && state == "exchanging" || expected != nil && !service.SameGatewayNativeDescriptor(*expected, p.Route) {
 		return deny(tx)

@@ -35,67 +35,96 @@ type GatewayAccountCapabilities struct {
 // The caller supplies only an actually mounted profile/anchor. This pure
 // definition never enumerates the broad admin catalog or requests provider HTTP.
 func GatewayNativeAccountCapability(profile, anchor string, info, imports bool) (GatewayAccountCapability, bool) {
-	provider := GatewayAccountInfoProvider(profile)
-	if provider == "" || !GatewayAccountModelIDValid(anchor) {
+	definition, ok := LookupGatewayConnectionProfile(profile)
+	if !ok || !GatewayAccountModelIDValid(anchor) {
 		return GatewayAccountCapability{}, false
 	}
-	out := GatewayAccountCapability{ProfileID: profile, Provider: GatewayAccountCapabilityLabel{ID: provider}, Region: GatewayAccountCapabilityLabel{ID: "global", Label: "Global"}, Protocol: "openai-responses", Models: []GatewayAccountModel{{ModelID: anchor, Tools: GatewayAccountModelChoices{Allowed: []string{"function"}, Default: "function"}}}, Methods: []GatewayAccountConnectionMethod{{Kind: "api_key", Create: true, Reconnect: true}}, AccountInfo: info, LimitsContract: "none", Availability: "enabled"}
-	switch profile {
-	case GatewayAnthropicAPIKeyProfile:
-		out.Provider.Label = "Anthropic"
-		out.Product = GatewayAccountCapabilityLabel{ID: "pay_as_you_go", Label: "Anthropic API"}
-	case GatewayGeminiAPIKeyProfile:
-		out.Provider.Label = "Gemini"
-		out.Product = GatewayAccountCapabilityLabel{ID: "pay_as_you_go", Label: "Gemini API"}
-	case GatewayMiMoResponsesProfile, GatewayLegacyBridgeProfile:
-		out.Provider.Label = "MiMo"
-		out.Product = GatewayAccountCapabilityLabel{ID: "unknown", Label: "MiMo"}
-		out.Region = GatewayAccountCapabilityLabel{ID: "unknown", Label: "Default"}
-	case GatewayOpenRouterResponsesProfile:
-		out.Provider.Label = "OpenRouter"
-		out.Product = GatewayAccountCapabilityLabel{ID: "pay_as_you_go", Label: "OpenRouter credits"}
-	case GatewayNVIDIABuildChatProfile:
-		out.Provider.Label = "NVIDIA Build"
-		out.Product = GatewayAccountCapabilityLabel{ID: "unknown", Label: "NVIDIA API trial (evaluation only)"}
-	case GatewayCodexOAuthResponsesProfile:
-		out.Provider.Label = "OpenAI Codex"
-		out.Product = GatewayAccountCapabilityLabel{ID: "subscription", Label: "ChatGPT subscription"}
-		out.LimitsContract = GatewayAccountLimitsContract
-		out.Methods = []GatewayAccountConnectionMethod{{Kind: "browser", Create: true, Reconnect: true, CompletionInputKind: "callback_url", CallbackMode: "automatic"}, {Kind: "device_code", Create: true, Reconnect: true}}
-		out.Models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"minimal", "low", "medium", "high", "xhigh"}, Default: "high"}
-		out.Models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
-		if imports {
-			out.Methods = append(out.Methods, GatewayAccountConnectionMethod{Kind: "credential_import", Method: "refresh_token", MaxBytes: 65536, Create: true, Reconnect: true}, GatewayAccountConnectionMethod{Kind: "credential_import", Method: "oauth_auth_json", MaxBytes: 65536, Create: true, Reconnect: true})
+	out := GatewayAccountCapability{
+		ProfileID: profile, Provider: definition.Provider, Product: definition.Product,
+		Region: definition.Region, Protocol: definition.Protocol,
+		Models:  GatewayNativeConnectionModels(profile, anchor),
+		Methods: []GatewayAccountConnectionMethod{}, AccountInfo: info,
+		LimitsContract: definition.LimitsContract, Availability: "enabled",
+	}
+	if out.LimitsContract == "unsupported" {
+		out.LimitsContract = "none"
+	}
+	for _, method := range definition.Methods {
+		legacy, ok := gatewayLegacyConnectionMethod(method, imports)
+		if ok {
+			out.Methods = append(out.Methods, legacy)
 		}
-	case GatewayClaudeOAuthMessagesProfile:
-		out.Provider.Label = "Anthropic Claude"
-		out.Product = GatewayAccountCapabilityLabel{ID: "subscription", Label: "Claude subscription"}
-		out.LimitsContract = GatewayAccountLimitsContract
-		out.Methods = []GatewayAccountConnectionMethod{{Kind: "browser", Create: true, Reconnect: true, CompletionInputKind: "authorization_code", CallbackMode: "manual_callback_url"}}
-		out.Models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"low", "medium", "high"}, Default: "medium"}
-		out.Models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
-	case GatewayGrokOAuthResponsesProfile:
-		out.Provider.Label = "Grok Subscription"
-		out.Product = GatewayAccountCapabilityLabel{ID: "subscription", Label: "Grok subscription"}
-		out.LimitsContract = GatewayAccountLimitsContractV2
-		out.Methods = []GatewayAccountConnectionMethod{{Kind: "browser", Create: true, Reconnect: true, CompletionInputKind: "authorization_code", CallbackMode: "manual_callback_url"}}
-	case GatewayKimiCodeResponsesProfile:
-		out.Provider.Label = "Kimi Code"
-		out.Product = GatewayAccountCapabilityLabel{ID: "coding_plan", Label: "Kimi Coding Plan"}
-		out.LimitsContract = GatewayAccountLimitsContractV2
-	case GatewayGLMCodingResponsesProfile:
-		out.Provider.Label = "GLM Coding Plan"
-		out.Product = GatewayAccountCapabilityLabel{ID: "coding_plan", Label: "GLM Coding Plan"}
-		out.LimitsContract = GatewayAccountLimitsContractV2
-	case GatewayMiniMaxMPlanResponsesProfile:
-		out.Provider.Label = "MiniMax M Plan"
-		out.Product = GatewayAccountCapabilityLabel{ID: "m_plan", Label: "MiniMax M Plan"}
-		out.LimitsContract = GatewayAccountLimitsContractV2
-	default:
+	}
+	if len(out.Methods) == 0 {
 		return GatewayAccountCapability{}, false
+	}
+	return out, true
+}
+
+// Both ABI projections use the same native-qualified model anchors. Mutable
+// entitlement is resolved separately by the account-scoped model reader.
+func GatewayNativeConnectionModels(profile, anchor string) []GatewayAccountModel {
+	if _, ok := LookupGatewayConnectionProfile(profile); !ok || !GatewayAccountModelIDValid(anchor) {
+		return nil
+	}
+	models := []GatewayAccountModel{{ModelID: anchor, Tools: GatewayAccountModelChoices{Allowed: []string{"function"}, Default: "function"}}}
+	switch profile {
+	case "typesafe-systemone-apikey-v1":
+		// Native SystemOne has a distinct non-streaming question/criteria protocol.
+		// Its inventory must not claim function tools or qualify a Responses route.
+		models[0].Tools = GatewayAccountModelChoices{Allowed: []string{"none"}, Default: "none"}
+	case GatewayCodexOAuthResponsesProfile:
+		models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"minimal", "low", "medium", "high", "xhigh"}, Default: "high"}
+		models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
+	case GatewayClaudeOAuthMessagesProfile:
+		models[0].Reasoning = &GatewayAccountModelChoices{Allowed: []string{"low", "medium", "high"}, Default: "medium"}
+		models[0].Fast = &GatewayAccountModelChoices{Allowed: []string{"balanced"}, Default: "balanced"}
 	}
 	if GatewayModelCatalogProfile(profile) {
-		out.Models = gatewayCatalogAccountModels(profile, anchor, nil)
+		models = gatewayCatalogAccountModels(profile, anchor, nil)
+	}
+	return models
+}
+
+// Old ingress is an exact semantic alias, never the first similar form. Only
+// the legacy credential policies fit this ABI; new methods have no implicit
+// alias even when they also render a secret or a document input.
+func gatewayLegacyConnectionMethod(method GatewayConnectionMethodDefinition, imports bool) (GatewayAccountConnectionMethod, bool) {
+	out := GatewayAccountConnectionMethod{Create: true, Reconnect: true}
+	if len(method.AllowedCredentialPolicies) != 1 || len(method.ConfigurationRequirements) != 0 {
+		return out, false
+	}
+	switch method.LegacyKind {
+	case "api_key":
+		if method.AllowedCredentialPolicies[0] != "provider_key" {
+			return out, false
+		}
+		out.Kind = "api_key"
+	case "browser":
+		if method.AllowedCredentialPolicies[0] != "subscription_session" || len(method.Interaction.PreflightFields) != 0 {
+			return out, false
+		}
+		out.Kind, out.CompletionInputKind = "browser", method.Interaction.CompletionInputKind
+		out.CallbackMode = "automatic"
+		if method.Interaction.CallbackMode == "manual" {
+			out.CallbackMode = "manual_callback_url"
+		}
+	case "device_code":
+		if method.AllowedCredentialPolicies[0] != "subscription_session" || len(method.Interaction.PreflightFields) != 0 {
+			return out, false
+		}
+		out.Kind = "device_code"
+	case "credential_import:refresh_token", "credential_import:oauth_auth_json":
+		if !imports || method.AllowedCredentialPolicies[0] != "subscription_session" {
+			return out, false
+		}
+		out.Kind, out.MaxBytes = "credential_import", GatewayConnectionInputBytes
+		out.Method = "refresh_token"
+		if method.LegacyKind == "credential_import:oauth_auth_json" {
+			out.Method = "oauth_auth_json"
+		}
+	default:
+		return out, false
 	}
 	return out, true
 }

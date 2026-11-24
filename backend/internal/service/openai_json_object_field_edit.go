@@ -26,7 +26,7 @@ func setStringFieldInJSONObjects(body []byte, field string, edits []jsonObjectSt
 	if len(edits) == 0 {
 		return body, true
 	}
-	out := make([]byte, 0, len(body)+len(edits)*(len(field)+8))
+	out := make([]byte, 0, len(body))
 	last := 0
 	for _, edit := range edits {
 		obj := edit.object

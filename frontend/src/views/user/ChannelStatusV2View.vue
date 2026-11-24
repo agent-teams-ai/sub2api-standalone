@@ -144,7 +144,8 @@
           <span class="mx-0.5 hidden h-5 w-px shrink-0 bg-gray-200 dark:bg-dark-700 md:block" aria-hidden="true"></span>
 
           <Select
-            v-model="matrixGroupBy"
+            :model-value="matrixGroupBy"
+            @update:model-value="value =&gt; { if (value === 'platform' || value === 'platform_group' || value === 'platform_model' || value === 'platform_group_model') matrixGroupBy = value }"
             :options="matrixGroupOptions"
             :placeholder="t('channelMonitorV2.groupBy.label')"
             class="monitor-toolbar-select w-[7.5rem] shrink-0 sm:w-[8.5rem]"

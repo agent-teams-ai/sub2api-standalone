@@ -22,14 +22,16 @@
               />
             </div>
             <Select
-              v-model="filters.platform"
+              :model-value="filters.platform"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.platform = value }"
               :options="platformFilterOptions"
               :placeholder="t('admin.groups.allPlatforms')"
               class="w-44"
               @change="loadGroups"
             />
             <Select
-              v-model="filters.status"
+              :model-value="filters.status"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
               :options="statusOptions"
               :placeholder="t('admin.groups.allStatus')"
               class="w-40"
@@ -37,7 +39,8 @@
             />
             <Select
               v-if="!authStore.isSimpleMode"
-              v-model="filters.is_exclusive"
+              :model-value="filters.is_exclusive"
+              @update:model-value="value =&gt; { if (typeof value === 'string') filters.is_exclusive = value }"
               :options="exclusiveOptions"
               :placeholder="t('admin.groups.allGroups')"
               class="w-44"
@@ -514,7 +517,8 @@
             t("admin.groups.form.platform")
           }}</label>
           <Select
-            v-model="createForm.platform"
+            :model-value="createForm.platform"
+            @update:model-value="value =&gt; { if (typeof value === 'string') createForm.platform = value }"
             :options="platformOptions"
             data-tour="group-form-platform"
             @change="createForm.copy_accounts_from_group_ids = []"
@@ -713,7 +717,8 @@
               t("admin.groups.subscription.type")
             }}</label>
             <Select
-              v-model="createForm.subscription_type"
+              :model-value="createForm.subscription_type"
+              @update:model-value="value =&gt; { if (value === 'standard' || value === 'subscription') createForm.subscription_type = value }"
               :options="subscriptionTypeOptions"
             />
             <p class="input-hint">
@@ -1444,7 +1449,8 @@
               t("admin.groups.claudeCode.fallbackGroup")
             }}</label>
             <Select
-              v-model="createForm.fallback_group_id"
+              :model-value="createForm.fallback_group_id"
+              @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) createForm.fallback_group_id = value }"
               :options="fallbackGroupOptions"
               :placeholder="t('admin.groups.claudeCode.noFallback')"
             />
@@ -1914,7 +1920,8 @@
             t("admin.groups.invalidRequestFallback.title")
           }}</label>
           <Select
-            v-model="createForm.fallback_group_id_on_invalid_request"
+            :model-value="createForm.fallback_group_id_on_invalid_request"
+            @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) createForm.fallback_group_id_on_invalid_request = value }"
             :options="invalidRequestFallbackOptions"
             :placeholder="t('admin.groups.invalidRequestFallback.noFallback')"
           />
@@ -2178,7 +2185,8 @@
             t("admin.groups.form.platform")
           }}</label>
           <Select
-            v-model="editForm.platform"
+            :model-value="editForm.platform"
+            @update:model-value="value =&gt; { if (typeof value === 'string') editForm.platform = value }"
             :options="platformOptions"
             :disabled="true"
             data-tour="group-form-platform"
@@ -2369,7 +2377,7 @@
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.status") }}</label>
-          <Select v-model="editForm.status" :options="editStatusOptions" />
+          <Select :model-value="editForm.status" @update:model-value="value =&gt; { if (value === 'active' || value === 'inactive') editForm.status = value }" :options="editStatusOptions" />
         </div>
 
         <!-- Subscription Configuration -->
@@ -2379,7 +2387,8 @@
               t("admin.groups.subscription.type")
             }}</label>
             <Select
-              v-model="editForm.subscription_type"
+              :model-value="editForm.subscription_type"
+              @update:model-value="value =&gt; { if (value === 'standard' || value === 'subscription') editForm.subscription_type = value }"
               :options="subscriptionTypeOptions"
               :disabled="true"
             />
@@ -3111,7 +3120,8 @@
               t("admin.groups.claudeCode.fallbackGroup")
             }}</label>
             <Select
-              v-model="editForm.fallback_group_id"
+              :model-value="editForm.fallback_group_id"
+              @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) editForm.fallback_group_id = value }"
               :options="fallbackGroupOptionsForEdit"
               :placeholder="t('admin.groups.claudeCode.noFallback')"
             />
@@ -3590,7 +3600,8 @@
             t("admin.groups.invalidRequestFallback.title")
           }}</label>
           <Select
-            v-model="editForm.fallback_group_id_on_invalid_request"
+            :model-value="editForm.fallback_group_id_on_invalid_request"
+            @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) editForm.fallback_group_id_on_invalid_request = value }"
             :options="invalidRequestFallbackOptionsForEdit"
             :placeholder="t('admin.groups.invalidRequestFallback.noFallback')"
           />
@@ -4113,7 +4124,8 @@
                   t("admin.groups.compositeRoutes.matchType")
                 }}</label>
                 <Select
-                  v-model="compositeRouteForm.match_type"
+                  :model-value="compositeRouteForm.match_type"
+                  @update:model-value="value =&gt; { if (value === 'exact' || value === 'prefix') compositeRouteForm.match_type = value }"
                   :options="compositeRouteMatchOptions"
                 />
               </div>
@@ -4122,7 +4134,8 @@
                   t("admin.groups.compositeRoutes.endpoint")
                 }}</label>
                 <Select
-                  v-model="compositeRouteForm.endpoint"
+                  :model-value="compositeRouteForm.endpoint"
+                  @update:model-value="value =&gt; { if (value === 'any' || value === 'messages' || value === 'count_tokens' || value === 'responses' || value === 'chat_completions' || value === 'embeddings' || value === 'images' || value === 'gemini') compositeRouteForm.endpoint = value }"
                   :options="compositeRouteEndpointOptions"
                 />
               </div>
@@ -4134,7 +4147,8 @@
                   t("admin.groups.compositeRoutes.targetPlatform")
                 }}</label>
                 <Select
-                  v-model="compositeRouteForm.target_platform"
+                  :model-value="compositeRouteForm.target_platform"
+                  @update:model-value="value =&gt; { if (typeof value === 'string') compositeRouteForm.target_platform = value }"
                   :options="compositeRoutePlatformOptions"
                 />
               </div>
@@ -4217,7 +4231,8 @@
               />
               <div class="flex gap-2">
                 <Select
-                  v-model="compositePreviewEndpoint"
+                  :model-value="compositePreviewEndpoint"
+                  @update:model-value="value =&gt; { if (value === 'any' || value === 'messages' || value === 'count_tokens' || value === 'responses' || value === 'chat_completions' || value === 'embeddings' || value === 'images' || value === 'gemini') compositePreviewEndpoint = value }"
                   :options="compositeRouteEndpointOptions"
                   class="min-w-0 flex-1"
                 />

@@ -534,7 +534,7 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.metric') }}</label>
-            <Select v-model="draft!.metric_type" :options="metricOptions" />
+            <Select :model-value="draft!.metric_type" @update:model-value="value =&gt; { const option = metricDefinitions.find(option =&gt; option.type === value); if (option !== undefined) draft!.metric_type = option.type }" :options="metricOptions" />
             <div v-if="selectedMetricDefinition" class="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-gray-400">
               <p>{{ selectedMetricDefinition.description }}</p>
               <p>
@@ -551,7 +551,7 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.operator') }}</label>
-            <Select v-model="draft!.operator" :options="operatorOptions" />
+            <Select :model-value="draft!.operator" @update:model-value="value =&gt; { const option = operatorOptions.find(option =&gt; option.value === value); if (option !== undefined) draft!.operator = option.value }" :options="operatorOptions" />
           </div>
 
           <div class="md:col-span-2">
@@ -560,7 +560,8 @@ function cancelDelete() {
               <span v-if="isGroupMetricSelected" class="ml-1 text-red-500">*</span>
             </label>
             <Select
-              v-model="draftGroupId"
+              :model-value="draftGroupId"
+              @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) draftGroupId = value }"
               :options="groupOptions"
               searchable
               :placeholder="t('admin.ops.alertRules.form.groupPlaceholder')"
@@ -578,12 +579,12 @@ function cancelDelete() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.severity') }}</label>
-            <Select v-model="draft!.severity" :options="severityOptions" />
+            <Select :model-value="draft!.severity" @update:model-value="value =&gt; { if (typeof value === 'string') draft!.severity = value }" :options="severityOptions" />
           </div>
 
           <div>
             <label class="input-label">{{ t('admin.ops.alertRules.form.window') }}</label>
-            <Select v-model="draft!.window_minutes" :options="windowOptions" />
+            <Select :model-value="draft!.window_minutes" @update:model-value="value =&gt; { if (typeof value === 'number') draft!.window_minutes = value }" :options="windowOptions" />
           </div>
 
           <div>

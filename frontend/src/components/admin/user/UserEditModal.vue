@@ -32,7 +32,8 @@
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
         <Select
-          v-model="form.role"
+          :model-value="form.role"
+          @update:model-value="value =&gt; { if (value === 'admin' || value === 'user') form.role = value }"
           :options="roleOptions"
           :searchable="false"
         />

@@ -1,0 +1,274 @@
+{
+  "schema": "native-parity-inventory/v1",
+  "sourceRepository": "agent-teams-ai/sub2api-standalone",
+  "nativeCodeRevision": "2d5f681a627aa1410d08a6d2e568c86f47fca449",
+  "reviewedPlanRevision": "0e705c0f5d16493c18781073e26435f0bbe9f1f9",
+  "purpose": "Independent G0 enrollment-row oracle for the actual HTTP/PG/SDK/RR joined qualification; never runtime configuration.",
+  "rows": [
+    {
+      "profileId": "anthropic-messages-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "anthropic-claude-oauth-messages-v1",
+      "methodId": "browser",
+      "credentialVariant": "full_scope_oauth_code"
+    },
+    {
+      "profileId": "anthropic-claude-oauth-messages-v1",
+      "methodId": "cookie_oauth",
+      "credentialVariant": "session_key_assisted_oauth"
+    },
+    {
+      "profileId": "anthropic-claude-oauth-messages-v1",
+      "methodId": "setup_token_code",
+      "credentialVariant": "inference_scope_code"
+    },
+    {
+      "profileId": "anthropic-claude-oauth-messages-v1",
+      "methodId": "setup_token_cookie",
+      "credentialVariant": "session_key_assisted_inference_scope"
+    },
+    {
+      "profileId": "anthropic-bedrock-messages-v1",
+      "methodId": "aws_sigv4",
+      "credentialVariant": "aws_access_key"
+    },
+    {
+      "profileId": "anthropic-bedrock-messages-v1",
+      "methodId": "aws_sigv4",
+      "credentialVariant": "aws_temporary_session_credentials"
+    },
+    {
+      "profileId": "anthropic-bedrock-messages-v1",
+      "methodId": "bedrock_api_key",
+      "credentialVariant": "bedrock_bearer_key"
+    },
+    {
+      "profileId": "anthropic-vertex-messages-v1",
+      "methodId": "vertex_service_account",
+      "credentialVariant": "google_service_account_json"
+    },
+    {
+      "profileId": "gemini-vertex-chat-v1",
+      "methodId": "vertex_service_account",
+      "credentialVariant": "google_service_account_json"
+    },
+    {
+      "profileId": "gemini-openai-chat-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "gemini-google-one-responses-oauth-v1",
+      "methodId": "browser",
+      "credentialVariant": "google_oauth_google_one"
+    },
+    {
+      "profileId": "gemini-code-assist-responses-oauth-v1",
+      "methodId": "browser",
+      "credentialVariant": "google_oauth_code_assist"
+    },
+    {
+      "profileId": "gemini-ai-studio-responses-oauth-v1",
+      "methodId": "browser",
+      "credentialVariant": "google_oauth_ai_studio"
+    },
+    {
+      "profileId": "gemini-vertex-chat-v1",
+      "methodId": "vertex_api_key",
+      "credentialVariant": "project_region"
+    },
+    {
+      "profileId": "gemini-vertex-chat-v1",
+      "methodId": "vertex_api_key",
+      "credentialVariant": "express_projectless"
+    },
+    {
+      "profileId": "openai-api-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "browser",
+      "credentialVariant": "refreshable_oauth"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "device_code",
+      "credentialVariant": "refreshable_oauth"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "refresh_token",
+      "credentialVariant": "codex_refresh_token"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "mobile_refresh_token",
+      "credentialVariant": "mobile_client_refresh_token"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "auth_json",
+      "credentialVariant": "refreshable_auth_json"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "auth_json",
+      "credentialVariant": "refreshable_auth_json_with_supplied_at_and_claims"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "raw_access_token"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "json_accessToken"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "json_access_token"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "at_only_auth_json"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "at_plus_rt_auth_json"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_session",
+      "credentialVariant": "agent_identity_auth_json"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "agent_identity",
+      "credentialVariant": "agent_identity_auth_json"
+    },
+    {
+      "profileId": "openai-codex-oauth-responses-v1",
+      "methodId": "codex_pat",
+      "credentialVariant": "personal_access_token_at_prefix"
+    },
+    {
+      "profileId": "grok-api-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "grok-subscription-responses-oauth-v1",
+      "methodId": "browser",
+      "credentialVariant": "build_oauth"
+    },
+    {
+      "profileId": "grok-subscription-responses-oauth-v1",
+      "methodId": "refresh_token",
+      "credentialVariant": "build_refresh_token"
+    },
+    {
+      "profileId": "grok-subscription-responses-oauth-v1",
+      "methodId": "sso",
+      "credentialVariant": "web_sso_cookie"
+    },
+    {
+      "profileId": "antigravity-responses-oauth-v1",
+      "methodId": "browser",
+      "credentialVariant": "google_oauth"
+    },
+    {
+      "profileId": "antigravity-responses-oauth-v1",
+      "methodId": "refresh_token",
+      "credentialVariant": "google_refresh_token"
+    },
+    {
+      "profileId": "antigravity-target-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "upstream_api_key"
+    },
+    {
+      "profileId": "kimi-payg-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "kimi-code-global-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "glm-payg-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "glm-coding-global-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "deepseek-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "minimax-payg-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "minimax-mplan-global-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "opencode-go-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "opencode-zen-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "command-code-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "cline-chat-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "typesafe-systemone-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "openai-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "openrouter-openai-responses-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    },
+    {
+      "profileId": "nvidia-build-chat-apikey-v1",
+      "methodId": "api_key",
+      "credentialVariant": "provider_api_key"
+    }
+  ]
+}

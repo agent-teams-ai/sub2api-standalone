@@ -171,9 +171,34 @@ func TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence(t *testing.
 	require.NoError(t, err)
 	provider := uuid.NewString()
 	var checks atomic.Int32
+	var modelReads atomic.Int32
+	var modelToken atomic.Value
+	modelToken.Store(bundle.AccessToken)
 	check := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		checks.Add(1)
 		require.Equal(t, "chatgpt.com", r.Host)
+		if r.URL.Path == "/backend-api/settings/account_user_setting" {
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.Equal(t, "Bearer "+bundle.AccessToken, r.Header.Get("Authorization"))
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.URL.Path == "/backend-api/codex/models" {
+			modelReads.Add(1)
+			require.Equal(t, http.MethodGet, r.Method)
+			require.Equal(t, service.CodexCanonicalClientVersion(), r.URL.Query().Get("client_version"))
+			require.Equal(t, service.CodexCanonicalClientVersion(), r.Header.Get("Version"))
+			require.Equal(t, service.CodexCanonicalUserAgent(), r.Header.Get("User-Agent"))
+			expectedToken, ok := modelToken.Load().(string)
+			require.True(t, ok)
+			require.Equal(t, "Bearer "+expectedToken, r.Header.Get("Authorization"))
+			require.Equal(t, provider, r.Header.Get("ChatGPT-Account-Id"))
+			require.Empty(t, r.Header.Get("Cookie"))
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []any{map[string]any{"slug": service.GatewayCodexOAuthModel}}})
+			return
+		}
+		checks.Add(1)
 		require.Equal(t, "/backend-api/accounts/check/v4-2023-04-27", r.URL.Path)
 		require.Equal(t, "Bearer "+bundle.AccessToken, r.Header.Get("Authorization"))
 		_, _ = fmt.Fprintf(w, `{"accounts":{"unrelated-workspace":{"account":{"account_id":%q}}}}`, provider)
@@ -197,6 +222,7 @@ func TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence(t *testing.
 	require.Equal(t, "pending", pending.Qualification)
 	require.Nil(t, pending.Native)
 	require.Zero(t, checks.Load())
+	require.Zero(t, modelReads.Load())
 	completed, err := connect.CompleteCallback(ownerCtx, authorizeURL.Query().Get("state"), uuid.NewString())
 	require.NoError(t, err)
 	require.Equal(t, "completed", completed.State)
@@ -266,6 +292,7 @@ func TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence(t *testing.
 	_, err = db.ExecContext(ctx, `UPDATE gateway_oauth_identity_reservations SET subject=$1 WHERE account_id=$2`, uuid.NewString(), staged.AccountID)
 	require.Error(t, err)
 	limitsSnapshot := gatewayAccountLimitsPostgresFixture(t, ownerCtx, db, repo, dispatch, scope, operation, *out.Native)
+	require.Positive(t, modelReads.Load(), "the allowed model must come from the protected catalog")
 	_, _, release, err := dispatchRepo.LockGatewayNativeOAuthDispatch(ownerCtx, scope, operation, staged.AccountID)
 	require.NoError(t, err)
 	defer release()
@@ -335,6 +362,7 @@ func TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence(t *testing.
 	case <-refreshCtx.Done():
 		t.Fatal("refresh did not complete after row lock release")
 	}
+	modelToken.Store(next.AccessToken)
 	a, p, release, err := dispatchRepo.LockGatewayNativeOAuthDispatch(ownerCtx, scope, operation, staged.AccountID)
 	require.NoError(t, err)
 	if release != nil {
@@ -447,6 +475,7 @@ func TestGatewayNativeOAuthDispatchPostgresQualificationRefreshFence(t *testing.
 	secondCtx, secondScope := oauthPGScope(t, scope.Consumer, scope.Owner, uuid.NewString())
 	secondOperation := uuid.NewString()
 	bundle = bundleFor(uuid.NewString())
+	modelToken.Store(bundle.AccessToken)
 	provider = uuid.NewString()
 	secondBegin, err := connect.BeginConnect(secondCtx, secondScope, secondOperation)
 	require.NoError(t, err)

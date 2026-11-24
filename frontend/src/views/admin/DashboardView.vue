@@ -288,7 +288,8 @@
                 >
                 <div class="w-28">
                   <Select
-                    v-model="granularity"
+                    :model-value="granularity"
+                    @update:model-value="value =&gt; { if (value === 'day' || value === 'hour') granularity = value }"
                     :options="granularityOptions"
                     @change="loadChartData"
                   />

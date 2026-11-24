@@ -182,9 +182,31 @@ func vertexServiceAccountCacheKey(account *Account, key *vertexServiceAccountKey
 // getVertexServiceAccountAccessToken obtains an access token for a Vertex service account,
 // using the shared cache and distributed lock to avoid redundant exchanges.
 func getVertexServiceAccountAccessToken(ctx context.Context, cache GeminiTokenCache, account *Account) (string, error) {
+	if account != nil && account.Extra[GatewayNativeConnectionAccountExtraKey] == true {
+		if !GatewayNativeConnectionAccountAuthorized(ctx, account) {
+			return "", ErrGatewayNativeIdentity
+		}
+		// Protected credentials are transient views of an exact physical
+		// generation. The admin cache is shared by provider key identity and
+		// cannot establish this account's owner/version fences.
+		cache = nil
+		ctx = WithHTTPUpstreamRedirectsDisabled(ctx)
+	}
 	key, err := parseVertexServiceAccountKey(account)
 	if err != nil {
 		return "", err
+	}
+	if account != nil && account.Extra[GatewayNativeConnectionAccountExtraKey] == true {
+		client, ok := ctx.Value(gatewayNativeCloudTokenClientKey{}).(*http.Client)
+		if !ok || client == nil {
+			return "", ErrGatewayNativeIdentity
+		}
+		key.TokenURI = vertexDefaultTokenURL
+		token, _, err := exchangeVertexServiceAccountTokenAtURL(ctx, key, client, vertexDefaultTokenURL)
+		if err != nil || !gatewayCloudSecretValid(token, 32768, true) {
+			return "", ErrGatewayNativeIdentity
+		}
+		return token, nil
 	}
 	cacheKey := vertexServiceAccountCacheKey(account, key)
 
@@ -250,11 +272,29 @@ func newVertexServiceAccountHTTPClient(proxyURL string) (*http.Client, error) {
 }
 
 func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAccountKey, proxyURL string) (string, time.Duration, error) {
+	client, err := newVertexServiceAccountHTTPClient(proxyURL)
+	if err != nil {
+		return "", 0, fmt.Errorf("configure service account token proxy: %w", err)
+	}
+	if HTTPUpstreamRedirectsDisabled(ctx) {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	return exchangeVertexServiceAccountTokenWithClient(ctx, key, client)
+}
+
+func exchangeVertexServiceAccountTokenWithClient(ctx context.Context, key *vertexServiceAccountKey, client *http.Client) (string, time.Duration, error) {
+	return exchangeVertexServiceAccountTokenAtURL(ctx, key, client, vertexServiceAccountTokenURL)
+}
+
+// The token endpoint is supplied by package-owned composition, never by the
+// imported service-account TokenURI. Protected Native calls pin Google even
+// when ordinary fixture composition uses a local HTTP server.
+func exchangeVertexServiceAccountTokenAtURL(ctx context.Context, key *vertexServiceAccountKey, client *http.Client, tokenURL string) (string, time.Duration, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":   key.ClientEmail,
 		"scope": vertexCloudPlatformScope,
-		"aud":   key.TokenURI,
+		"aud":   tokenURL,
 		"iat":   now.Unix(),
 		"exp":   now.Add(time.Hour).Unix(),
 	}
@@ -275,16 +315,12 @@ func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAc
 	values.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 	values.Set("assertion", assertion)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, key.TokenURI, strings.NewReader(values.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client, err := newVertexServiceAccountHTTPClient(proxyURL)
-	if err != nil {
-		return "", 0, fmt.Errorf("configure service account token proxy: %w", err)
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("service account token request failed: %w", err)
@@ -311,6 +347,10 @@ func exchangeVertexServiceAccountToken(ctx context.Context, key *vertexServiceAc
 	}
 	if strings.TrimSpace(parsed.AccessToken) == "" {
 		return "", 0, errors.New("service account token response missing access_token")
+	}
+	if _, protected := ctx.Value(gatewayNativeCloudTokenClientKey{}).(*http.Client); protected &&
+		(parsed.ExpiresIn <= 0 || parsed.ExpiresIn > 86400 || !strings.EqualFold(parsed.TokenType, "Bearer")) {
+		return "", 0, ErrGatewayNativeIdentity
 	}
 	ttl := time.Duration(parsed.ExpiresIn) * time.Second
 	if ttl <= 0 {

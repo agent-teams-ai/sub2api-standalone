@@ -50,9 +50,9 @@ func gatewayOAuthPhysicalRead(ctx context.Context, tx *sql.Tx, scope service.Gat
 	}
 	a := &service.Account{}
 	p := service.GatewayNativeOAuthPhysical{Scope: scope, Operation: operation}
-	var credentials, extra []byte
+	var credentials, extra, binding []byte
 	err := tx.QueryRowContext(ctx, `SELECT a.id,a.created_at,a.platform,a.type,a.status,a.schedulable,
- a.proxy_id,a.parent_account_id,a.expires_at,a.credentials,a.extra,r.issuer,r.subject
+ a.proxy_id,a.parent_account_id,a.expires_at,a.credentials,a.extra,r.issuer,r.subject,COALESCE(c.connection_binding::text,'')
  FROM accounts a JOIN gateway_oauth_identity_reservations r ON r.account_id=a.id
  JOIN gateway_oauth_connect_intents c ON c.consumer=r.consumer AND c.owner_ref=r.owner_ref
  AND c.account_ref=r.account_ref AND c.generation=r.generation AND c.purpose='provider-oauth-bundle-v1'
@@ -71,7 +71,10 @@ func gatewayOAuthPhysicalRead(ctx context.Context, tx *sql.Tx, scope service.Gat
  AND gateway_oauth_credential_version(a.credentials)>0
  AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id)
  FOR SHARE OF a,r,c`, id, scope.Consumer, scope.Owner, scope.Account, scope.Generation, operation).Scan(
-		&a.ID, &a.CreatedAt, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ProxyID, &a.ParentAccountID, &a.ExpiresAt, &credentials, &extra, &p.Issuer, &p.Subject)
+		&a.ID, &a.CreatedAt, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ProxyID, &a.ParentAccountID, &a.ExpiresAt, &credentials, &extra, &p.Issuer, &p.Subject, &binding)
+	if err == nil {
+		p.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	if err != nil || json.Unmarshal(credentials, &a.Credentials) != nil || json.Unmarshal(extra, &a.Extra) != nil {
 		return nil, p, service.ErrGatewayNativeIdentity
 	}

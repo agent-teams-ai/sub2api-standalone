@@ -328,7 +328,13 @@ func TestGatewayNativeOpenRouterAcceptsReplayedReasoningText(t *testing.T) {
 	} {
 		require.False(t, gatewayNativeProviderTextInput(GatewayOpenRouterResponsesProfile, []byte(raw)), raw)
 	}
-	require.False(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(message)))
+	// Native response codecs also emit this exact empty marker. Preserve the
+	// unchanged assistant output while still refusing probabilities and nulls.
+	require.True(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(message)))
+	for _, marker := range []string{`[{"token":"x"}]`, `null`} {
+		require.False(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(strings.Replace(message, `"logprobs":[]`, `"logprobs":`+marker, 1))))
+	}
+	require.False(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(strings.Replace(message, `"role":"assistant"`, `"role":"user"`, 1))))
 	// A profile that never returned reasoning content or a format still refuses them.
 	require.False(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(accepted[0])))
 	require.False(t, gatewayNativeProviderTextInput(GatewayKimiCodeResponsesProfile, []byte(accepted[3])))

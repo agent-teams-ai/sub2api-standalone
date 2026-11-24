@@ -9,7 +9,7 @@
           {{ t('admin.usage.tokenRanking.userCount', { count: items.length }) }}
         </span>
         <div class="w-28">
-          <Select v-model="limit" :options="limitOptions" @change="load" />
+          <Select :model-value="limit" @update:model-value="value =&gt; { if (typeof value === 'number') limit = value }" :options="limitOptions" @change="load" />
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
-import Select, { type SelectOption } from '@/components/common/Select.vue'
+import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
 
@@ -250,7 +250,7 @@ describe('user UsageView', () => {
 
     expect(list.mock.calls).toEqual([[1, 100], [2, 100]])
     const usageKeySelect = wrapper.findAllComponents(Select).find((select) =>
-      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+      select.props('options').some((option) => option.label === 'All API Keys')
     )!
     expect(usageKeySelect.props('options')).toHaveLength(102)
     expect(usageKeySelect.props('options')).toContainEqual({ value: laterKey.id, label: laterKey.name })
@@ -269,7 +269,7 @@ describe('user UsageView', () => {
     await flushPromises()
 
     const errorKeySelect = wrapper.findAllComponents(Select).find((select) =>
-      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+      select.props('options').some((option) => option.label === 'All API Keys')
     )!
     expect(errorKeySelect.props('options')).toHaveLength(102)
     expect(errorKeySelect.props('options')).toContainEqual({ value: laterKey.id, label: laterKey.name })
@@ -294,10 +294,67 @@ describe('user UsageView', () => {
 
     expect(list.mock.calls).toEqual([[1, 100]])
     const keySelect = wrapper.findAllComponents(Select).find((select) =>
-      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+      select.props('options').some((option) => option.label === 'All API Keys')
     )!
     expect(keySelect.props('options')).toEqual([{ value: null, label: 'All API Keys' }])
     expect(getAvailable).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([
+    { label: 'All API Keys', field: 'api_key_id', selected: 1, invalid: false, cleared: undefined },
+    { label: 'All groups', field: 'group_id', selected: 1, invalid: false, cleared: undefined },
+    { label: 'All models', field: 'model', selected: 'gpt-5.4', invalid: false, cleared: undefined },
+    { label: 'All types', field: 'request_type', selected: 'stream', invalid: 'not-a-request-type', cleared: undefined },
+    { label: 'All Requests', field: 'native_compaction_v2', selected: true, invalid: 'true', cleared: null },
+    { label: 'All billing types', field: 'billing_type', selected: 1, invalid: false, cleared: null },
+    { label: 'All billing modes', field: 'billing_mode', selected: 'token', invalid: false, cleared: null },
+  ])('preserves selection and clearing at the $field query boundary', async ({ label, field, selected, invalid, cleared }) => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const select = wrapper.findAllComponents(Select).find((candidate) =>
+      candidate.props('options').some((option) => option.label === label)
+    )
+    if (!select) throw new Error(`Missing usage filter: ${label}`)
+
+    select.vm.$emit('update:modelValue', selected)
+    select.vm.$emit('change', selected)
+    await flushPromises()
+    expect(query.mock.lastCall?.[0][field]).toBe(selected)
+
+    select.vm.$emit('update:modelValue', invalid)
+    select.vm.$emit('change', invalid)
+    await flushPromises()
+    expect(query.mock.lastCall?.[0][field]).toBe(selected)
+
+    select.vm.$emit('update:modelValue', null)
+    select.vm.$emit('change', null)
+    await flushPromises()
+    expect(select.props('modelValue')).toBeNull()
+    expect(query.mock.lastCall?.[0][field]).toBe(cleared)
+    wrapper.unmount()
+  })
+
+  it('keeps free-text model search and clearing in the error filter', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const errorTab = wrapper.findAll('button').find((button) => button.text() === 'Error records')
+    if (!errorTab) throw new Error('Missing error records tab')
+    await errorTab.trigger('click')
+    await flushPromises()
+    const select = wrapper.findAllComponents(Select).find((candidate) => candidate.props('creatable'))
+    if (!select) throw new Error('Missing free-text model filter')
+
+    select.vm.$emit('update:modelValue', 'new-provider-model')
+    select.vm.$emit('change', 'new-provider-model')
+    await flushPromises()
+    expect(listMyErrorRequests.mock.lastCall?.[0].model).toBe('new-provider-model')
+
+    select.vm.$emit('update:modelValue', null)
+    select.vm.$emit('change', null)
+    await flushPromises()
+    expect(select.props('modelValue')).toBeNull()
+    expect(listMyErrorRequests.mock.lastCall?.[0].model).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -315,7 +372,7 @@ describe('user UsageView', () => {
 
     expect(list.mock.calls).toEqual([[1, 100], [2, 100]])
     const keySelect = wrapper.findAllComponents(Select).find((select) =>
-      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+      select.props('options').some((option) => option.label === 'All API Keys')
     )!
     expect(keySelect.props('options')).toHaveLength(101)
     expect(keySelect.props('options')).toContainEqual({ value: 100, label: 'key-100' })
@@ -471,7 +528,7 @@ describe('user UsageView', () => {
     window.URL.createObjectURL = vi.fn(() => 'blob:usage-export')
     window.URL.revokeObjectURL = vi.fn()
     let filename = ''
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       filename = this.download
     })
 
@@ -484,7 +541,7 @@ describe('user UsageView', () => {
       })
 
       const keySelect = wrapper.findAllComponents(Select).find((select) =>
-        select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+        select.props('options').some((option) => option.label === 'All API Keys')
       )!
       keySelect.vm.$emit('update:modelValue', 1)
       keySelect.vm.$emit('change', 1)
@@ -632,7 +689,7 @@ describe('UsageView subscription feature flag', () => {
 
   function billingTypeSelect(wrapper: ReturnType<typeof mountUsageView>) {
     return wrapper.findAllComponents(Select).find((select) =>
-      select.props('options').some((option: SelectOption) => option.label === 'Subscription')
+      select.props('options').some((option) => option.label === 'Subscription')
     )
   }
 

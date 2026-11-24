@@ -37,22 +37,24 @@ type Config struct {
 	ListenAddress string `json:"listenAddress"`
 	// Public inference has an independent listener and admission budget. The
 	// private control listener never accepts execution capabilities from clients.
-	PublicListenAddress string             `json:"publicListenAddress,omitempty"`
-	PublicMaxActive     int64              `json:"publicMaxActive,omitempty"`
-	PostgresDSN         string             `json:"postgresDSN"`
-	Authority           AuthorityConfig    `json:"authority"`
-	Custody             CustodyConfig      `json:"custody"`
-	Peers               []ControlPeer      `json:"peers"`
-	Profile             ProfileConfig      `json:"profile"`
-	MaxEntries          int64              `json:"maxEntries"`
-	OAuth               *OAuthConfig       `json:"oauth,omitempty"`
-	OpenRouter          *ProfileConfig     `json:"openRouter,omitempty"`
-	NVIDIA              *ProfileConfig     `json:"nvidia,omitempty"`
-	AnthropicAPI        *ProfileConfig     `json:"anthropicApi,omitempty"`
-	GeminiAPI           *ProfileConfig     `json:"geminiApi,omitempty"`
-	Claude              *ProfileConfig     `json:"claude,omitempty"`
-	CodingPlans         []CodingPlanConfig `json:"codingPlans,omitempty"`
-	Grok                *GrokConfig        `json:"grok,omitempty"`
+	PublicListenAddress string                   `json:"publicListenAddress,omitempty"`
+	PublicMaxActive     int64                    `json:"publicMaxActive,omitempty"`
+	PostgresDSN         string                   `json:"postgresDSN"`
+	Authority           AuthorityConfig          `json:"authority"`
+	Custody             CustodyConfig            `json:"custody"`
+	Peers               []ControlPeer            `json:"peers"`
+	Profile             ProfileConfig            `json:"profile"`
+	MaxEntries          int64                    `json:"maxEntries"`
+	OAuth               *OAuthConfig             `json:"oauth,omitempty"`
+	OpenRouter          *ProfileConfig           `json:"openRouter,omitempty"`
+	NVIDIA              *ProfileConfig           `json:"nvidia,omitempty"`
+	AnthropicAPI        *ProfileConfig           `json:"anthropicApi,omitempty"`
+	GeminiAPI           *ProfileConfig           `json:"geminiApi,omitempty"`
+	Claude              *ProfileConfig           `json:"claude,omitempty"`
+	CodingPlans         []CodingPlanConfig       `json:"codingPlans,omitempty"`
+	Grok                *GrokConfig              `json:"grok,omitempty"`
+	NativeProfiles      []NativeProfileConfig    `json:"nativeProfiles,omitempty"`
+	GeminiOAuth         *NativeGeminiOAuthConfig `json:"geminiOAuth,omitempty"`
 }
 
 // The optional OAuth key is separate from custody, inherited in protected FD6,
@@ -67,6 +69,16 @@ type OAuthConfig struct {
 type CodingPlanConfig struct {
 	ProfileID string        `json:"profileId"`
 	Profile   ProfileConfig `json:"profile"`
+}
+type NativeProfileConfig struct {
+	ProfileID string        `json:"profileId"`
+	Profile   ProfileConfig `json:"profile"`
+}
+
+type NativeGeminiOAuthConfig struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	Scopes       string `json:"scopes,omitempty"`
 }
 type GrokConfig struct {
 	Profile             ProfileConfig `json:"profile"`
@@ -172,7 +184,7 @@ func checkValue(raw []byte, typ reflect.Type, depth int) error {
 			return ErrDenied
 		}
 	case reflect.Pointer:
-		if (typ != reflect.TypeOf((*OAuthConfig)(nil)) && typ != reflect.TypeOf((*ProfileConfig)(nil)) && typ != reflect.TypeOf((*GrokConfig)(nil))) || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		if (typ != reflect.TypeOf((*OAuthConfig)(nil)) && typ != reflect.TypeOf((*ProfileConfig)(nil)) && typ != reflect.TypeOf((*GrokConfig)(nil)) && typ != reflect.TypeOf((*NativeGeminiOAuthConfig)(nil))) || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			return ErrDenied
 		}
 		return checkValue(raw, typ.Elem(), depth+1)
@@ -302,7 +314,35 @@ func (c Config) validate() (*service.GatewayNativeCredentialCustody, error) {
 			}
 		}
 	}
+	if len(c.NativeProfiles) > 128 {
+		return nil, ErrDenied
+	}
+	seenNative := map[string]bool{}
+	for _, candidate := range c.NativeProfiles {
+		if _, found := service.LookupGatewayConnectionProfile(candidate.ProfileID); !found || seenNative[candidate.ProfileID] || !candidate.Profile.valid() {
+			return nil, ErrDenied
+		}
+		seenNative[candidate.ProfileID] = true
+	}
+	if c.GeminiOAuth != nil {
+		custom := c.GeminiOAuth
+		if custom.ClientID == "" || len(custom.ClientID) > 512 || custom.ClientSecret == "" || len(custom.ClientSecret) > 2048 || len(custom.Scopes) > 4096 ||
+			strings.IndexFunc(custom.ClientID+custom.ClientSecret, func(r rune) bool { return r <= ' ' || r >= 127 }) >= 0 ||
+			strings.IndexFunc(custom.Scopes, func(r rune) bool { return r < ' ' || r >= 127 }) >= 0 {
+			return nil, ErrDenied
+		}
+	}
 	return adapter, nil
+}
+
+func (c Config) nativeProfiles() []gatewaytransport.QualifiedProfile {
+	profiles := make([]gatewaytransport.QualifiedProfile, 0, len(c.NativeProfiles))
+	for _, candidate := range c.NativeProfiles {
+		profile := candidate.Profile.qualified()
+		profile.Profile = candidate.ProfileID
+		profiles = append(profiles, profile)
+	}
+	return profiles
 }
 
 func (p ProfileConfig) valid() bool {

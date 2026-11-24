@@ -116,6 +116,9 @@ func TestExchangeVertexServiceAccountToken_AccountNotFoundIsRecognized(t *testin
 	key, err := parseVertexServiceAccountKey(newVertexTokenTestAccount(t))
 	require.NoError(t, err)
 
+	// A forged token_uri on the already-parsed key must not affect either
+	// the JWT audience or the HTTP destination.
+	key.TokenURI = "http://127.0.0.1:1/attacker-controlled"
 	_, _, err = exchangeVertexServiceAccountToken(contextWithTestTimeout(t), key, "")
 
 	require.EqualError(t, err, "service account token request returned 400: Invalid grant: account not found")

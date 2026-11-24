@@ -22,13 +22,15 @@ import (
 )
 
 type Account struct {
-	ID                      int64
-	Name                    string
-	Notes                   *string
-	Platform                string
-	Type                    string
-	Credentials             map[string]any
-	Extra                   map[string]any
+	ID          int64
+	Name        string
+	Notes       *string
+	Platform    string
+	Type        string
+	Credentials map[string]any
+	Extra       map[string]any
+	// AccountInfo is a bounded read projection, never persisted in credentials/extra.
+	AccountInfo             *GatewayAccountInfo `json:"-"`
 	ProxyID                 *int64
 	ProxyFallbackOriginID   *int64
 	ProxyFallbackOriginName *string // 仅展示用

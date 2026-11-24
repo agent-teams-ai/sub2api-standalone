@@ -14,15 +14,24 @@ func RegisterGatewayAccountInfoRoutes(group *gin.RouterGroup, reader *service.Ga
 	if group == nil || group.BasePath() != "/" || reader == nil || authorize == nil {
 		return service.ErrGatewayNativeIdentity
 	}
-	group.POST("/private/native/v1/account-info/read", authorize, func(c *gin.Context) {
-		c.Header("Cache-Control", "private, no-store")
-		raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 4097))
-		in, valid := DecodeGatewayAccountLimitsInput(raw)
-		if err != nil || !valid {
-			c.JSON(http.StatusBadRequest, gin.H{"code": "account_info_unavailable"})
-			return
+	read := func(legacy bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			c.Header("Cache-Control", "private, no-store")
+			raw, err := io.ReadAll(io.LimitReader(c.Request.Body, 4097))
+			in, valid := DecodeGatewayAccountLimitsInput(raw)
+			if err != nil || !valid {
+				c.JSON(http.StatusBadRequest, gin.H{"code": "account_info_unavailable"})
+				return
+			}
+			result := reader.Read(c.Request.Context(), in)
+			if legacy {
+				c.JSON(http.StatusOK, service.ProjectGatewayAccountInfoV1(result))
+				return
+			}
+			c.JSON(http.StatusOK, result)
 		}
-		c.JSON(http.StatusOK, reader.Read(c.Request.Context(), in))
-	})
+	}
+	group.POST("/private/native/v1/account-info/read", authorize, read(true))
+	group.POST("/private/native/v2/account-info/read", authorize, read(false))
 	return nil
 }

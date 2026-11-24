@@ -32,6 +32,11 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 	if err != nil {
 		return nil, 0, err
 	}
+	infoAccounts := make([]*Account, len(accounts))
+	for i := range accounts {
+		infoAccounts[i] = &accounts[i]
+	}
+	populateAdminAccountInfo(ctx, s.accountRepo, infoAccounts)
 	return accounts, result.Total, nil
 }
 
@@ -57,6 +62,9 @@ func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, 
 	if HasGatewayNativeIdentity(a) {
 		return nil, ErrGatewayNativeIdentity
 	}
+	if err == nil {
+		populateAdminAccountInfo(ctx, s.accountRepo, []*Account{a})
+	}
 	return a, err
 }
 
@@ -75,6 +83,7 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 			return nil, ErrGatewayNativeIdentity
 		}
 	}
+	populateAdminAccountInfo(ctx, s.accountRepo, accounts)
 	return accounts, nil
 }
 
@@ -586,6 +595,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	recordAdminDeclaredTierAfterCommit(ctx, s.accountRepo, account, input.Credentials)
+
 	AfterAccountCommit(ctx, func(_ context.Context) {
 		// OAuth 账号：创建后异步设置隐私。
 		// 使用 Ensure（幂等）而非 Force：新建账号 Extra 为空时效果相同，但更安全。
@@ -970,6 +981,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	recordAdminDeclaredTierAfterCommit(ctx, s.accountRepo, updated, input.Credentials)
+	populateAdminAccountInfo(ctx, s.accountRepo, []*Account{updated})
 	return updated, nil
 }
 
@@ -1775,7 +1788,7 @@ func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, id int64) erro
 // 未设置则调用 disableOpenAITraining 并持久化到 Extra，返回设置的 mode 值。
 func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Account) string {
 	// 影子账号不持凭据，隐私设置由母账号管理，直接跳过。
-	if account.IsCredentialShadow() {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() {
 		return ""
 	}
 	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
@@ -1784,7 +1797,7 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 	if s.privacyClientFactory == nil {
 		return ""
 	}
-	if shouldSkipOpenAIPrivacyEnsure(account.Extra) {
+	if hasCurrentAdminTrainingInfo(ctx, s.accountRepo, account) {
 		return ""
 	}
 
@@ -1800,19 +1813,13 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 		}
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
-	if mode == "" {
-		return ""
-	}
-
-	_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode})
-	return mode
+	return persistAdminOpenAIPrivacy(ctx, s.accountRepo, account, s.privacyClientFactory, proxyURL)
 }
 
 // ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
 func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Account) string {
 	// 影子账号不持凭据,隐私由母账号管理,直接跳过(与 EnsureOpenAIPrivacy 一致——外审第4轮)。
-	if account.IsCredentialShadow() {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() {
 		return ""
 	}
 	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
@@ -1834,29 +1841,17 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 		}
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
-	if mode == "" {
-		return ""
-	}
-
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
-		logger.LegacyPrintf("service.admin", "force_update_openai_privacy_mode_failed: account_id=%d err=%v", account.ID, err)
-		return mode
-	}
-	if account.Extra == nil {
-		account.Extra = make(map[string]any)
-	}
-	account.Extra["privacy_mode"] = mode
-	return mode
+	return persistAdminOpenAIPrivacy(ctx, s.accountRepo, account, s.privacyClientFactory, proxyURL)
 }
 
 // EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号隐私状态。
 // 仅当 privacy_mode 已成功设置（"privacy_set"）时跳过；
 // 未设置或之前失败（"privacy_set_failed"）均会重试。
 func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account *Account) string {
-	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() || account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}
+	observeAdminAntigravityInfo(ctx, s.accountRepo, s.proxyRepo, account)
 	if account.Extra != nil {
 		if existing, ok := account.Extra["privacy_mode"].(string); ok && existing == AntigravityPrivacySet {
 			return existing
@@ -1892,9 +1887,10 @@ func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account
 
 // ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
 func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account *Account) string {
-	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() || account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}
+	observeAdminAntigravityInfo(ctx, s.accountRepo, s.proxyRepo, account)
 
 	token, _ := account.Credentials["access_token"].(string)
 	if token == "" {

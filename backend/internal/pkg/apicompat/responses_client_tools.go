@@ -109,11 +109,25 @@ func AdaptResponsesClientTools(req map[string]any) (ResponsesClientToolMapping, 
 				continue
 			}
 			seenSearch = true
-			lowered = append(lowered, map[string]any{
+			proxy := map[string]any{
 				"type": "function", "name": toolSearchProxyName,
 				"description": "Search and load Codex tools, plugins, connectors, and MCP namespaces for the current task.",
 				"parameters":  json.RawMessage(toolSearchProxySchema),
-			})
+			}
+			// Explicit client search is a caller-owned function. Its schema and
+			// description define the actual callable contract; replacing them
+			// with the legacy proxy defaults loses constraints such as
+			// additionalProperties, required arguments and numeric bounds.
+			if tool["execution"] == "client" {
+				delete(proxy, "description")
+				if description, present := tool["description"]; present {
+					proxy["description"] = description
+				}
+				if parameters, present := tool["parameters"]; present {
+					proxy["parameters"] = parameters
+				}
+			}
+			lowered = append(lowered, proxy)
 			changed = true
 		default:
 			lowered = append(lowered, raw)

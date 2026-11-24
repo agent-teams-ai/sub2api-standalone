@@ -28,6 +28,21 @@ func custodyTestBytes(t *testing.T, size int) []byte {
 	return value
 }
 
+// Production retained custody also checks the decrypted saved selection before
+// projecting this policy. Encryption tests use the same pure projection here.
+func (c *GatewayNativeCredentialCustody) inspectRetainedOAuth(envelope string, scope GatewayNativeCredentialScope, version int64, now time.Time) (GatewayNativeOAuthRetentionPolicy, error) {
+	var policy GatewayNativeOAuthRetentionPolicy
+	if version < 1 || now.IsZero() {
+		return policy, ErrGatewayNativeIdentity
+	}
+	bundle, err := c.openOAuthVersion(envelope, scope, version)
+	if err != nil {
+		return policy, err
+	}
+	defer clear(bundle.SensitiveMetadata)
+	return retainedOAuthPolicy(now, bundle, c)
+}
+
 func custodyTestScope() GatewayNativeCredentialScope {
 	return GatewayNativeCredentialScope{Consumer: "fixture-consumer", Owner: "workspace/世界", Account: "account/é",
 		Generation: "a1111111-1111-4111-8111-111111111111", Purpose: GatewayCredentialPurpose}

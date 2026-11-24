@@ -23,7 +23,8 @@
           </label>
           <Select
             v-if="enabled.group_id"
-            v-model="groupId"
+            :model-value="groupId"
+            @update:model-value="value =&gt; { if (typeof value === 'number' || value === null) groupId = value }"
             :options="groupOptions"
             :placeholder="t('keys.selectGroup')"
             :disabled="submitting"
@@ -40,7 +41,8 @@
           </label>
           <Select
             v-if="enabled.status"
-            v-model="status"
+            :model-value="status"
+            @update:model-value="value =&gt; { if (value === 'active' || value === 'inactive') status = value }"
             :options="statusOptions"
             :disabled="submitting"
             :aria-label="t('keys.statusLabel')"

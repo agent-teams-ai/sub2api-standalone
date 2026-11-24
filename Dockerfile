@@ -34,6 +34,7 @@ ENV PATH="/opt/pnpm/node_modules/.bin:${PATH}"
 # Install dependencies first (better caching)
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/.npmrc ./
 COPY frontend/vendor/ ./vendor/
+COPY frontend/tools/eslint-syntax/ ./tools/eslint-syntax/
 RUN --mount=type=cache,id=sub2api-pnpm-store,target=/root/.local/share/pnpm/store \
     if [ -n "${NPM_CONFIG_REGISTRY}" ]; then pnpm config set registry "${NPM_CONFIG_REGISTRY}"; fi && \
     pnpm install --frozen-lockfile --prefer-offline

@@ -309,7 +309,7 @@ async function saveAllSettings() {
 
           <div v-if="emailConfig.alert.enabled">
             <label class="input-label">{{ t('admin.ops.settings.minSeverity') }}</label>
-            <Select v-model="emailConfig.alert.min_severity" :options="severityOptions" />
+            <Select :model-value="emailConfig.alert.min_severity" @update:model-value="value =&gt; { if (emailConfig &amp;&amp; (value === '' || value === 'critical' || value === 'warning' || value === 'info')) emailConfig.alert.min_severity = value }" :options="severityOptions" />
           </div>
         </div>
       </div>
@@ -604,7 +604,8 @@ async function saveAllSettings() {
             <div v-if="advancedSettings.auto_refresh_enabled">
               <label class="input-label">{{ t('admin.ops.settings.refreshInterval') }}</label>
               <Select
-                v-model="advancedSettings.auto_refresh_interval_seconds"
+                :model-value="advancedSettings.auto_refresh_interval_seconds"
+                @update:model-value="value =&gt; { if (advancedSettings &amp;&amp; typeof value === 'number') advancedSettings.auto_refresh_interval_seconds = value }"
                 :options="[
                   { value: 15, label: t('admin.ops.settings.refreshInterval15s') },
                   { value: 30, label: t('admin.ops.settings.refreshInterval30s') },

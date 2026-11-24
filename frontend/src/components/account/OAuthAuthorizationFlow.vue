@@ -15,7 +15,7 @@
             {{ methodLabel }}
           </label>
           <div class="flex flex-wrap gap-4">
-            <label v-if="showManualOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('manual')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -23,10 +23,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.manualAuth')
+                inputLabel('manual', t('admin.accounts.oauth.manualAuth'))
               }}</span>
             </label>
-            <label v-if="showCookieOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('cookie')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -34,10 +34,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.cookieAutoAuth')
+                inputLabel('cookie', t('admin.accounts.oauth.cookieAutoAuth'))
               }}</span>
             </label>
-            <label v-if="showRefreshTokenOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('refresh_token')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -45,10 +45,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t(getOAuthKey('refreshTokenAuth'))
+                inputLabel('refresh_token', t(getOAuthKey('refreshTokenAuth')))
               }}</span>
             </label>
-            <label v-if="showSsoOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('sso_cookie')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -56,7 +56,7 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t(getOAuthKey('ssoCookieAuth'))
+                inputLabel('sso_cookie', t(getOAuthKey('ssoCookieAuth')))
               }}</span>
             </label>
             <label v-if="emailPasswordOptionEnabled" class="flex cursor-pointer items-center gap-2">
@@ -67,10 +67,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t(getOAuthKey('emailPasswordAuth'))
+                inputLabel('email_password', t(getOAuthKey('emailPasswordAuth')))
               }}</span>
             </label>
-            <label v-if="showMobileRefreshTokenOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('mobile_refresh_token')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -78,10 +78,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.openai.mobileRefreshTokenAuth')
+                inputLabel('mobile_refresh_token', t('admin.accounts.oauth.openai.mobileRefreshTokenAuth'))
               }}</span>
             </label>
-            <label v-if="showSessionTokenOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('session_token')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -92,7 +92,7 @@
                 t(getOAuthKey('sessionTokenAuth'))
               }}</span>
             </label>
-            <label v-if="showAccessTokenOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('access_token')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -103,7 +103,7 @@
                 t('admin.accounts.oauth.openai.accessTokenAuth')
               }}</span>
             </label>
-            <label v-if="showCodexSessionImportOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('codex_session')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -111,10 +111,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.openai.codexSessionAuth')
+                inputLabel('codex_session', t('admin.accounts.oauth.openai.codexSessionAuth'))
               }}</span>
             </label>
-            <label v-if="showAgentIdentityOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('agent_identity')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -122,10 +122,10 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.openai.agentIdentityAuth')
+                inputLabel('agent_identity', t('admin.accounts.oauth.openai.agentIdentityAuth'))
               }}</span>
             </label>
-            <label v-if="showCodexPatOption" class="flex cursor-pointer items-center gap-2">
+            <label v-if="allowsInputMethod('codex_pat')" class="flex cursor-pointer items-center gap-2">
               <input
                 v-model="inputMethod"
                 type="radio"
@@ -133,14 +133,18 @@
                 class="text-blue-600 focus:ring-blue-500"
               />
               <span class="text-sm text-blue-900 dark:text-blue-200">{{
-                t('admin.accounts.oauth.openai.codexPatAuth')
+                inputLabel('codex_pat', t('admin.accounts.oauth.openai.codexPatAuth'))
               }}</span>
             </label>
           </div>
         </div>
 
+        <p v-if="!showMethodSelection && selectedMethodAllowed && inputLabels[inputMethod]" class="mb-3 text-sm font-medium text-blue-900 dark:text-blue-200">
+          {{ inputLabels[inputMethod] }}
+        </p>
+
         <!-- Refresh Token Input (OpenAI / Antigravity / Mobile RT) -->
-        <div v-if="inputMethod === 'refresh_token' || inputMethod === 'mobile_refresh_token'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && (inputMethod === 'refresh_token' || inputMethod === 'mobile_refresh_token')" :data-admin-input-method="inputMethod" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -224,7 +228,7 @@
         </div>
 
         <!-- SSO Cookie Input (Grok Web -> Grok Build) -->
-        <div v-if="inputMethod === 'sso_cookie'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && inputMethod === 'sso_cookie'" data-admin-input-method="sso_cookie" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -299,7 +303,7 @@
         </div>
 
         <!-- Grok email + password → ephemeral SSO → Build OAuth (password never stored) -->
-        <div v-if="inputMethod === 'email_password'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && inputMethod === 'email_password'" data-admin-input-method="email_password" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -372,7 +376,7 @@
         </div>
 
         <!-- Codex auth.json / session credential batch import -->
-        <div v-if="inputMethod === 'codex_session' || inputMethod === 'agent_identity'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && (inputMethod === 'codex_session' || inputMethod === 'agent_identity')" :data-admin-input-method="inputMethod" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -451,7 +455,7 @@
         </div>
 
         <!-- Codex Personal Access Token -->
-        <div v-if="inputMethod === 'codex_pat'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && inputMethod === 'codex_pat'" data-admin-input-method="codex_pat" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -524,7 +528,7 @@
         </div>
 
         <!-- Cookie Auto-Auth Form -->
-        <div v-if="inputMethod === 'cookie'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && inputMethod === 'cookie'" data-admin-input-method="cookie" class="space-y-4">
           <div
             class="rounded-lg border border-blue-300 bg-white/80 p-4 dark:border-blue-600 dark:bg-gray-800/80"
           >
@@ -656,7 +660,7 @@
         </div>
 
         <!-- Manual Authorization Flow -->
-        <div v-if="inputMethod === 'manual'" class="space-y-4">
+        <div v-if="selectedMethodAllowed && inputMethod === 'manual'" data-admin-input-method="manual" class="space-y-4">
           <p class="mb-4 text-sm text-blue-800 dark:text-blue-300">
             {{ oauthFollowSteps }}
           </p>
@@ -894,7 +898,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
@@ -902,62 +906,25 @@ import type { AddMethod, AuthInputMethod } from '@/composables/useAccountOAuth'
 import type { AccountPlatform } from '@/types'
 import { adminAPI } from '@/api/admin'
 
-interface Props {
-  addMethod: AddMethod
-  authUrl?: string
-  sessionId?: string
-  loading?: boolean
-  error?: string
-  showHelp?: boolean
-  showProxyWarning?: boolean
-  allowMultiple?: boolean
-  methodLabel?: string
-  showCookieOption?: boolean // Whether to show cookie auto-auth option
-  showRefreshTokenOption?: boolean // Whether to show refresh token input option (OpenAI only)
-  showMobileRefreshTokenOption?: boolean // Whether to show mobile refresh token option (OpenAI only)
-  showSessionTokenOption?: boolean
-  showAccessTokenOption?: boolean
-  showCodexSessionImportOption?: boolean
-  showAgentIdentityOption?: boolean
-  showCodexPatOption?: boolean
-  showSsoOption?: boolean
-  /** Grok email----password login (admin; password never persisted). */
-  showEmailPasswordOption?: boolean
-  showManualOption?: boolean
-  initialInputMethod?: AuthInputMethod
-  /**
-   * Prefill for Grok email----password reauth. Password is never stored;
-   * pass only the email (or "email----") so the operator types the password.
-   */
-  initialEmailPassword?: string
-  platform?: AccountPlatform // Platform type for different UI/text
-  showProjectId?: boolean // New prop to control project ID visibility
-}
-
-const props = withDefaults(defineProps<Props>(), {
-  authUrl: '',
-  sessionId: '',
-  loading: false,
-  error: '',
-  showHelp: true,
-  showProxyWarning: true,
-  allowMultiple: false,
-  methodLabel: 'Authorization Method',
-  showCookieOption: true,
-  showRefreshTokenOption: false,
-  showMobileRefreshTokenOption: false,
-  showSessionTokenOption: false,
-  showAccessTokenOption: false,
-  showCodexSessionImportOption: false,
-  showAgentIdentityOption: false,
-  showCodexPatOption: false,
-  showSsoOption: false,
-  showEmailPasswordOption: false,
-  showManualOption: true,
-  initialInputMethod: 'manual',
-  initialEmailPassword: '',
-  platform: 'anthropic',
-  showProjectId: true
+// Runtime declarations keep Vue's runtime validation while the native TypeScript
+// checker owns imported types; SFC compilation needs no legacy compiler API.
+const props = defineProps({
+  addMethod: { type: String as PropType<AddMethod>, required: true },
+  authUrl: { type: String, default: '' },
+  sessionId: { type: String, default: '' },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  showHelp: { type: Boolean, default: true },
+  showProxyWarning: { type: Boolean, default: true },
+  allowMultiple: { type: Boolean, default: false },
+  methodLabel: { type: String, default: 'Authorization Method' },
+  inputMethods: { type: Array as PropType<readonly AuthInputMethod[]>, required: true },
+  inputLabels: { type: Object as PropType<Partial<Record<AuthInputMethod, string>>>, default: () => ({}) },
+  initialInputMethod: { type: String as PropType<AuthInputMethod>, default: 'manual' },
+  // Only an email (or "email----") may be prefilled; never a stored password.
+  initialEmailPassword: { type: String, default: '' },
+  platform: { type: String as PropType<AccountPlatform>, default: 'anthropic' },
+  showProjectId: { type: Boolean, default: true }
 })
 
 const emit = defineEmits<{
@@ -978,8 +945,13 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const passwordAuthEnabled = ref(false)
 const emailPasswordOptionEnabled = computed(
-  () => props.showEmailPasswordOption && props.platform === 'grok' && passwordAuthEnabled.value
+  () => props.inputMethods.includes('email_password') && props.platform === 'grok' && passwordAuthEnabled.value
 )
+const availableInputMethods = computed(() => props.inputMethods.filter(
+  (method) => method !== 'email_password' || emailPasswordOptionEnabled.value
+))
+const allowsInputMethod = (method: AuthInputMethod) => availableInputMethods.value.includes(method)
+const inputLabel = (method: AuthInputMethod, fallback: string) => props.inputLabels[method] || fallback
 
 const showLocalCallbackNotice = computed(() => props.platform === 'openai' || props.platform === 'grok')
 
@@ -1013,6 +985,7 @@ const oauthImportantNotice = computed(() => {
 
 // Local state
 const inputMethod = ref<AuthInputMethod>(props.initialInputMethod)
+const selectedMethodAllowed = computed(() => allowsInputMethod(inputMethod.value))
 const isAgentIdentityInput = computed(() => inputMethod.value === 'agent_identity')
 const authCodeInput = ref('')
 const sessionKeyInput = ref('')
@@ -1027,13 +1000,15 @@ const oauthState = ref('')
 const projectId = ref('')
 
 watch(
-  () => [props.platform, props.showEmailPasswordOption] as const,
-  async ([platform, requested]) => {
+  () => [props.platform, props.inputMethods.includes('email_password')] as const,
+  async ([platform, requested], _previous, onCleanup) => {
+    let current = true
+    onCleanup(() => { current = false })
     passwordAuthEnabled.value = false
     if (platform !== 'grok' || !requested) return
     try {
       const capabilities = await adminAPI.grok.getCapabilities()
-      passwordAuthEnabled.value = capabilities.password_auth_enabled
+      if (current) passwordAuthEnabled.value = capabilities.password_auth_enabled
     } catch {
       // Fail closed; the backend enforces the same capability.
     }
@@ -1041,25 +1016,8 @@ watch(
   { immediate: true }
 )
 
-watch(emailPasswordOptionEnabled, (enabled) => {
-  if (!enabled && inputMethod.value === 'email_password') inputMethod.value = 'manual'
-})
-
 // Computed: show method selection only when there is something to choose.
-const methodOptionCount = computed(() => [
-  props.showManualOption,
-  props.showCookieOption,
-  props.showRefreshTokenOption,
-  props.showMobileRefreshTokenOption,
-  props.showSessionTokenOption,
-  props.showAccessTokenOption,
-  props.showCodexSessionImportOption,
-  props.showAgentIdentityOption,
-  props.showCodexPatOption,
-  props.showSsoOption,
-  emailPasswordOptionEnabled.value
-].filter(Boolean).length)
-const showMethodSelection = computed(() => methodOptionCount.value > 1)
+const showMethodSelection = computed(() => availableInputMethods.value.length > 1)
 
 // Clipboard
 const { copied, copyToClipboard } = useClipboard()
@@ -1105,15 +1063,37 @@ const parsedEmailPasswordCount = computed(() => {
 })
 
 const handleAuthorizePassword = () => {
-  if (emailPasswordInput.value.trim()) {
+  if (selectedMethodAllowed.value && inputMethod.value === 'email_password' && emailPasswordInput.value.trim()) {
     emit('authorize-password', emailPasswordInput.value)
   }
 }
 
+const clearInputState = () => {
+  authCodeInput.value = ''
+  oauthState.value = ''
+  projectId.value = ''
+  sessionKeyInput.value = ''
+  refreshTokenInput.value = ''
+  sessionTokenInput.value = ''
+  codexSessionInput.value = ''
+  codexPATInput.value = ''
+  ssoCookieInput.value = ''
+  emailPasswordInput.value = props.initialEmailPassword || ''
+}
+const initialAvailableMethod = (): AuthInputMethod =>
+  allowsInputMethod(props.initialInputMethod)
+    ? props.initialInputMethod
+    : (availableInputMethods.value[0] ?? 'manual')
+
 // Watchers
-watch(() => props.initialInputMethod, (newVal) => {
-  inputMethod.value = newVal
-})
+watch(
+  [() => availableInputMethods.value.join(','), () => props.initialInputMethod, () => props.platform, () => props.addMethod],
+  () => {
+    clearInputState()
+    inputMethod.value = initialAvailableMethod()
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.initialEmailPassword,
@@ -1126,6 +1106,7 @@ watch(
 )
 
 watch(inputMethod, (newVal) => {
+  clearInputState()
   emit('update:inputMethod', newVal)
 })
 
@@ -1165,7 +1146,7 @@ watch(authCodeInput, (newVal) => {
 
 // Methods
 const handleGenerateUrl = () => {
-  emit('generate-url')
+  if (selectedMethodAllowed.value && inputMethod.value === 'manual') emit('generate-url')
 }
 
 const handleCopyUrl = () => {
@@ -1176,17 +1157,17 @@ const handleCopyUrl = () => {
 
 const handleRegenerate = () => {
   authCodeInput.value = ''
-  emit('generate-url')
+  handleGenerateUrl()
 }
 
 const handleCookieAuth = () => {
-  if (sessionKeyInput.value.trim()) {
+  if (selectedMethodAllowed.value && inputMethod.value === 'cookie' && sessionKeyInput.value.trim()) {
     emit('cookie-auth', sessionKeyInput.value)
   }
 }
 
 const handleValidateRefreshToken = () => {
-  if (refreshTokenInput.value.trim()) {
+  if (selectedMethodAllowed.value && (inputMethod.value === 'refresh_token' || inputMethod.value === 'mobile_refresh_token') && refreshTokenInput.value.trim()) {
     if (inputMethod.value === 'mobile_refresh_token') {
       emit('validate-mobile-refresh-token', refreshTokenInput.value.trim())
     } else {
@@ -1196,19 +1177,19 @@ const handleValidateRefreshToken = () => {
 }
 
 const handleImportCodexSession = () => {
-  if (codexSessionInput.value.trim()) {
+  if (selectedMethodAllowed.value && (inputMethod.value === 'codex_session' || inputMethod.value === 'agent_identity') && codexSessionInput.value.trim()) {
     emit('import-codex-session', codexSessionInput.value.trim())
   }
 }
 
 const handleImportCodexPAT = () => {
-  if (codexPATInput.value.trim()) {
+  if (selectedMethodAllowed.value && inputMethod.value === 'codex_pat' && codexPATInput.value.trim()) {
     emit('import-codex-pat', codexPATInput.value.trim())
   }
 }
 
 const handleImportSSO = () => {
-  if (ssoCookieInput.value.trim()) {
+  if (selectedMethodAllowed.value && inputMethod.value === 'sso_cookie' && ssoCookieInput.value.trim()) {
     emit('import-sso', ssoCookieInput.value.trim())
   }
 }
@@ -1227,17 +1208,8 @@ defineExpose({
   emailPassword: emailPasswordInput,
   inputMethod,
   reset: () => {
-    authCodeInput.value = ''
-    oauthState.value = ''
-    projectId.value = ''
-    sessionKeyInput.value = ''
-    refreshTokenInput.value = ''
-    sessionTokenInput.value = ''
-    codexSessionInput.value = ''
-    codexPATInput.value = ''
-    ssoCookieInput.value = ''
-    emailPasswordInput.value = ''
-    inputMethod.value = props.initialInputMethod
+    clearInputState()
+    inputMethod.value = initialAvailableMethod()
     showHelpDialog.value = false
   }
 })

@@ -561,7 +561,8 @@ func TestGatewayNativeUsageReceipt(t *testing.T) {
 	}
 	input, output := int64(9), int64(3)
 	h.mu.Lock()
-	e.usage = &service.GatewayNativeUsage{Source: "native_provider_response", State: "complete", InputTokens: &input, OutputTokens: &output, CostState: "unknown", Finalized: true}
+	e.usage = &service.GatewayNativeUsage{Source: "native_provider_response", State: "complete", InputTokens: &input, OutputTokens: &output, CostState: "unknown", Finalized: true,
+		NativeContext: &service.GatewayNativeUsageContext{ProviderID: "fixture_provider", ProductID: "fixture_product", ProfileID: "fixture_profile", ModelID: "requested-model", Billing: service.GatewayNativeUsageBilling{Status: "unknown"}}}
 	h.mu.Unlock()
 	got := h.receipt("NEWTESTconsumer", e)
 	if got.NativeUsage == nil || *got.NativeUsage.InputTokens != 9 || !got.NativeUsage.Finalized {
@@ -572,7 +573,13 @@ func TestGatewayNativeUsageReceipt(t *testing.T) {
 	}
 	*got.NativeUsage.InputTokens = 100
 	got.NativeUsage.State = "unknown"
-	if h.receipt("NEWTESTconsumer", e).NativeUsage.State != "complete" || *h.receipt("NEWTESTconsumer", e).NativeUsage.InputTokens != 9 {
+	if got.NativeUsage.NativeContext == nil {
+		t.Fatal("missing admitted native context")
+	}
+	got.NativeUsage.NativeContext.ProviderID = "later-provider"
+	got.NativeUsage.NativeContext.Billing.Status = "known"
+	next := h.receipt("NEWTESTconsumer", e)
+	if next.NativeUsage.State != "complete" || *next.NativeUsage.InputTokens != 9 || next.NativeUsage.NativeContext.ProviderID != "fixture_provider" || next.NativeUsage.NativeContext.Billing.Status != "unknown" {
 		t.Fatal("receipt aliases reservation")
 	}
 }

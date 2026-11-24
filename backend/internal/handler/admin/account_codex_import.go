@@ -502,25 +502,16 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 	case string:
 		item.AccessToken = strings.TrimSpace(raw)
 	case map[string]any:
-		if agentIdentity, ok := firstCodexMap(raw, []string{"agent_identity"}, []string{"agentIdentity"}); ok || strings.EqualFold(firstCodexString(raw, []string{"auth_mode"}, []string{"authMode"}), service.OpenAIAuthModeAgentIdentity) {
-			if !ok {
-				agentIdentity = raw
-			}
+		parsed, parseErr := service.ParseCodexSessionCredentialInput(raw)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		item.AccessToken, item.RefreshToken, item.IDToken = parsed.AccessToken, parsed.RefreshToken, parsed.IDToken
+		if parsed.IsAgentIdentity {
 			item.IsAgentIdentity = true
-			item.AgentRuntimeID = firstCodexString(agentIdentity, []string{"agent_runtime_id"}, []string{"agentRuntimeId"})
-			item.AgentPrivateKey = firstCodexString(agentIdentity, []string{"agent_private_key"}, []string{"agentPrivateKey"})
-			item.AgentTaskID = firstCodexString(agentIdentity, []string{"task_id"}, []string{"taskId"})
-			item.AccountID = firstCodexString(agentIdentity, []string{"account_id"}, []string{"accountId"})
-			item.UserID = firstCodexString(agentIdentity, []string{"chatgpt_user_id"}, []string{"chatgptUserId"})
-			item.Email = firstCodexString(agentIdentity, []string{"email"})
-			item.PlanType = firstCodexString(agentIdentity, []string{"plan_type"}, []string{"planType"})
-			item.AgentFedRAMP = firstCodexBool(agentIdentity, []string{"chatgpt_account_is_fedramp"}, []string{"chatgptAccountIsFedramp"})
-			if item.AgentRuntimeID == "" || item.AgentPrivateKey == "" || item.AccountID == "" || item.UserID == "" {
-				return nil, errors.New("agent identity 缺少必要字段")
-			}
-			if err := service.ValidateOpenAIAgentIdentityPrivateKey(item.AgentPrivateKey); err != nil {
-				return nil, errors.New("agent identity private key 格式无效")
-			}
+			item.AgentRuntimeID, item.AgentPrivateKey, item.AgentTaskID = parsed.AgentRuntimeID, parsed.AgentPrivateKey, parsed.AgentTaskID
+			item.AccountID, item.UserID, item.Email, item.PlanType = parsed.AccountID, parsed.UserID, parsed.Email, parsed.PlanType
+			item.AgentFedRAMP = parsed.AgentFedRAMP
 			item.Credentials["auth_mode"] = service.OpenAIAuthModeAgentIdentity
 			item.Credentials["agent_runtime_id"] = item.AgentRuntimeID
 			item.Credentials["agent_private_key"] = item.AgentPrivateKey
@@ -537,25 +528,6 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 			item.Name = buildCodexImportAccountName(item, entry.Index)
 			return item, nil
 		}
-		item.AccessToken = firstCodexString(raw,
-			[]string{"tokens", "access_token"},
-			[]string{"tokens", "accessToken"},
-			[]string{"access_token"},
-			[]string{"accessToken"},
-			[]string{"token"},
-		)
-		item.RefreshToken = firstCodexString(raw,
-			[]string{"tokens", "refresh_token"},
-			[]string{"tokens", "refreshToken"},
-			[]string{"refresh_token"},
-			[]string{"refreshToken"},
-		)
-		item.IDToken = firstCodexString(raw,
-			[]string{"tokens", "id_token"},
-			[]string{"tokens", "idToken"},
-			[]string{"id_token"},
-			[]string{"idToken"},
-		)
 		item.Email = firstCodexString(raw, []string{"email"}, []string{"user", "email"})
 		item.AccountID = firstCodexString(raw,
 			[]string{"chatgpt_account_id"},
@@ -597,12 +569,8 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 		if sessionExpiresAt, ok := codexTimeAt(raw, []string{"expires"}); ok {
 			item.Extra["session_expires_at"] = sessionExpiresAt.Format(time.RFC3339)
 		}
-		if tokenExpiresAt, ok := firstCodexTime(raw,
-			[]string{"tokens", "expires_at"},
-			[]string{"tokens", "expiresAt"},
-			[]string{"expires_at"},
-			[]string{"expiresAt"},
-		); ok {
+		if parsed.TokenExpiresAt != nil {
+			tokenExpiresAt := *parsed.TokenExpiresAt
 			if tokenExpiresAt.Unix() <= now.Unix()-codexImportClockSkewSeconds {
 				return nil, fmt.Errorf("access_token 已过期: %s", tokenExpiresAt.Format(time.RFC3339))
 			}
@@ -1153,52 +1121,11 @@ func firstCodexString(obj map[string]any, paths ...[]string) string {
 	return ""
 }
 
-func firstCodexMap(obj map[string]any, paths ...[]string) (map[string]any, bool) {
-	for _, path := range paths {
-		value, ok := codexPathValue(obj, path)
-		if !ok || value == nil {
-			continue
-		}
-		if mapped, ok := value.(map[string]any); ok {
-			return mapped, true
-		}
-	}
-	return nil, false
-}
-
-func firstCodexBool(obj map[string]any, paths ...[]string) bool {
-	for _, path := range paths {
-		value, ok := codexPathValue(obj, path)
-		if !ok {
-			continue
-		}
-		switch value := value.(type) {
-		case bool:
-			return value
-		case string:
-			parsed, err := strconv.ParseBool(strings.TrimSpace(value))
-			if err == nil {
-				return parsed
-			}
-		}
-	}
-	return false
-}
-
 func copyCodexExtraString(obj map[string]any, extra map[string]any, key string, path []string) {
 	value := firstCodexString(obj, path)
 	if value != "" {
 		extra[key] = value
 	}
-}
-
-func firstCodexTime(obj map[string]any, paths ...[]string) (time.Time, bool) {
-	for _, path := range paths {
-		if value, ok := codexTimeAt(obj, path); ok {
-			return value, true
-		}
-	}
-	return time.Time{}, false
 }
 
 func codexTimeAt(obj map[string]any, path []string) (time.Time, bool) {
@@ -1254,38 +1181,5 @@ func setCodexCredentialIfNotEmpty(credentials map[string]any, key, value string)
 }
 
 func parseCodexTimeValue(value any) (time.Time, bool) {
-	switch v := value.(type) {
-	case string:
-		v = strings.TrimSpace(v)
-		if v == "" {
-			return time.Time{}, false
-		}
-		if parsed, err := time.Parse(time.RFC3339Nano, v); err == nil {
-			return parsed.UTC(), true
-		}
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return codexUnixTime(n), true
-		}
-	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			return codexUnixTime(n), true
-		}
-		if f, err := v.Float64(); err == nil {
-			return codexUnixTime(int64(f)), true
-		}
-	case float64:
-		return codexUnixTime(int64(v)), true
-	case int:
-		return codexUnixTime(int64(v)), true
-	case int64:
-		return codexUnixTime(v), true
-	}
-	return time.Time{}, false
-}
-
-func codexUnixTime(value int64) time.Time {
-	if value > 1_000_000_000_000 {
-		return time.UnixMilli(value).UTC()
-	}
-	return time.Unix(value, 0).UTC()
+	return service.ParseCodexCredentialTime(value)
 }

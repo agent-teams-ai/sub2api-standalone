@@ -1,0 +1,12 @@
+{
+  "contract": "native-provider-extension-oracle/v1",
+  "rows": [
+    {
+      "profileId": "fixture-native-extension-responses-v1",
+      "methodId": "fixture_browser_v1",
+      "variant": "same_consumer_build",
+      "provider": "fixture-native-extension",
+      "model": "fixture-review-model"
+    }
+  ]
+}

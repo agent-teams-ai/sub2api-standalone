@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -21,7 +22,7 @@ func (in GatewayNativeOAuthRefreshIntent) AccountInfoObservations() []GatewayAcc
 	}
 	identity := in
 	identity.info = nil
-	if identity != in.info.intent {
+	if !reflect.DeepEqual(identity, in.info.intent) {
 		return nil
 	}
 	raw, _ := json.Marshal(in.info.observations)

@@ -55,7 +55,7 @@
         <template #cell-model="{ row }">
           <div class="space-y-0.5 text-xs">
             <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
-              <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
+              <div v-for="(step, i) in modelMappingSteps(row.model_mapping_chain)" :key="i"
                    class="break-all"
                    :class="i === 0 ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
                    :style="i > 0 ? `padding-left: ${i * 0.75}rem` : ''">
@@ -599,6 +599,9 @@ import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
 import type { AdminUsageLog } from '@/types'
 import type { Column } from '@/components/common/types'
+
+const modelMappingSteps = (chain: AdminUsageLog['model_mapping_chain']): string[] =>
+  chain?.split('→') ?? []
 
 interface Props {
   data: AdminUsageLog[]

@@ -11,6 +11,9 @@ func gatewayNativeGeminiSelected(c *gin.Context) bool {
 	if c == nil || c.Request == nil {
 		return false
 	}
+	if state, ok := c.Request.Context().Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil {
+		return gatewayNativeConnectionGeminiProfile(state.binding.native.Profile)
+	}
 	state, _ := c.Request.Context().Value(gatewayNativeContextKey{}).(*gatewayNativeDispatch)
 	return state != nil && state.route.Profile == GatewayGeminiAPIKeyProfile
 }

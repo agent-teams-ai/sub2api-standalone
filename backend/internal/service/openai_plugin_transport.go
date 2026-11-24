@@ -13,9 +13,17 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err != nil {
 		return nil, err
 	}
-	defer release()
-	if request.Context().Value(gatewayNativeContextKey{}) != nil {
-		return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+	var observedResponse *http.Response
+	defer func() {
+		release()
+		captureGatewayNativeConnectionQuota(request.Context(), account, observedResponse)
+	}()
+	if request.Context().Value(gatewayNativeContextKey{}) != nil || GatewayNativeConnectionDispatchBound(request.Context()) {
+		response, err := s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+		if err == nil {
+			observedResponse = response
+		}
+		return response, err
 	}
 	if s.pluginManager != nil {
 		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)

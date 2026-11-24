@@ -522,12 +522,20 @@ func TestPublicTerminalBurstPacesTwelveCallbacksAndRetainsAbortedQueuedOwner(t *
 	}
 	require.Eventually(t, func() bool { return settlements.Load() == 12 }, time.Second, time.Millisecond)
 	require.LessOrEqual(t, maximum.Load(), int32(4))
-	h.mu.Lock()
-	for _, e := range h.entries {
-		require.True(t, e.acknowledged)
-		require.True(t, closed(e.life.Snapshot()))
-	}
-	h.mu.Unlock()
+	// The HTTP fixture records a settlement before the callback goroutine has
+	// necessarily consumed its reply and set acknowledged. Wait for the same
+	// terminal invariants with no fatal assertion while holding h.mu:
+	// require.True under the lock skips Unlock on FailNow, deadlocking cleanup.
+	require.Eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		for _, e := range h.entries {
+			if !e.acknowledged || !closed(e.life.Snapshot()) {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Second, time.Millisecond, "all terminal owners must be acknowledged and closed")
 }
 
 func TestPublicTerminalAggregateBudgetWithholdsOnSaturationAndReleases(t *testing.T) {

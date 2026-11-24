@@ -190,6 +190,11 @@ func TestNativeGatewayJoinedLifecyclePostgres(t *testing.T) {
 			require.Equal(t, challenge, openai.GenerateCodeChallenge(r.PostForm.Get("code_verifier")))
 			require.Equal(t, "joined-code", r.PostForm.Get("code"))
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": access, "refresh_token": refresh, "id_token": idToken, "token_type": "Bearer", "expires_in": 3600, "scope": openai.DefaultScopes})
+		case r.Host == "chatgpt.com" && r.URL.Path == "/backend-api/settings/account_user_setting":
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.Equal(t, "Bearer "+access, r.Header.Get("Authorization"))
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			w.WriteHeader(http.StatusNoContent)
 		case r.Host == "chatgpt.com" && r.URL.Path == "/backend-api/accounts/check/v4-2023-04-27":
 			checks.Add(1)
 			require.Equal(t, "Bearer "+access, r.Header.Get("Authorization"))

@@ -33,10 +33,14 @@ func claudeArgs(s service.GatewayNativeCredentialScope, op string) []any {
 }
 
 const claudeWhere = ` WHERE consumer=$1 AND operation_ref=$2 AND owner_ref=$3 AND account_ref=$4 AND generation=$5 AND purpose=$6`
-const claudeColumns = `consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,state,deadline`
+const claudeColumns = `consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,state,deadline,COALESCE(connection_binding::text,'')`
 
 func scanClaude(row *sql.Row) (v service.GatewayClaudeConnectIntent, err error) {
-	err = row.Scan(&v.Scope.Consumer, &v.Operation, &v.Scope.Owner, &v.Scope.Account, &v.Scope.Generation, &v.Scope.Purpose, &v.StateHash, &v.Envelope, &v.State, &v.Deadline)
+	var binding []byte
+	err = row.Scan(&v.Scope.Consumer, &v.Operation, &v.Scope.Owner, &v.Scope.Account, &v.Scope.Generation, &v.Scope.Purpose, &v.StateHash, &v.Envelope, &v.State, &v.Deadline, &binding)
+	if err == nil {
+		v.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	if err != nil {
 		err = service.ErrGatewayNativeIdentity
 	}
@@ -47,11 +51,15 @@ func claudeAuthorized(ctx context.Context, s service.GatewayNativeCredentialScop
 }
 func (r *gatewayClaudeRepository) PutGatewayClaudeConnect(ctx context.Context, in service.GatewayClaudeConnectIntent) (service.GatewayClaudeConnectIntent, error) {
 	hash, e := hex.DecodeString(in.StateHash)
-	if !claudeAuthorized(ctx, in.Scope, in.Operation) || e != nil || len(hash) != 32 || hex.EncodeToString(hash) != in.StateHash || in.State != "prepared" || !strings.HasPrefix(in.Envelope, "gco1.") || !time.Now().Before(in.Deadline) || in.Deadline.After(time.Now().Add(10*time.Minute)) {
+	if !claudeAuthorized(ctx, in.Scope, in.Operation) || !service.GatewayConnectionSelectionAuthorized(ctx, in.Connection) || e != nil || len(hash) != 32 || hex.EncodeToString(hash) != in.StateHash || in.State != "prepared" || !strings.HasPrefix(in.Envelope, "gco1.") || !time.Now().Before(in.Deadline) || in.Deadline.After(time.Now().Add(10*time.Minute)) {
 		return service.GatewayClaudeConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
-	args := append(claudeArgs(in.Scope, in.Operation), in.StateHash, in.Envelope, in.Deadline)
-	_, err := r.db.ExecContext(ctx, `INSERT INTO gateway_claude_connect_intents (consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,deadline) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(consumer,operation_ref) DO NOTHING`, args...)
+	binding, err := service.EncodeGatewayConnectionSelection(in.Connection)
+	if err != nil {
+		return service.GatewayClaudeConnectIntent{}, err
+	}
+	args := append(claudeArgs(in.Scope, in.Operation), in.StateHash, in.Envelope, in.Deadline, binding)
+	_, err = r.db.ExecContext(ctx, `INSERT INTO gateway_claude_connect_intents (consumer,operation_ref,owner_ref,account_ref,generation,purpose,state_hash,material_envelope,deadline,connection_binding) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,'')::jsonb) ON CONFLICT(consumer,operation_ref) DO NOTHING`, args...)
 	if err != nil {
 		return service.GatewayClaudeConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
@@ -61,7 +69,11 @@ func (r *gatewayClaudeRepository) ReadGatewayClaudeConnect(ctx context.Context, 
 	if !claudeAuthorized(ctx, s, op) {
 		return service.GatewayClaudeConnectIntent{}, service.ErrGatewayNativeIdentity
 	}
-	return scanClaude(r.db.QueryRowContext(ctx, `SELECT `+claudeColumns+` FROM gateway_claude_connect_intents`+claudeWhere, claudeArgs(s, op)...))
+	in, err := scanClaude(r.db.QueryRowContext(ctx, `SELECT `+claudeColumns+` FROM gateway_claude_connect_intents`+claudeWhere, claudeArgs(s, op)...))
+	if err != nil || !service.GatewayConnectionSelectionAuthorized(ctx, in.Connection) {
+		return service.GatewayClaudeConnectIntent{}, service.ErrGatewayNativeIdentity
+	}
+	return in, nil
 }
 func (r *gatewayClaudeRepository) ClaimGatewayClaudeConnect(ctx context.Context, s service.GatewayNativeCredentialScope, op, hash string) (service.GatewayClaudeConnectIntent, error) {
 	if !claudeAuthorized(ctx, s, op) {
@@ -84,7 +96,7 @@ func (r *gatewayClaudeRepository) CompleteGatewayClaudeConnect(ctx context.Conte
 	}
 	defer func() { _ = tx.Rollback() }()
 	current, err := scanClaude(tx.QueryRowContext(ctx, `SELECT `+claudeColumns+` FROM gateway_claude_connect_intents`+claudeWhere+` FOR UPDATE`, claudeArgs(s, op)...))
-	if err != nil || current.State != "exchanging" || current.StateHash != in.Intent.StateHash || current.Envelope != in.Intent.Envelope {
+	if err != nil || current.State != "exchanging" || current.StateHash != in.Intent.StateHash || current.Envelope != in.Intent.Envelope || !service.SameGatewayConnectionSelection(current.Connection, in.Intent.Connection) || !service.GatewayConnectionSelectionAuthorized(ctx, current.Connection) {
 		return out, service.ErrGatewayNativeIdentity
 	}
 	// Same principal may reconnect only to its original durable logical owner.
@@ -96,10 +108,9 @@ func (r *gatewayClaudeRepository) CompleteGatewayClaudeConnect(ctx context.Conte
 	if tx.QueryRowContext(ctx, `SELECT consumer=$3 AND owner_ref=$4 AND account_ref=$5 FROM gateway_claude_principal_claims WHERE account_uuid=$1 AND organization_uuid=$2 FOR UPDATE`, account, org, s.Consumer, s.Owner, s.Account).Scan(&owned) != nil || !owned {
 		return out, service.ErrGatewayNativeIdentity
 	}
-	var prior bool
-	if tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gateway_claude_connect_intents c JOIN accounts a ON a.id=c.account_id WHERE c.consumer=$1 AND c.account_ref=$2 AND a.deleted_at IS NULL)`, s.Consumer, s.Account).Scan(&prior) != nil || prior {
-		return out, service.ErrGatewayNativeIdentity
-	}
+	// Reconnect seals a distinct generation while the canonical older birth is
+	// still retained. The facade switches that exact binding before cleanup;
+	// permanent consumer/owner/logical-account ownership above remains enforced.
 	extra, _ := json.Marshal(map[string]any{"gateway_claude_profile_v1": service.GatewayClaudeOAuthMessagesProfile, "gateway_claude_generation_v1": s.Generation, "gateway_claude_scope_v1": s.Metadata()})
 	credentials, _ := json.Marshal(map[string]string{"oauth_bundle": in.Envelope})
 	var id int64
@@ -113,7 +124,7 @@ func (r *gatewayClaudeRepository) CompleteGatewayClaudeConnect(ctx context.Conte
 	if err != nil {
 		return out, service.ErrGatewayNativeIdentity
 	}
-	p := service.GatewayNativeOAuthPhysical{Scope: s, Operation: op, Route: claudeRoute(id, birth, s.Generation), Issuer: service.GatewayClaudeOAuthIssuer, Subject: account, ProviderAccount: org, CredentialRevision: 1}
+	p := service.GatewayNativeOAuthPhysical{Connection: current.Connection, Scope: s, Operation: op, Route: claudeRoute(id, birth, s.Generation), Issuer: service.GatewayClaudeOAuthIssuer, Subject: account, ProviderAccount: org, CredentialRevision: 1}
 	for _, observation := range in.Identity.AccountInfo() {
 		observation.CredentialRevision = p.CredentialRevision
 		if storeGatewayAccountInfoTx(ctx, tx, p, observation, false) != nil {
@@ -160,18 +171,22 @@ func (r *gatewayClaudeRepository) physicalTxMode(ctx context.Context, s service.
 		return deny(tx)
 	}
 	var birth time.Time
+	var binding []byte
 	var state string
 	projection := "a.credentials->>'oauth_bundle'"
 	if cache {
 		projection = "''"
 	}
-	err = tx.QueryRowContext(ctx, `SELECT a.created_at,c.account_uuid::text,c.organization_uuid::text,`+projection+`,c.refresh_state,c.credential_revision
+	err = tx.QueryRowContext(ctx, `SELECT a.created_at,c.account_uuid::text,c.organization_uuid::text,`+projection+`,c.refresh_state,c.credential_revision,COALESCE(c.connection_binding::text,'')
  FROM gateway_claude_connect_intents c JOIN accounts a ON a.id=c.account_id AND a.created_at=c.native_created_at
  JOIN gateway_claude_principal_claims p ON p.account_uuid=c.account_uuid AND p.organization_uuid=c.organization_uuid AND p.consumer=c.consumer AND p.owner_ref=c.owner_ref AND p.account_ref=c.account_ref
  WHERE c.consumer=$1 AND c.operation_ref=$2 AND c.owner_ref=$3 AND c.account_ref=$4 AND c.generation=$5 AND c.purpose=$6 AND c.state='completed'
  AND a.deleted_at IS NULL AND a.platform='anthropic' AND a.type='oauth' AND a.status='disabled' AND NOT a.schedulable AND a.proxy_id IS NULL AND a.parent_account_id IS NULL
  AND a.extra=jsonb_build_object('gateway_claude_profile_v1',$7::text,'gateway_claude_generation_v1',c.generation::text,'gateway_claude_scope_v1',jsonb_build_object('consumer',c.consumer,'owner',c.owner_ref,'account',c.account_ref,'generation',c.generation::text,'purpose',c.purpose))
- AND public.gateway_oauth_envelope_valid(a.credentials->'oauth_bundle') AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id) FOR SHARE OF c,p`, append(claudeArgs(s, op), service.GatewayClaudeOAuthMessagesProfile)...).Scan(&birth, &p.Subject, &p.ProviderAccount, &envelope, &state, &p.CredentialRevision)
+ AND public.gateway_oauth_envelope_valid(a.credentials->'oauth_bundle') AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=a.id) FOR SHARE OF c,p`, append(claudeArgs(s, op), service.GatewayClaudeOAuthMessagesProfile)...).Scan(&birth, &p.Subject, &p.ProviderAccount, &envelope, &state, &p.CredentialRevision, &binding)
+	if err == nil {
+		p.Connection, err = service.DecodeGatewayConnectionSelection(binding)
+	}
 	p.Route = claudeRoute(id, birth, s.Generation)
 	if err != nil || !refresh && state == "exchanging" || expected != nil && !service.SameGatewayNativeDescriptor(*expected, p.Route) {
 		return deny(tx)

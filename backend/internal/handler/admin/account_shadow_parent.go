@@ -15,9 +15,12 @@ func enrichShadowParentInfo(items []AccountWithConcurrency, parents map[int64]*s
 			continue
 		}
 		p := parents[*a.ParentAccountID]
-		if p == nil {
+		if p == nil || p.ID != *a.ParentAccountID || service.HasGatewayNativeIdentity(p) || p.IsCredentialShadow() {
 			continue
 		}
+		// The already-authorized parent projection remains explicitly separate
+		// from the shadow's own subject and never enters its observation store.
+		a.ParentAccountInfo = p.AccountInfo
 		a.ParentEmail = p.GetCredential("email")
 		a.ParentPlanType = p.GetCredential("plan_type")
 		a.ParentSubscriptionExpiresAt = p.GetCredential("subscription_expires_at")

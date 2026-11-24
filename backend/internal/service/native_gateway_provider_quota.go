@@ -36,10 +36,14 @@ type GatewayProviderQuotaObservation struct {
 // Facts and quota are projected from the same authenticated response bytes.
 func (c *GatewayProviderQuotaCollector) FetchWithAccountInfo(ctx context.Context, provider string, credential []byte) (GatewayProviderQuotaObservation, error) {
 	var info *GatewayAccountInfoFields
-	limits, at, err := c.fetchObserved(ctx, provider, credential, func(body []byte, observed time.Time) {
+	limits, at, err := c.fetchObserved(ctx, provider, credential, func(body []byte, observed time.Time, target string) {
 		if provider == "glm" || provider == "minimax" {
 			fields := gatewayQuotaAccountInfo(provider, body, observed)
 			info = &fields
+		} else if provider == "grok" && target == xai.BuildBillingURL(false) {
+			// Weekly success cannot withdraw an older monthly plan when the
+			// monthly request fails. Only its own complete response is evidence.
+			info = gatewayGrokBillingAccountInfo(body, observed)
 		}
 	})
 	if err != nil {
@@ -72,7 +76,7 @@ func (c *GatewayProviderQuotaCollector) FetchObserved(ctx context.Context, provi
 	return c.fetchObserved(ctx, provider, credential, nil)
 }
 
-func (c *GatewayProviderQuotaCollector) fetchObserved(ctx context.Context, provider string, credential []byte, observe func([]byte, time.Time)) (GatewayAccountLimitsSnapshotV2, time.Time, error) {
+func (c *GatewayProviderQuotaCollector) fetchObserved(ctx context.Context, provider string, credential []byte, observe func([]byte, time.Time, string)) (GatewayAccountLimitsSnapshotV2, time.Time, error) {
 	empty := GatewayAccountLimitsSnapshotV2{Scope: "account", Windows: []GatewayAccountLimitWindowV2{}}
 	if c == nil || c.client == nil || len(credential) == 0 || len(credential) > 16384 || strings.TrimSpace(string(credential)) != string(credential) || strings.ContainsAny(string(credential), "\r\n") {
 		return empty, time.Time{}, ErrGatewayProviderQuota
@@ -107,7 +111,7 @@ func (c *GatewayProviderQuotaCollector) fetchObserved(ctx context.Context, provi
 		}
 		observedAny = true
 		if observe != nil {
-			observe(body, observed)
+			observe(body, observed, target)
 		}
 		for _, w := range snapshot.Windows {
 			// Billing has independently qualified weekly and monthly reads. Each

@@ -179,6 +179,38 @@ func (a *authority) compose(c *gatewaytransport.Config) {
 }
 
 func (a *authority) AuthorizeNativeOAuthCleanup(ctx context.Context, in service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error) {
+	grant, err := a.authorizeNativeOAuthCleanupReply(ctx, in)
+	if err != nil {
+		return service.GatewayNativeOAuthCleanupAuthority{}, err
+	}
+	if n := grant.Native; n != nil {
+		if in.Connection != nil {
+			// The generic service supplies the original immutable tuple after
+			// owner admission. Removed mounts and method revisions remain erasable.
+			if n.Profile != in.Connection.ProfileID || n.BaseURL != in.NativeMount.BaseURL || n.Model != in.NativeMount.Model {
+				return service.GatewayNativeOAuthCleanupAuthority{}, ErrDenied
+			}
+		} else if (n.Profile != service.GatewayCodexOAuthResponsesProfile || n.BaseURL != service.GatewayCodexOAuthBaseURL || n.Model != service.GatewayCodexOAuthModel) &&
+			(n.Profile != service.GatewayClaudeOAuthMessagesProfile || n.BaseURL != service.GatewayClaudeOAuthBaseURL || n.Model != service.GatewayClaudeOAuthModel) &&
+			(n.Profile != service.GatewayGrokOAuthResponsesProfile || n.BaseURL != service.GatewayGrokOAuthBaseURL || n.Model != service.GatewayGrokOAuthModel) {
+			return service.GatewayNativeOAuthCleanupAuthority{}, ErrDenied
+		}
+	}
+	return grant, nil
+}
+
+// This first-stage grant admits only the logical owner into the HTTP cleanup
+// handler. It exposes no descriptor or erase proof. The native repository still
+// obtains a full, tuple-bound grant under its existing physical-row lock.
+func (a *authority) AuthorizeNativeOAuthCleanupOwner(ctx context.Context, in service.GatewayNativeOAuthCleanupRequest) (string, error) {
+	grant, err := a.authorizeNativeOAuthCleanupReply(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	return grant.Owner, nil
+}
+
+func (a *authority) authorizeNativeOAuthCleanupReply(ctx context.Context, in service.GatewayNativeOAuthCleanupRequest) (service.GatewayNativeOAuthCleanupAuthority, error) {
 	if !service.GatewayNativeOAuthCleanupRequestValid(in) || !identifier.MatchString(in.Scope.Consumer) {
 		return service.GatewayNativeOAuthCleanupAuthority{}, ErrDenied
 	}
@@ -201,7 +233,7 @@ func (a *authority) AuthorizeNativeOAuthCleanup(ctx context.Context, in service.
 	}
 	if reply.Native != nil {
 		n := reply.Native
-		if n.AccountID <= 0 || n.Generation != in.Scope.Generation || n.CreatedAt.IsZero() || n.CreatedAt.Nanosecond()%1000 != 0 || (n.Profile != service.GatewayCodexOAuthResponsesProfile || n.BaseURL != service.GatewayCodexOAuthBaseURL || n.Model != service.GatewayCodexOAuthModel) && (n.Profile != service.GatewayClaudeOAuthMessagesProfile || n.BaseURL != service.GatewayClaudeOAuthBaseURL || n.Model != service.GatewayClaudeOAuthModel) && (n.Profile != service.GatewayGrokOAuthResponsesProfile || n.BaseURL != service.GatewayGrokOAuthBaseURL || n.Model != service.GatewayGrokOAuthModel) {
+		if n.AccountID <= 0 || n.Generation != in.Scope.Generation || n.CreatedAt.IsZero() || n.CreatedAt.Nanosecond()%1000 != 0 {
 			return service.GatewayNativeOAuthCleanupAuthority{}, ErrDenied
 		}
 	}

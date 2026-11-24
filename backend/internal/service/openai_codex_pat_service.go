@@ -52,6 +52,15 @@ func (s *OpenAIOAuthService) ValidateCodexPersonalAccessToken(ctx context.Contex
 		return nil, infraerrors.Newf(http.StatusBadRequest, "OPENAI_CODEX_PAT_PROXY_INVALID", "invalid proxy configuration: %v", err)
 	}
 
+	return validateOpenAICodexPersonalAccessToken(ctx, accessToken, client)
+}
+
+// The credential grammar and authenticated whoami parser are shared with the
+// private owner-scoped adapter. Its caller supplies the bounded native client.
+func validateOpenAICodexPersonalAccessToken(ctx context.Context, accessToken string, client *http.Client) (*OpenAITokenInfo, error) {
+	if client == nil || !strings.HasPrefix(accessToken, "at-") {
+		return nil, ErrGatewayNativeIdentity
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openAICodexPATWhoamiURL, nil)
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_PAT_REQUEST_FAILED", "failed to build validation request: %v", err)

@@ -31,8 +31,8 @@
       </span>
     </div>
     <!-- Row 2: Plan type + Privacy mode (only if either exists) -->
-    <div v-if="planLabel || privacyBadge" class="inline-flex items-center overflow-hidden rounded-md">
-      <span v-if="planLabel" :class="['inline-flex items-center gap-1 px-1.5 py-1', planBadgeClass]">
+    <div v-if="planLabel || privacyBadge || trainingBadge" class="inline-flex items-center overflow-hidden rounded-md">
+      <span v-if="planLabel" :title="accountFactTitle(subscriptionFact, t)" :class="['inline-flex items-center gap-1 px-1.5 py-1', planBadgeClass]">
         <GrokFreeIcon
           v-if="isGrokFreePlan"
           data-testid="grok-free-plan-icon"
@@ -45,6 +45,11 @@
           aria-hidden="true"
         />
         <span>{{ planLabel }}</span>
+        <span v-if="planSource" data-testid="subscription-provenance" class="text-[10px]">({{ planSource }})</span>
+      </span>
+      <span v-if="trainingBadge" data-testid="training-usage" :title="trainingBadge.title"
+        class="inline-flex items-center px-1.5 py-1 bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+        {{ trainingBadge.label }}
       </span>
       <span
         v-if="privacyBadge"
@@ -58,16 +63,18 @@
       </span>
     </div>
     <!-- Row 3: Subscription expiration (non-free paid accounts only) -->
-    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-400 dark:text-gray-500 pl-0.5" :title="subscriptionExpiresAt">
+    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-400 dark:text-gray-500 pl-0.5" :title="accountFactTitle(subscriptionFact, t)">
       {{ expiresLabel }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
+import type { AccountInfo } from '@/types/accountInfo'
+import { accountFactSourceLabel, accountFactTitle, accountSubscriptionExpiryDate } from '@/utils/accountInfo'
 import { platformLabel as sharedPlatformLabel } from '@/utils/platformColors'
 import { normalizePlanType, openAIPlanTypeLabel } from '@/utils/planType'
 import GrokFreeIcon from './GrokFreeIcon.vue'
@@ -76,16 +83,15 @@ import Icon from '@/components/icons/Icon.vue'
 
 const { t } = useI18n()
 
-interface Props {
-  platform: AccountPlatform
-  type: AccountType
-  authMode?: string
-  planType?: string
-  privacyMode?: string
-  subscriptionExpiresAt?: string
-}
-
-const props = defineProps<Props>()
+const props = defineProps({
+  platform: { type: String as PropType<AccountPlatform>, required: true },
+  type: { type: String as PropType<AccountType>, required: true },
+  authMode: String,
+  accountInfo: Object as PropType<AccountInfo>,
+  planType: String,
+  privacyMode: String,
+  subscriptionExpiresAt: String,
+})
 
 const platformLabel = computed(() => sharedPlatformLabel(props.platform))
 
@@ -114,14 +120,33 @@ const typeLabel = computed(() => {
   }
 })
 
-const normalizedPlanType = computed(() => normalizePlanType(props.planType))
+const subscriptionFact = computed(() => props.accountInfo?.fields?.subscription)
+const effectivePlanType = computed(() => props.accountInfo
+  ? subscriptionFact.value?.status === 'known' ? subscriptionFact.value.value.code : undefined
+  : props.planType)
+const normalizedPlanType = computed(() => normalizePlanType(effectivePlanType.value))
+const planSource = computed(() => accountFactSourceLabel(subscriptionFact.value, t))
+const subscriptionExpiry = computed(() => subscriptionFact.value?.status === 'known'
+  ? subscriptionFact.value.value.endsAt : undefined)
+
+const trainingBadge = computed(() => {
+  const fact = props.accountInfo?.fields?.trainingUsage
+  if (fact?.status === 'unsupported' || (props.platform !== 'openai' && !fact)) return null
+  if (props.type !== 'oauth') return null
+  const state = fact?.status === 'known'
+    ? t(fact.value === 'disabled' ? 'admin.accounts.factTrainingDisabled' : 'admin.accounts.factTrainingEnabled')
+    : t('admin.accounts.factUnknown')
+  const freshness = fact?.status === 'known' && fact.freshness === 'stale' ? ` · ${t('admin.accounts.factStale')}` : ''
+  return { label: `${t('admin.accounts.factTrainingUsage')}: ${state}${freshness}`, title: accountFactTitle(fact, t) }
+})
 
 const planLabel = computed(() => {
-  if (!normalizedPlanType.value) return ''
+  if (subscriptionFact.value?.status === 'known') return subscriptionFact.value.value.label
+  if (!normalizedPlanType.value) return props.accountInfo && subscriptionFact.value?.status !== 'unsupported' ? t('admin.accounts.factPlanUnknown') : ''
   // ChatGPT 档位命名（Pro 100 / Pro 200 / Pro 500、Business / Business Premium）只适用于
   // OpenAI：Antigravity 与 Grok 各自的 pro/team 沿用下面的通用标签。
   if (props.platform === 'openai') {
-    const label = openAIPlanTypeLabel(props.planType)
+    const label = openAIPlanTypeLabel(effectivePlanType.value)
     if (label) return label
   }
   switch (normalizedPlanType.value) {
@@ -150,7 +175,7 @@ const planLabel = computed(() => {
     case 'abnormal':
       return t('admin.accounts.subscriptionAbnormal')
     default:
-      return props.planType
+      return effectivePlanType.value
   }
 })
 
@@ -276,22 +301,14 @@ const planBadgeClass = computed(() => {
 
 // Subscription expiration label (non-free only)
 const expiresLabel = computed(() => {
-  if (!props.subscriptionExpiresAt || !props.planType) return ''
+  if (!subscriptionExpiry.value || !effectivePlanType.value) return ''
   if (
     normalizedPlanType.value === 'free' ||
     normalizedPlanType.value === 'basic' ||
     normalizedPlanType.value === 'xbasic'
   ) return ''
-  try {
-    const d = new Date(props.subscriptionExpiresAt)
-    if (isNaN(d.getTime())) return ''
-    const yyyy = d.getFullYear()
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    return `${t('admin.accounts.subscriptionExpires')} ${yyyy}-${mm}-${dd}`
-  } catch {
-    return ''
-  }
+  const date = accountSubscriptionExpiryDate(subscriptionExpiry.value)
+  return date ? `${t('admin.accounts.subscriptionExpires')} ${date}` : ''
 })
 
 // Privacy badge — shows different states for OpenAI/Antigravity OAuth privacy setting
@@ -305,14 +322,14 @@ const privacyBadge = computed(() => {
   switch (props.privacyMode) {
     // OpenAI states
     case 'training_off':
-      return { label: 'Private', icon: shieldCheck, title: t('admin.accounts.privacyTrainingOff'), class: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' }
+      return null // Legacy success markers have no trusted observation identity/time.
     case 'training_set_cf_blocked':
       return { label: 'CF', icon: shieldX, title: t('admin.accounts.privacyCfBlocked'), class: 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400' }
     case 'training_set_failed':
       return { label: 'Fail', icon: shieldX, title: t('admin.accounts.privacyFailed'), class: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' }
     // Antigravity states
     case 'privacy_set':
-      return { label: 'Private', icon: shieldCheck, title: t('admin.accounts.privacyAntigravitySet'), class: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' }
+      return { label: t('admin.accounts.factLegacySettings'), icon: shieldCheck, title: t('admin.accounts.factImportedUnverified'), class: 'bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400' }
     case 'privacy_set_failed':
       return { label: 'Fail', icon: shieldX, title: t('admin.accounts.privacyAntigravityFailed'), class: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' }
     default:

@@ -74,6 +74,6 @@ func composePrivateAccountInfo(out *privateOAuth, db *sql.DB, owners NativeOAuth
 			return service.GatewayNativeRoute{}, ErrDenied
 		}
 		return authority.AuthorizeNativeAccountInfo(ctx, consumer, in)
-	})
+	}, out.nativeConnections)
 	return err
 }

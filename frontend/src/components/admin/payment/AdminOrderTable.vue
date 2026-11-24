@@ -12,19 +12,22 @@
           />
         </div>
         <Select
-          v-model="filters.status"
+          :model-value="filters.status"
+          @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }"
           :options="statusFilterOptions"
           class="w-36"
           @change="emitFiltersChanged"
         />
         <Select
-          v-model="filters.payment_type"
+          :model-value="filters.payment_type"
+          @update:model-value="value =&gt; { if (typeof value === 'string') filters.payment_type = value }"
           :options="paymentTypeFilterOptions"
           class="w-40"
           @change="emitFiltersChanged"
         />
         <Select
-          v-model="filters.order_type"
+          :model-value="filters.order_type"
+          @update:model-value="value =&gt; { if (typeof value === 'string') filters.order_type = value }"
           :options="orderTypeFilterOptions"
           class="w-36"
           @change="emitFiltersChanged"

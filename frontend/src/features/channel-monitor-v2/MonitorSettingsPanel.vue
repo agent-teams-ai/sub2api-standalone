@@ -91,7 +91,8 @@
           </p>
           <div v-if="availablePlatforms.length" class="mt-3 flex flex-wrap items-center gap-2">
             <Select
-              v-model="selectedPlatform"
+              :model-value="selectedPlatform"
+              @update:model-value="value =&gt; { if (typeof value === 'string') selectedPlatform = value }"
               class="min-w-48"
               :options="availablePlatforms"
               :aria-label="t('channelMonitorV2.settings.selectPlatform')"

@@ -29,6 +29,7 @@ ENV PATH="/opt/pnpm/node_modules/.bin:${PATH}"
 # Install dependencies first (better caching)
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/.npmrc ./
 COPY frontend/vendor/ ./vendor/
+COPY frontend/tools/eslint-syntax/ ./tools/eslint-syntax/
 RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build.

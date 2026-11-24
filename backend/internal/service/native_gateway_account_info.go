@@ -39,7 +39,7 @@ type GatewayAccountInfoFields struct {
 	AccountLabel        GatewayAccountFact[string]                     `json:"accountLabel"`
 	Subscription        GatewayAccountFact[GatewayAccountSubscription] `json:"subscription"`
 	CredentialExpiresAt GatewayAccountFact[string]                     `json:"credentialExpiresAt"`
-	PrivacyMode         GatewayAccountFact[string]                     `json:"privacyMode"`
+	TrainingUsage       GatewayAccountFact[string]                     `json:"trainingUsage"`
 }
 type GatewayAccountInfo struct {
 	Status       string                    `json:"status"`
@@ -77,43 +77,41 @@ type GatewayAccountInfoWriter interface {
 type GatewayAccountInfoReader struct {
 	cache     GatewayAccountInfoCache
 	authorize GatewayAccountLimitsAuthorizer
+	native    *GatewayNativeConnections
 	now       func() time.Time
 	mu        sync.Mutex
 	active    map[string]int
 }
 
-func NewGatewayAccountInfoReader(cache GatewayAccountInfoCache, authorize GatewayAccountLimitsAuthorizer) (*GatewayAccountInfoReader, error) {
-	if cache == nil || authorize == nil {
+func NewGatewayAccountInfoReader(cache GatewayAccountInfoCache, authorize GatewayAccountLimitsAuthorizer, native ...*GatewayNativeConnections) (*GatewayAccountInfoReader, error) {
+	if cache == nil || authorize == nil || len(native) > 1 {
 		return nil, ErrGatewayNativeIdentity
 	}
-	return &GatewayAccountInfoReader{cache: cache, authorize: authorize, now: time.Now, active: map[string]int{}}, nil
+	reader := &GatewayAccountInfoReader{cache: cache, authorize: authorize, now: time.Now, active: map[string]int{}}
+	if len(native) == 1 {
+		reader.native = native[0]
+	}
+	return reader, nil
 }
 
 func GatewayAccountInfoProvider(profile string) string {
-	switch profile {
-	case GatewayCodexOAuthResponsesProfile:
-		return "openai"
-	case GatewayClaudeOAuthMessagesProfile, GatewayAnthropicAPIKeyProfile:
-		return "anthropic"
-	case GatewayGeminiAPIKeyProfile:
-		return "gemini"
-	case GatewayGrokOAuthResponsesProfile:
-		return "grok"
-	case GatewayOpenRouterResponsesProfile:
-		return "openrouter"
-	case GatewayNVIDIABuildChatProfile:
-		return "nvidia"
-	case GatewayMiMoResponsesProfile, GatewayLegacyBridgeProfile:
-		return "mimo"
-	case GatewayKimiCodeResponsesProfile:
-		return "kimi"
-	case GatewayGLMCodingResponsesProfile:
-		return "glm"
-	case GatewayMiniMaxMPlanResponsesProfile:
-		return "minimax"
-	default:
+	definition, ok := LookupGatewayConnectionProfile(profile)
+	if !ok {
 		return ""
 	}
+	return definition.Provider.ID
+}
+func gatewayInfoSourceAllowed(profile, source string) bool {
+	definition, ok := LookupGatewayConnectionProfile(profile)
+	if !ok {
+		return false
+	}
+	for _, allowed := range definition.MetadataSources {
+		if allowed == source {
+			return true
+		}
+	}
+	return false
 }
 func GatewayAccountInfoRouteValid(route GatewayNativeRoute, in GatewayAccountLimitsInput) bool {
 	if !in.Valid() || route.Profile != in.ProfileID || GatewayAccountInfoProvider(route.Profile) == "" || route.AccountID <= 0 || route.CreatedAt.IsZero() || route.CreatedAt.Nanosecond()%1000 != 0 {
@@ -137,6 +135,7 @@ func GatewayAccountInfoRouteValid(route GatewayNativeRoute, in GatewayAccountLim
 func GatewayAccountInfoPrincipal(p GatewayNativeOAuthPhysical) string {
 	values := []any{p.Scope.Consumer, p.Scope.Owner, p.Scope.Account, p.Scope.Generation, p.Scope.Purpose, p.Route.AccountID, p.Route.CreatedAt.UTC().Format(time.RFC3339Nano), p.Route.Profile, p.Route.BaseURL, p.Route.Model, p.Issuer, p.Subject, p.ProviderAccount}
 	raw, _ := json.Marshal(values)
+	raw = gatewayConnectionBoundBytes(raw, p.Connection)
 	digest := sha256.Sum256(append([]byte("account-info/principal/v1\x00"), raw...))
 	return hex.EncodeToString(digest[:])
 }
@@ -175,6 +174,20 @@ func (s *GatewayAccountInfoReader) Read(ctx context.Context, in GatewayAccountLi
 	if GatewayAccountInfoProvider(in.ProfileID) == "" {
 		return GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "unsupported"}}
 	}
+	if s.native != nil {
+		bound, marked, err := s.native.BindAccountRead(ctx, in, before)
+		if err != nil {
+			return unavailable
+		}
+		if marked {
+			result := s.native.readAccountInfo(bound, in, s.now())
+			after, err := s.authorize(ctx, in)
+			if err != nil || ctx.Err() != nil || !SameGatewayNativeDescriptor(before, after) || !s.native.CheckAccountRead(bound, in, after) {
+				return unavailable
+			}
+			return result
+		}
+	}
 	if !GatewayAccountInfoRouteValid(before, in) {
 		return unavailable
 	}
@@ -194,11 +207,16 @@ func (s *GatewayAccountInfoReader) Read(ctx context.Context, in GatewayAccountLi
 	if err != nil || ctx.Err() != nil || stored.PrincipalVersion == "" || current.PrincipalVersion != stored.PrincipalVersion || current.Revision < stored.Revision || current.Revision > gatewayLimitsMaxInteger {
 		return unavailable
 	}
-	fields, valid := GatewayAccountInfoProject(in.ProfileID, current, s.now())
+	return projectGatewayAccountInfoResult(in.ProfileID, current, after.Generation, s.now())
+}
+
+func projectGatewayAccountInfoResult(profile string, current GatewayAccountInfoStored, generation string, now time.Time) GatewayAccountInfoResult {
+	unavailable := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "unavailable"}}
+	fields, valid := GatewayAccountInfoProject(profile, current, now)
 	if !valid {
 		return unavailable
 	}
-	result := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "available", InfoRevision: strconv.FormatInt(current.Revision, 10), Fields: &fields}, PhysicalGeneration: after.Generation, PrincipalVersion: current.PrincipalVersion}
+	result := GatewayAccountInfoResult{Info: GatewayAccountInfo{Status: "available", InfoRevision: strconv.FormatInt(current.Revision, 10), Fields: &fields}, PhysicalGeneration: generation, PrincipalVersion: current.PrincipalVersion}
 	raw, err := json.Marshal(result)
 	if err != nil || len(raw) > 8192 {
 		return unavailable
@@ -243,19 +261,24 @@ func GatewayAccountInfoFieldsValid(f GatewayAccountInfoFields) bool {
 			}
 			t, e := time.Parse("2006-01-02", v.EndsAt.Value)
 			return e == nil && t.Year() >= 1 && t.Format("2006-01-02") == v.EndsAt.Value
-		}) && gatewayInfoFactValid(f.CredentialExpiresAt, gatewayInfoInstant) && gatewayInfoFactValid(f.PrivacyMode, func(s string) bool { return s == "private" || s == "public" })
+		}) && gatewayInfoFactValid(f.CredentialExpiresAt, gatewayInfoInstant) && gatewayInfoFactValid(f.TrainingUsage, func(s string) bool { return s == "enabled" || s == "disabled" })
 }
 func GatewayAccountInfoEmptyFields(profile string) GatewayAccountInfoFields {
 	u := GatewayAccountFact[string]{Status: "unsupported"}
-	f := GatewayAccountInfoFields{Email: u, AccountLabel: u, CredentialExpiresAt: u, PrivacyMode: u, Subscription: GatewayAccountFact[GatewayAccountSubscription]{Status: "unsupported"}}
-	switch profile {
-	case GatewayCodexOAuthResponsesProfile, GatewayClaudeOAuthMessagesProfile, GatewayGrokOAuthResponsesProfile:
-		f.Email.Status = "unknown"
-		f.AccountLabel.Status = "unknown"
-		f.Subscription.Status = "unknown"
+	f := GatewayAccountInfoFields{Email: u, AccountLabel: u, CredentialExpiresAt: u, TrainingUsage: u, Subscription: GatewayAccountFact[GatewayAccountSubscription]{Status: "unsupported"}}
+	if gatewayInfoSourceAllowed(profile, "verified_claims") || gatewayInfoSourceAllowed(profile, "account_check") {
+		f.Email.Status, f.AccountLabel.Status, f.Subscription.Status = "unknown", "unknown", "unknown"
+	}
+	if gatewayInfoSourceAllowed(profile, "credential") {
 		f.CredentialExpiresAt.Status = "unknown"
-	case GatewayGLMCodingResponsesProfile, GatewayMiniMaxMPlanResponsesProfile:
-		f.Subscription.Status = "unknown"
+	}
+	if gatewayInfoSourceAllowed(profile, "training_settings") {
+		f.TrainingUsage.Status = "unknown"
+	}
+	for _, source := range []string{"plan_quota", "subscription_status", "user_declaration"} {
+		if gatewayInfoSourceAllowed(profile, source) {
+			f.Subscription.Status = "unknown"
+		}
 	}
 	return f
 }
@@ -274,7 +297,7 @@ func gatewayInfoRefresh[T any](fact GatewayAccountFact[T], ttl time.Duration, va
 // authoritative omission, so it deliberately suppresses an older lower source.
 func GatewayAccountInfoProject(profile string, stored GatewayAccountInfoStored, now time.Time) (GatewayAccountInfoFields, bool) {
 	f := GatewayAccountInfoEmptyFields(profile)
-	if len(stored.Sources) > 4 || stored.Revision < 0 || stored.Revision > gatewayLimitsMaxInteger {
+	if len(stored.Sources) > GatewayAccountInfoMaxSources || stored.Revision < 0 || stored.Revision > gatewayLimitsMaxInteger {
 		return f, false
 	}
 	for source, o := range stored.Sources {
@@ -282,24 +305,36 @@ func GatewayAccountInfoProject(profile string, stored GatewayAccountInfoStored, 
 			return f, false
 		}
 	}
-	for _, source := range []string{"verified_claims", "account_check", "plan_quota", "credential"} {
+	for _, source := range []string{"user_declaration", "verified_claims", "account_check", "plan_quota", "subscription_status", "credential", "training_settings"} {
 		o, ok := stored.Sources[source]
 		if !ok {
 			continue
 		}
 		switch source {
+		case "user_declaration":
+			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 24*time.Hour, o.ValidUntil, now)
 		case "verified_claims":
 			f.Email = gatewayInfoRefresh(o.Fields.Email, 24*time.Hour, o.ValidUntil, now)
 			f.AccountLabel = gatewayInfoRefresh(o.Fields.AccountLabel, 24*time.Hour, o.ValidUntil, now)
 			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
 		case "account_check":
-			if profile == GatewayClaudeOAuthMessagesProfile || profile == GatewayGrokOAuthResponsesProfile {
+			if GatewayAccountInfoProvider(profile) != "openai" {
 				f.Email = gatewayInfoRefresh(o.Fields.Email, 24*time.Hour, o.ValidUntil, now)
 			}
 			f.AccountLabel = gatewayInfoRefresh(o.Fields.AccountLabel, 24*time.Hour, o.ValidUntil, now)
 			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
 		case "plan_quota":
 			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
+		case "subscription_status":
+			if checked, present := stored.Sources["account_check"]; present && checked.Order >= o.Order {
+				base := checked.Fields.Subscription
+				if base.Status != "known" || base.Value == nil || base.Value.EndsAt != nil || o.Fields.Subscription.Value != nil && base.Value.Code != o.Fields.Subscription.Value.Code {
+					continue
+				}
+			}
+			f.Subscription = gatewayInfoRefresh(o.Fields.Subscription, 15*time.Minute, o.ValidUntil, now)
+		case "training_settings":
+			f.TrainingUsage = gatewayInfoRefresh(o.Fields.TrainingUsage, 24*time.Hour, o.ValidUntil, now)
 		case "credential":
 			if o.CredentialRevision == stored.CredentialRevision {
 				f.CredentialExpiresAt = gatewayInfoRefresh(o.Fields.CredentialExpiresAt, 24*time.Hour, o.ValidUntil, now)
@@ -315,33 +350,45 @@ func GatewayAccountInfoObservationValid(profile string, o GatewayAccountInfoObse
 	if o.ValidUntil != nil && (o.ValidUntil.IsZero() || o.ValidUntil.Year() < 1 || o.ValidUntil.Year() > 9999) {
 		return false
 	}
-	// Public provenance is a result of the closed producer, not a claim supplied
-	// by an arbitrary fact. Only verified claim producers may label facts so.
+	if !gatewayInfoSourceAllowed(profile, o.Source) {
+		return false
+	}
+	// Provenance is minted by a closed native producer, never user JSON.
 	provenance := "provider_api"
-	if o.Source == "verified_claims" {
+	switch o.Source {
+	case "verified_claims":
 		provenance = "verified_claim"
+	case "user_declaration":
+		provenance = "user_supplied"
+	case "plan_quota":
+		if GatewayAccountInfoProvider(profile) == "grok" {
+			provenance = "inferred"
+		}
 	}
 	for _, fact := range []struct{ status, source string }{
 		{o.Fields.Email.Status, o.Fields.Email.Source}, {o.Fields.AccountLabel.Status, o.Fields.AccountLabel.Source},
-		{o.Fields.Subscription.Status, o.Fields.Subscription.Source}, {o.Fields.CredentialExpiresAt.Status, o.Fields.CredentialExpiresAt.Source}, {o.Fields.PrivacyMode.Status, o.Fields.PrivacyMode.Source},
+		{o.Fields.Subscription.Status, o.Fields.Subscription.Source}, {o.Fields.CredentialExpiresAt.Status, o.Fields.CredentialExpiresAt.Source}, {o.Fields.TrainingUsage.Status, o.Fields.TrainingUsage.Source},
 	} {
 		if fact.status == "known" && fact.source != provenance {
 			return false
 		}
 	}
-	emailProducer := o.Source == "verified_claims" && profile == GatewayCodexOAuthResponsesProfile ||
-		o.Source == "account_check" && (profile == GatewayClaudeOAuthMessagesProfile || profile == GatewayGrokOAuthResponsesProfile)
-	if o.Fields.PrivacyMode.Status == "known" || o.Source != "credential" && o.Fields.CredentialExpiresAt.Status == "known" || !emailProducer && o.Fields.Email.Status == "known" {
+	identityProducer := o.Source == "verified_claims" || o.Source == "account_check"
+	if !identityProducer && (o.Fields.Email.Status == "known" || o.Fields.AccountLabel.Status == "known") {
 		return false
 	}
-	if (o.Source == "plan_quota" || o.Source == "credential") && o.Fields.AccountLabel.Status == "known" || o.Source == "credential" && o.Fields.Subscription.Status == "known" {
+	if o.Source != "credential" && o.Fields.CredentialExpiresAt.Status == "known" {
+		return false
+	}
+	if o.Source != "training_settings" && o.Fields.TrainingUsage.Status == "known" {
+		return false
+	}
+	if (o.Source == "credential" || o.Source == "training_settings") && o.Fields.Subscription.Status == "known" {
 		return false
 	}
 	switch o.Source {
-	case "verified_claims", "account_check", "credential":
-		return profile == GatewayCodexOAuthResponsesProfile || profile == GatewayClaudeOAuthMessagesProfile || profile == GatewayGrokOAuthResponsesProfile
-	case "plan_quota":
-		return GatewayAccountInfoPlanQuotaProfile(profile)
+	case "verified_claims", "account_check", "credential", "training_settings", "subscription_status", "plan_quota", "user_declaration":
+		return true
 	}
 	return false
 }
@@ -349,7 +396,7 @@ func GatewayAccountInfoObservationValid(profile string, o GatewayAccountInfoObse
 // GatewayAccountInfoPlanQuotaProfile is the closed source policy shared by
 // observation validation and pre-HTTP quota/info order reservation.
 func GatewayAccountInfoPlanQuotaProfile(profile string) bool {
-	return profile == GatewayGLMCodingResponsesProfile || profile == GatewayMiniMaxMPlanResponsesProfile
+	return gatewayInfoSourceAllowed(profile, "plan_quota")
 }
 
 func gatewayKnownFact[T any](value T, source string, at time.Time) GatewayAccountFact[T] {

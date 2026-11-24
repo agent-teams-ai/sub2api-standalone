@@ -1,0 +1,44 @@
+{
+  "name": "@agent-teams/eslint-native-syntax",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "LGPL-3.0-or-later",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./guard": {
+      "types": "./reject-legacy-typescript.d.ts",
+      "default": "./reject-legacy-typescript.js"
+    }
+  },
+  "files": [
+    "*.ts",
+    "*.js",
+    "*.json",
+    "generated",
+    "vendor",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "peerDependencies": {
+    "eslint": "^10.15.0",
+    "typescript": ">=7.0.2 || 7.1.0-beta"
+  },
+  "dependencies": {
+    "eslint-plugin-vue": "10.12.1",
+    "vue-eslint-parser": "10.4.2",
+    "eslint-parser-oxc": "0.1.1",
+    "@typescript-eslint/types": "8.73.0",
+    "@typescript-eslint/scope-manager": "8.73.0",
+    "@typescript-eslint/visitor-keys": "8.73.0",
+    "@eslint-community/eslint-utils": "4.10.1",
+    "globals": "13.24.0",
+    "esbuild": "0.28.2"
+  }
+}

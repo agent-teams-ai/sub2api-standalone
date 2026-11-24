@@ -128,7 +128,12 @@ func (s *GatewayNativeOAuthDispatch) RetainedCustody(ctx context.Context, scope 
 		a.Extra[GatewayProfileExtraKey] != GatewayOAuthStagingProfile {
 		return out, ErrGatewayNativeIdentity
 	}
-	policy, err := s.custody.inspectRetainedOAuth(a.GetCredential("oauth_bundle"), persistedScope, version, time.Now())
+	bundle, err := s.custody.openOAuthVersion(a.GetCredential("oauth_bundle"), persistedScope, version)
+	defer clear(bundle.SensitiveMetadata)
+	if err != nil || !GatewayConnectionSelectionAuthorized(ctx, bundle.Connection) {
+		return out, ErrGatewayNativeIdentity
+	}
+	policy, err := retainedOAuthPolicy(time.Now(), bundle, s.custody)
 	if err != nil {
 		return out, err
 	}

@@ -173,14 +173,6 @@ func decryptAgentTaskID(key agentIdentityKey, encoded string) (string, error) {
 }
 
 func registerAgentIdentityTask(ctx context.Context, account *Account) (string, error) {
-	key, err := agentIdentityKeyFromAccount(account)
-	if err != nil {
-		return "", err
-	}
-	timestamp, signature, err := signAgentTaskRegistration(key, time.Now())
-	if err != nil {
-		return "", err
-	}
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
@@ -192,6 +184,23 @@ func registerAgentIdentityTask(ctx context.Context, account *Account) (string, e
 	})
 	if err != nil {
 		return "", errors.New("invalid proxy configuration for agent task registration")
+	}
+	return registerAgentIdentityTaskWithClient(ctx, account, client)
+}
+
+// No repository mutation: the protected caller seals the returned task ID in
+// its existing durable connection/refresh operation.
+func registerAgentIdentityTaskWithClient(ctx context.Context, account *Account, client *http.Client) (string, error) {
+	if client == nil {
+		return "", ErrGatewayNativeIdentity
+	}
+	key, err := agentIdentityKeyFromAccount(account)
+	if err != nil {
+		return "", err
+	}
+	timestamp, signature, err := signAgentTaskRegistration(key, time.Now())
+	if err != nil {
+		return "", err
 	}
 	body, err := json.Marshal(map[string]string{
 		"timestamp": timestamp,
@@ -296,7 +305,7 @@ func ensureAgentIdentityTaskForAccount(ctx context.Context, repo AccountReposito
 	if err != nil {
 		return err
 	}
-	credentials := make(map[string]any, len(credAccount.Credentials)+1)
+	credentials := make(map[string]any, len(credAccount.Credentials))
 	for key, value := range credAccount.Credentials {
 		credentials[key] = value
 	}

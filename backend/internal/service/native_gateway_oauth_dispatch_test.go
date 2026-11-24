@@ -125,6 +125,11 @@ func newOAuthDispatchFixture(t *testing.T) *oauthDispatchFixture {
 			}
 			require.Equal(t, "auth.openai.com", r.Host)
 			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{oauthFixtureJWK(key)}})
+		case "/backend-api/settings/account_user_setting":
+			require.Equal(t, "chatgpt.com", r.Host)
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.Equal(t, "Bearer "+f.bundle.AccessToken, r.Header.Get("Authorization"))
+			w.WriteHeader(http.StatusNoContent)
 		case "/backend-api/accounts/check/v4-2023-04-27":
 			f.checks.Add(1)
 			require.Equal(t, "chatgpt.com", r.Host)

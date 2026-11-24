@@ -1452,13 +1452,13 @@ func isNonRetryableRefreshError(err error) bool {
 // ensureOpenAIPrivacy 检查 OpenAI OAuth 账号是否已设置 privacy_mode，
 // 未设置则调用 disableOpenAITraining 并持久化结果到 Extra。
 func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *Account) {
-	if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
 		return
 	}
 	if s.privacyClientFactory == nil {
 		return
 	}
-	if shouldSkipOpenAIPrivacyEnsure(account.Extra) {
+	if hasCurrentAdminTrainingInfo(ctx, s.accountRepo, account) {
 		return
 	}
 
@@ -1474,31 +1474,17 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		}
 	}
 
-	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
-	if mode == "" {
-		return
-	}
-
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
-		slog.Warn("token_refresh.update_privacy_mode_failed",
-			"account_id", account.ID,
-			"error", err,
-		)
-	} else {
-		slog.Info("token_refresh.privacy_mode_set",
-			"account_id", account.ID,
-			"privacy_mode", mode,
-		)
-	}
+	_ = persistAdminOpenAIPrivacy(ctx, s.accountRepo, account, s.privacyClientFactory, proxyURL)
 }
 
 // ensureAntigravityPrivacy 后台刷新中检查 Antigravity OAuth 账号隐私状态。
 // 仅当 privacy_mode 已成功设置（"privacy_set"）时跳过；
 // 未设置或之前失败（"privacy_set_failed"）均会重试。
 func (s *TokenRefreshService) ensureAntigravityPrivacy(ctx context.Context, account *Account) {
-	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
+	if account == nil || HasGatewayNativeIdentity(account) || account.IsCredentialShadow() || account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return
 	}
+	observeAdminAntigravityInfo(ctx, s.accountRepo, s.proxyRepo, account)
 	if account.Extra != nil {
 		if mode, ok := account.Extra["privacy_mode"].(string); ok && mode == AntigravityPrivacySet {
 			return

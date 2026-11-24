@@ -4,27 +4,84 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"sync/atomic"
 )
 
-// GatewayNativeUsage is a closed scalar projection of provider usage at the
-// native request seam. It is evidence, not a billing ledger or cost estimate.
+// GatewayNativeUsage is a closed projection of provider usage at the native
+// request seam. It is evidence, not a billing ledger or cost estimate.
 type GatewayNativeUsage struct {
-	Source                string `json:"source"`
-	State                 string `json:"state"`
-	InputTokens           *int64 `json:"inputTokens,omitempty"`
-	OutputTokens          *int64 `json:"outputTokens,omitempty"`
-	CachedInputTokens     *int64 `json:"cachedInputTokens,omitempty"`
-	ReasoningOutputTokens *int64 `json:"reasoningOutputTokens,omitempty"`
-	CostState             string `json:"costState"`
-	Finalized             bool   `json:"finalized"`
+	Source                string                     `json:"source"`
+	State                 string                     `json:"state"`
+	InputTokens           *int64                     `json:"inputTokens,omitempty"`
+	OutputTokens          *int64                     `json:"outputTokens,omitempty"`
+	CachedInputTokens     *int64                     `json:"cachedInputTokens,omitempty"`
+	ReasoningOutputTokens *int64                     `json:"reasoningOutputTokens,omitempty"`
+	CostState             string                     `json:"costState"`
+	Finalized             bool                       `json:"finalized"`
+	NativeContext         *GatewayNativeUsageContext `json:"nativeContext,omitempty"`
+}
+
+// Native context is captured once by authenticated connection dispatch. These
+// identifiers describe that admitted request, never a later catalog read.
+type GatewayNativeUsageContext struct {
+	ProviderID string                    `json:"providerId"`
+	ProductID  string                    `json:"productId"`
+	ProfileID  string                    `json:"profileId"`
+	ModelID    string                    `json:"modelId"`
+	Billing    GatewayNativeUsageBilling `json:"billing"`
+}
+
+// A selected credential policy does not establish an observed billing kind.
+// The connection seam currently has no such observation and emits unknown.
+type GatewayNativeUsageBilling struct {
+	Status string `json:"status"`
 }
 
 type gatewayNativeUsageObserverKey struct{}
 
 // WithGatewayNativeUsageObserver is wired by the trusted private transport only.
-// Observations never carry payload, provider identifiers, headers or credentials.
+// Observations never carry payload, upstream account identifiers, headers or
+// credentials. Legacy observers retain their original scalar wire projection.
 func WithGatewayNativeUsageObserver(ctx context.Context, observe func(GatewayNativeUsage)) context.Context {
 	return context.WithValue(ctx, gatewayNativeUsageObserverKey{}, observe)
+}
+
+func withGatewayNativeConnectionUsage(ctx context.Context, publication GatewayConnectionPublication, model string, entered *atomic.Bool) (context.Context, func(), error) {
+	noop := func() {}
+	definition, found := LookupGatewayConnectionProfile(publication.Connection.ProfileID)
+	if ctx == nil || entered == nil || !GatewayConnectionPublicationValid(publication) || !found ||
+		definition.DispatchFamily != publication.DispatchFamily || !gatewayConnectionSemanticID.MatchString(definition.Provider.ID) ||
+		!gatewayConnectionSemanticID.MatchString(definition.Product.ID) || !GatewayAccountModelIDValid(model) || len(model) > 128 {
+		return nil, noop, ErrGatewayNativeIdentity
+	}
+	observe, observed := ctx.Value(gatewayNativeUsageObserverKey{}).(func(GatewayNativeUsage))
+	if !observed || observe == nil {
+		return ctx, noop, nil
+	}
+	// This lookup belongs to the native source at authenticated admission. Only
+	// value copies survive; receipt/readback must never re-project a current
+	// definition or infer historical billing from a profile or credential kind.
+	frozen := GatewayNativeUsageContext{ProviderID: definition.Provider.ID, ProductID: definition.Product.ID,
+		ProfileID: publication.Connection.ProfileID, ModelID: model, Billing: GatewayNativeUsageBilling{Status: "unknown"}}
+	var observedUsage atomic.Bool
+	publish := func(usage GatewayNativeUsage) {
+		observedUsage.Store(true)
+		usage.NativeContext = nil
+		if entered.Load() {
+			copy := frozen
+			usage.NativeContext = &copy
+		}
+		observe(usage)
+	}
+	finish := func() {
+		// Some protocols fail on HTTP status or transport before starting their
+		// usage parser. The admitted source remains known, but its counters do
+		// not: preserve that fact without inferring zero or replaying anything.
+		if entered.Load() && observedUsage.CompareAndSwap(false, true) {
+			publish(GatewayNativeUsage{Source: "native_provider_response", State: "unknown", CostState: "unknown", Finalized: true})
+		}
+	}
+	return WithGatewayNativeUsageObserver(ctx, publish), finish, nil
 }
 
 var gatewayNativeUsageInteger = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)

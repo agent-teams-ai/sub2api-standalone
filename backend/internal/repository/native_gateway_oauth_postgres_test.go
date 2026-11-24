@@ -1050,6 +1050,11 @@ func (r *oauthRefreshLostACK) CompleteGatewayNativeOAuthRefresh(ctx context.Cont
 }
 func oauthPGRefreshFixture(t *testing.T, handler func(http.ResponseWriter, *http.Request, func(string) service.GatewayNativeOAuthBundle), accountCheck func(http.ResponseWriter, *http.Request), additionalClaims ...func(map[string]any)) (*service.GatewayNativeOAuthVerifier, http.RoundTripper, func(string) service.GatewayNativeOAuthBundle) {
 	t.Helper()
+	return oauthPGRefreshFixtureWithSubscription(t, handler, accountCheck, nil, additionalClaims...)
+}
+
+func oauthPGRefreshFixtureWithSubscription(t *testing.T, handler func(http.ResponseWriter, *http.Request, func(string) service.GatewayNativeOAuthBundle), accountCheck, subscription func(http.ResponseWriter, *http.Request), additionalClaims ...func(map[string]any)) (*service.GatewayNativeOAuthVerifier, http.RoundTripper, func(string) service.GatewayNativeOAuthBundle) {
+	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	subjectSuffix := "-" + uuid.NewString()
@@ -1068,7 +1073,18 @@ func oauthPGRefreshFixture(t *testing.T, handler func(http.ResponseWriter, *http
 		return service.GatewayNativeOAuthBundle{AccessToken: gatewayOAuthGuardFixtureOpaque(), RefreshToken: gatewayOAuthGuardFixtureOpaque(), IDToken: body + "." + base64.RawURLEncoding.EncodeToString(signature), SensitiveMetadata: json.RawMessage(`{"private":"f2-sensitive-metadata"}`)}
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "chatgpt.com" && r.URL.Path == "/backend-api/settings/account_user_setting" {
+			require.Equal(t, http.MethodPatch, r.Method)
+			require.True(t, strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "))
+			require.Equal(t, "feature=training_allowed&value=false", r.URL.RawQuery)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if accountCheck != nil && r.Host == "chatgpt.com" {
+			if subscription != nil && r.URL.Path == "/backend-api/subscriptions" {
+				subscription(w, r)
+				return
+			}
 			require.Equal(t, "/backend-api/accounts/check/v4-2023-04-27", r.URL.Path)
 			accountCheck(w, r)
 			return

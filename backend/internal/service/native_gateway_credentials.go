@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -327,13 +326,21 @@ func (c *GatewayNativeCredentialCustody) openOAuthBundle(envelope string, scope 
 func gatewayOAuthDecodeBundle(raw []byte) (GatewayNativeOAuthBundle, error) {
 	var bundle GatewayNativeOAuthBundle
 	fields, err := gatewayOAuthJSON(raw)
-	if err != nil || len(fields) != 4 || json.Unmarshal(raw, &bundle) != nil {
+	if err != nil || (len(fields) != 4 && len(fields) != 5) || json.Unmarshal(raw, &bundle) != nil {
 		return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 	}
 	for _, name := range []string{"access_token", "refresh_token", "id_token", "sensitive_metadata"} {
 		if _, ok := fields[name]; !ok {
 			return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 		}
+	}
+	if rawConnection, exists := fields["connection"]; exists {
+		bundle.Connection, err = DecodeGatewayConnectionSelection(rawConnection)
+		if err != nil || bundle.Connection == nil || len(fields) != 5 {
+			return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
+		}
+	} else if len(fields) != 4 {
+		return GatewayNativeOAuthBundle{}, ErrGatewayNativeIdentity
 	}
 	if _, err = bundle.bytes(); err != nil {
 		return GatewayNativeOAuthBundle{}, err
@@ -379,20 +386,4 @@ func (c *GatewayNativeCredentialCustody) openOAuthVersion(envelope string, scope
 	}
 	defer clear(raw)
 	return gatewayOAuthDecodeBundle(raw)
-}
-
-// The retained readback authenticates the outer bundle and, where present, the
-// existing inner timing proof. It returns policy facts only. Raw plaintext
-// buffers are cleared; Go strings created by JSON decoding cannot be zeroed.
-func (c *GatewayNativeCredentialCustody) inspectRetainedOAuth(envelope string, scope GatewayNativeCredentialScope, version int64, now time.Time) (GatewayNativeOAuthRetentionPolicy, error) {
-	var policy GatewayNativeOAuthRetentionPolicy
-	if version < 1 || now.IsZero() {
-		return policy, ErrGatewayNativeIdentity
-	}
-	bundle, err := c.openOAuthVersion(envelope, scope, version)
-	if err != nil {
-		return policy, err
-	}
-	defer clear(bundle.SensitiveMetadata)
-	return retainedOAuthPolicy(now, bundle, c)
 }

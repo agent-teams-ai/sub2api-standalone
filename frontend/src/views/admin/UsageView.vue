@@ -17,7 +17,7 @@
             <div class="ml-auto flex items-center gap-2">
               <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
               <div class="w-28">
-                <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
+                <Select :model-value="granularity" @update:model-value="value =&gt; { if (value === 'day' || value === 'hour') granularity = value }" :options="granularityOptions" @change="loadChartData" />
               </div>
             </div>
           </div>

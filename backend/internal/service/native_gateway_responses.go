@@ -33,6 +33,12 @@ import (
 // Resolve the exact upstream endpoint owned by each private native profile,
 // including Responses, Anthropic Messages and the Gemini Chat bridge.
 func (s *OpenAIGatewayService) gatewayNativeTargetURL(a *Account) (string, error) {
+	if a != nil && a.Extra[GatewayNativeConnectionAccountExtraKey] == true {
+		profile, _ := a.Extra[GatewayProfileExtraKey].(string)
+		model, _ := a.Extra[GatewayModelExtraKey].(string)
+		_, target, err := s.gatewayNativeAPIKeyConnectionTarget(a, profile, model)
+		return target, err
+	}
 	if a.Type == AccountTypeAPIKey && a.Extra[GatewayProfileExtraKey] == GatewayAnthropicAPIKeyProfile {
 		return GatewayAnthropicAPIBaseURL + "/messages", nil
 	}
@@ -566,6 +572,15 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 		}
 	}()
 	target, err := s.gatewayNativeTargetURL(a)
+	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a {
+		if state.binding.native.Publication.DispatchFamily == "codex_responses" {
+			target, err = GatewayCodexOAuthBaseURL+"/responses", nil
+		} else if state.binding.native.Profile == GatewayGrokOAuthResponsesProfile && a.Type == AccountTypeOAuth {
+			target, err = GatewayGrokOAuthBaseURL+"/v1/responses", nil
+		} else {
+			_, target, err = s.gatewayNativeAPIKeyConnectionTarget(a, state.binding.native.Profile, state.requestedModel)
+		}
+	}
 	if err != nil {
 		return nil, ErrGatewayNativeIdentity
 	}
@@ -589,6 +604,17 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 	if a.Type != AccountTypeOAuth {
 		request.Header.Set("Authorization", "Bearer "+a.GetCredential("api_key"))
 	}
+	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a && state.binding.native.Publication.DispatchFamily == "codex_responses" {
+		if err := gatewayCodexImportRequestHeaders(ctx, a, request); err != nil {
+			return nil, err
+		}
+	}
+	if state, ok := ctx.Value(gatewayConnectionDispatchStateKey{}).(*gatewayConnectionDispatchState); ok && state != nil && state.account == a && state.binding.native.Profile == GatewayGrokOAuthResponsesProfile && a.Type == AccountTypeOAuth {
+		if err := gatewayGrokImportRequestHeaders(ctx, a, request); err != nil {
+			return nil, err
+		}
+	}
+
 	request.Header.Set("Content-Type", "application/json")
 	if GatewayNativeCodingPlanProfileIDValid(fmt.Sprint(a.Extra[GatewayProfileExtraKey])) {
 		request.Header.Set("User-Agent", "ReviewRouter/native-account-gateway")
@@ -690,6 +716,7 @@ func (s *OpenAIGatewayService) forwardGatewayNativeResponses(ctx context.Context
 		captureGatewayGrokPassiveLimits(ctx, resp.Header)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		gatewayCodexImportPrepareTaskRecovery(ctx, a, resp)
 		if resp.StatusCode == http.StatusTooManyRequests {
 			diagnostic := gatewayNativeRateLimitEvidence(resp.Body, resp.Header)
 			rateLimit = &diagnostic

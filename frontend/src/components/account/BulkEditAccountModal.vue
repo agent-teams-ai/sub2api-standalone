@@ -924,7 +924,8 @@
         </div>
         <div id="bulk-edit-status" :class="!enableStatus && 'pointer-events-none opacity-50'">
           <Select
-            v-model="status"
+            :model-value="status"
+            @update:model-value="value =&gt; { if (value === 'active' || value === 'inactive') status = value }"
             :options="statusOptions"
             aria-labelledby="bulk-edit-status-label"
           />
@@ -960,7 +961,8 @@
             {{ t(openAIWSModeHintKey) }}
           </p>
           <Select
-            v-model="openaiOAuthResponsesWebSocketV2Mode"
+            :model-value="openaiOAuthResponsesWebSocketV2Mode"
+            @update:model-value="value =&gt; { if (value === 'off' || value === 'ctx_pool' || value === 'passthrough' || value === 'http_bridge') openaiOAuthResponsesWebSocketV2Mode = value }"
             data-testid="bulk-edit-openai-ws-mode-select"
             :options="openAIWSModeOptions"
             aria-labelledby="bulk-edit-openai-ws-mode-label"
@@ -1071,7 +1073,7 @@
           <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.codexFingerprintModeDesc') }}
           </p>
-          <Select v-model="codexFingerprintMode" data-testid="bulk-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
+          <Select :model-value="codexFingerprintMode" @update:model-value="value =&gt; { if (value === 'off' || value === 'device' || value === 'session' || value === 'full') codexFingerprintMode = value }" data-testid="bulk-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
         </div>
       </div>
 
@@ -1105,7 +1107,8 @@
           aria-labelledby="bulk-edit-upstream-billing-auto-probe-label"
         >
           <Select
-            v-model="upstreamBillingAutoProbeMode"
+            :model-value="upstreamBillingAutoProbeMode"
+            @update:model-value="value =&gt; { if (value === 'disabled' || value === 'enabled') upstreamBillingAutoProbeMode = value }"
             :disabled="!enableUpstreamBillingAutoProbe"
             data-testid="bulk-edit-upstream-billing-auto-probe-select"
             :options="upstreamBillingAutoProbeOptions"
@@ -1193,7 +1196,8 @@
           aria-labelledby="bulk-edit-openai-responses-mode-label"
         >
           <Select
-            v-model="openAIResponsesMode"
+            :model-value="openAIResponsesMode"
+            @update:model-value="value =&gt; { if (value === 'auto' || value === 'force_responses' || value === 'force_chat_completions') openAIResponsesMode = value }"
             :disabled="!enableOpenAIResponsesMode || !openAIResponsesModeApplicable"
             data-testid="bulk-edit-openai-responses-mode-select"
             :options="openAIResponsesModeOptions"
@@ -1238,7 +1242,8 @@
             {{ t(openAIAPIKeyWSModeHintKey) }}
           </p>
           <Select
-            v-model="openaiAPIKeyResponsesWebSocketV2Mode"
+            :model-value="openaiAPIKeyResponsesWebSocketV2Mode"
+            @update:model-value="value =&gt; { if (value === 'off' || value === 'ctx_pool' || value === 'passthrough' || value === 'http_bridge') openaiAPIKeyResponsesWebSocketV2Mode = value }"
             data-testid="bulk-edit-openai-apikey-ws-mode-select"
             :options="openAIWSModeOptions"
             aria-labelledby="bulk-edit-openai-apikey-ws-mode-label"
@@ -1274,7 +1279,8 @@
           :class="!enableOpenAICompactMode && 'pointer-events-none opacity-50'"
         >
           <Select
-            v-model="openAICompactMode"
+            :model-value="openAICompactMode"
+            @update:model-value="value =&gt; { if (value === 'auto' || value === 'force_on' || value === 'force_off') openAICompactMode = value }"
             data-testid="bulk-edit-openai-compact-mode-select"
             :options="openAICompactModeOptions"
             aria-labelledby="bulk-edit-openai-compact-mode-label"

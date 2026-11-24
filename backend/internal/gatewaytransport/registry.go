@@ -35,6 +35,7 @@ type Config struct {
 	OAuth                                      *service.GatewayNativeOAuthDispatch
 	ClaudeOAuth                                *service.GatewayNativeClaudeOAuth
 	GrokOAuth                                  *service.GatewayNativeGrokOAuth
+	Connections                                *service.GatewayNativeConnections
 	ProviderLimits                             service.GatewayAccountLimitsRepositoryV2
 	Authorize                                  func(*http.Request) (Peer, error)
 	Enrollment                                 Enrollment
@@ -47,6 +48,7 @@ type Config struct {
 	CodingPlans                                []QualifiedProfile
 	OfficialAPIs                               []QualifiedProfile
 	Grok                                       *QualifiedProfile
+	NativeProfiles                             []QualifiedProfile
 	CallbackOrigin, CallbackCredential         string
 	VerifyDispatch                             func(context.Context, string, Proof, time.Time) error
 	AuthorizeCleanup                           func(context.Context, string, Proof, CleanupLease) error
@@ -200,7 +202,22 @@ type Handler struct {
 const privateExecutionHandlers = 32
 const privateControlHandlers = 8
 
+// Prepared contains a validated, frozen deployment snapshot and no execution
+// state. Bootstrap may publish its protected catalog before enrollment so the
+// enrolling authority can consume that exact native snapshot.
+type Prepared struct {
+	cfg Config
+}
+
 func New(ctx context.Context, cfg Config) (*Handler, error) {
+	prepared, err := Prepare(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Start(ctx)
+}
+
+func Prepare(ctx context.Context, cfg Config) (*Prepared, error) {
 	// Existing private I/O policy is the backward-compatible trusted default.
 	if cfg.ProviderReadIdle == 0 {
 		cfg.ProviderReadIdle = cfg.IOTimeout
@@ -305,6 +322,33 @@ func New(ctx context.Context, cfg Config) (*Handler, error) {
 		}
 		cfg.Grok = &grok
 	}
+	if len(cfg.NativeProfiles) > 128 || len(cfg.NativeProfiles) > 0 && cfg.Connections == nil {
+		return nil, errDenied
+	}
+	nativeProfiles := append([]QualifiedProfile(nil), cfg.NativeProfiles...)
+	all := map[string]bool{}
+	for _, existing := range qualifiedProfiles(cfg) {
+		if all[existing.Profile] {
+			return nil, errDenied
+		}
+		all[existing.Profile] = true
+	}
+	for _, profile := range nativeProfiles {
+		if !identifier.MatchString(profile.Profile) || !service.GatewayConnectionMountValid(service.GatewayConnectionMount{BaseURL: profile.BaseURL, Model: profile.Model, QualificationRef: profile.QualificationRef}) || !providerProfileBoundsValid(profile) {
+			return nil, errDenied
+		}
+	}
+	cfg.NativeProfiles = nativeProfiles
+	return &Prepared{cfg: cfg}, nil
+}
+
+// Start performs the original authority handshake before allocating an active
+// transport. A failed enrollment never exposes inference or credential ports.
+func (p *Prepared) Start(ctx context.Context) (*Handler, error) {
+	if p == nil || ctx == nil || ctx.Err() != nil {
+		return nil, errDenied
+	}
+	cfg := p.cfg
 	enrollmentCtx, stop := context.WithTimeout(ctx, cfg.CallbackTimeout)
 	defer stop()
 	if cfg.VerifyEnrollment(enrollmentCtx, cfg.Enrollment) != nil || enrollmentCtx.Err() != nil {
@@ -317,7 +361,32 @@ func New(ctx context.Context, cfg Config) (*Handler, error) {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
+func qualifiedProfiles(cfg Config) []QualifiedProfile {
+	profiles := []QualifiedProfile{cfg.Profile}
+	for _, p := range []*QualifiedProfile{cfg.OpenRouter, cfg.NVIDIA, cfg.Codex, cfg.Claude, cfg.Grok} {
+		if p != nil {
+			profiles = append(profiles, *p)
+		}
+	}
+	profiles = append(profiles, cfg.CodingPlans...)
+	profiles = append(profiles, cfg.OfficialAPIs...)
+	return append(profiles, cfg.NativeProfiles...)
+}
+
+func (p *Prepared) QualifiedProfiles() []QualifiedProfile { return qualifiedProfiles(p.cfg) }
+func (h *Handler) QualifiedProfiles() []QualifiedProfile  { return qualifiedProfiles(h.cfg) }
+
+// QualifiedProfiles returns detached mount values for constructing native
+// lifecycle bindings before startup enrollment invokes any authority callback.
+func (cfg Config) QualifiedProfiles() []QualifiedProfile { return qualifiedProfiles(cfg) }
+func (p *Prepared) Enrollment() Enrollment               { return p.cfg.Enrollment }
+
 func (h *Handler) profile(id string) (QualifiedProfile, bool) {
+	for _, profile := range h.cfg.NativeProfiles {
+		if profile.Profile == id {
+			return profile, true
+		}
+	}
 	if id == h.cfg.Profile.Profile {
 		return h.cfg.Profile, true
 	}
@@ -465,6 +534,10 @@ func (h *Handler) receipt(consumer string, e *reservation) Receipt {
 				value := **field
 				*field = &value
 			}
+		}
+		if usage.NativeContext != nil {
+			context := *usage.NativeContext
+			usage.NativeContext = &context
 		}
 		r.NativeUsage = &usage
 	}

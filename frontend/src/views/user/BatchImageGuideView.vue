@@ -13,9 +13,9 @@
                   @search="applyFilters"
                 />
               </div>
-              <Select v-model="filters.apiKeyId" :options="apiKeyFilterOptions" class="w-full" @change="applyFilters" />
-              <Select v-model="filters.status" :options="statusFilterOptions" class="w-full" @change="applyFilters" />
-              <Select v-model="filters.downloaded" :options="downloadFilterOptions" class="w-full" @change="applyFilters" />
+              <Select :model-value="filters.apiKeyId" @update:model-value="value =&gt; { if (typeof value === 'string') filters.apiKeyId = value }" :options="apiKeyFilterOptions" class="w-full" @change="applyFilters" />
+              <Select :model-value="filters.status" @update:model-value="value =&gt; { if (typeof value === 'string') filters.status = value }" :options="statusFilterOptions" class="w-full" @change="applyFilters" />
+              <Select :model-value="filters.downloaded" @update:model-value="value =&gt; { if (typeof value === 'string') filters.downloaded = value }" :options="downloadFilterOptions" class="w-full" @change="applyFilters" />
             </div>
             <div class="flex flex-wrap items-center justify-start gap-2 sm:justify-end 2xl:flex-shrink-0">
               <button type="button" class="btn btn-secondary" :disabled="loadingJobs" @click="resetFilters">
@@ -247,7 +247,8 @@
             <div class="flex items-center gap-2">
               <span>{{ t('pagination.perPage') }}</span>
               <Select
-                v-model="pagination.page_size"
+                :model-value="pagination.page_size"
+                @update:model-value="value =&gt; { if (typeof value === 'number') pagination.page_size = value }"
                 :options="batchPageSizeOptions"
                 class="w-24"
                 @change="handlePageSizeChange"

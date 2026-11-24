@@ -15,6 +15,10 @@ type PlatformCatalog struct {
 	Platforms []PlatformCatalogEntry `json:"platforms"`
 	// CompositePrecedence 是组合分组逐平台回退的顺序（先命中者生效）。
 	CompositePrecedence []string `json:"composite_precedence"`
+	// AdminConnectionMethods projects implemented form actions from the native
+	// connection declarations; it does not assert a protected binding is mounted.
+	AdminConnectionMethods    []PlatformAdminConnectionMethod   `json:"admin_connection_methods"`
+	NativeConnectionInventory PlatformNativeConnectionInventory `json:"native_connection_inventory"`
 }
 
 // PlatformCatalogEntry 描述一个具体平台；MultiProtocol 仅多协议 API Key 供应商有值。
@@ -44,9 +48,12 @@ type ProviderModeInfo struct {
 // BuildPlatformCatalog 按展示顺序返回全部具体平台（不含 composite）。
 func BuildPlatformCatalog() PlatformCatalog {
 	specs := domain.Platforms()
+	connections := GatewayNativeConnectionInventory()
 	catalog := PlatformCatalog{
-		Platforms:           make([]PlatformCatalogEntry, 0, len(specs)),
-		CompositePrecedence: domain.CompositePrecedencePlatformIDs(),
+		Platforms:                 make([]PlatformCatalogEntry, 0, len(specs)),
+		CompositePrecedence:       domain.CompositePrecedencePlatformIDs(),
+		AdminConnectionMethods:    buildPlatformAdminConnectionMethods(connections),
+		NativeConnectionInventory: buildPlatformNativeConnectionInventory(connections),
 	}
 	for _, spec := range specs {
 		catalog.Platforms = append(catalog.Platforms, PlatformCatalogEntry{
