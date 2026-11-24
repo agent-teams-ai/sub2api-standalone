@@ -77,7 +77,9 @@
       "dompurify@<3.4.17": ">=3.4.17",
       "decode-uri-component@<0.5.1": ">=0.5.1",
       "source-map-js@<1.2.2": "1.2.2",
-      "follow-redirects@<1.16.2": ">=1.16.2"
+      "follow-redirects@<1.16.2": ">=1.16.2",
+      "js-beautify@1.15.4>glob": "14.0.0",
+      "editorconfig@1.0.4>minimatch": "11.0.9"
     }
   }
 }
