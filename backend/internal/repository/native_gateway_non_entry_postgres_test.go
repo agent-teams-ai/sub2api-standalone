@@ -32,11 +32,15 @@ type nonEntryConflictDB struct {
 	*sql.DB
 	ready chan struct{}
 	key int64
+	armed atomic.Bool
 }
 func (d *nonEntryConflictDB) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, error) {
 	tx, err := d.DB.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
+	}
+	if !d.armed.CompareAndSwap(true, false) {
+		return tx, nil
 	}
 	if _, err = tx.ExecContext(ctx, "SET LOCAL deadlock_timeout='25ms'"); err == nil {
 		_, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", d.key)
@@ -67,14 +71,34 @@ func TestGatewayNativeNonEntryJoinedPostgresProof(t *testing.T) {
 	nonEntryActualPostgres(t, true)
 }
 
+func TestGatewayNativeNonEntryJoinedConsumerRetry(t *testing.T) {
+	if os.Getenv("GATEWAY_NATIVE_NON_ENTRY_JOINED_RUNNER") == "" {
+		t.Skip("NOT_RUN: explicit joined request-retry consumer fixture required")
+	}
+	nonEntryPostgresScenario(t, true, true)
+}
+
 func nonEntryActualPostgres(t *testing.T, joined bool) {
+	t.Helper()
+	nonEntryPostgresScenario(t, joined, false)
+}
+
+func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 	t.Helper()
 	dsnName := "GATEWAY_NATIVE_NON_ENTRY_TEST_DSN"
 	if joined {
 		dsnName = "GATEWAY_NATIVE_NON_ENTRY_JOINED_NATIVE_DSN"
 	}
 	dsn := custodyPGDSN(t, dsnName, "native_non_entry_")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if consumer {
+		// One original cutoff is shared with RR, Gateway and every handshake.
+		deadline := time.Now().Add(2 * time.Minute).Truncate(time.Millisecond)
+		ctx, cancel = context.WithDeadline(context.Background(), deadline)
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
+	}
 	defer cancel()
 	db, accounts := custodyPGOpen(t, ctx, dsn)
 	custody, err := service.NewGatewayNativeCredentialCustody("non-entry", map[string][]byte{"non-entry": custodyPGBytes(t, 32)})
@@ -85,11 +109,57 @@ func nonEntryActualPostgres(t *testing.T, joined bool) {
 	}
 	envelope, err := custody.Seal(scope, "synthetic-provider-key-for-non-entry")
 	require.NoError(t, err)
-	var providerCalls atomic.Int32
-	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var providerCalls, priorCalls, currentCalls atomic.Int32
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		providerCalls.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, "{\"status\":\"completed\",\"output\":[]}")
+		if !consumer {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, "{\"status\":\"completed\",\"output\":[]}")
+			return
+		}
+		defer r.Body.Close()
+		body, failure := io.ReadAll(io.LimitReader(r.Body, 4097))
+		var request struct {
+			Model string `json:"model"`
+			Stream bool `json:"stream"`
+			Input string `json:"input"`
+			MaxOutputTokens int `json:"max_output_tokens"`
+		}
+		if failure != nil || len(body) > 4096 || json.Unmarshal(body, &request) != nil ||
+			request.Model != "synthetic-model" || !request.Stream ||
+			request.MaxOutputTokens < 1 || request.MaxOutputTokens > 100 {
+			http.Error(w, "invalid consumer request", http.StatusBadRequest)
+			return
+		}
+		var responseID, text string
+		switch request.Input {
+		case "prior-turn":
+			priorCalls.Add(1)
+			responseID, text = "prior-paid-turn", "prior-paid-result"
+		case "current-turn":
+			currentCalls.Add(1)
+			responseID, text = "current-paid-turn", "current-paid-result"
+		default:
+			http.Error(w, "unexpected consumer input", http.StatusBadRequest)
+			return
+		}
+		event, failure := json.Marshal(map[string]any{
+			"type": "response.completed",
+			"response": map[string]any{
+				"id": responseID, "model": request.Model, "status": "completed",
+				"output": []any{map[string]any{
+					"id": responseID + "-message", "type": "message", "role": "assistant", "status": "completed",
+					"content": []any{map[string]any{"type": "output_text", "text": text}},
+				}},
+				"usage": map[string]any{"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+			},
+		})
+		if failure != nil {
+			http.Error(w, "invalid consumer response", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.completed\ndata: "+string(event)+"\n\n")
 	}))
 	defer upstream.Close()
 	account := custodyPGRow(scope, envelope, upstream.URL)
@@ -103,20 +173,38 @@ func nonEntryActualPostgres(t *testing.T, joined bool) {
 	route, err := service.GatewayNativeDescriptor(stored)
 	require.NoError(t, err)
 
-	competing, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = competing.Rollback() }()
-	_, err = competing.ExecContext(ctx, "SET LOCAL deadlock_timeout='5s'")
-	require.NoError(t, err)
-	var locked int64
-	require.NoError(t, competing.QueryRowContext(ctx, "SELECT id FROM accounts WHERE id=$1 FOR UPDATE", account.ID).Scan(&locked))
 	conflict := &nonEntryConflictDB{DB: db, ready: make(chan struct{}), key: 10281127}
+	var competing *sql.Tx
+	defer func() {
+		if competing != nil {
+			_ = competing.Rollback()
+		}
+	}()
+	armConflict := func() *sql.Tx {
+		require.Nil(t, competing, "only the current logical request may be armed")
+		var failure error
+		competing, failure = db.BeginTx(ctx, nil)
+		require.NoError(t, failure)
+		_, failure = competing.ExecContext(ctx, "SET LOCAL deadlock_timeout='5s'")
+		require.NoError(t, failure)
+		var locked int64
+		require.NoError(t, competing.QueryRowContext(ctx, "SELECT id FROM accounts WHERE id=$1 FOR UPDATE", account.ID).Scan(&locked))
+		require.True(t, conflict.armed.CompareAndSwap(false, true))
+		return competing
+	}
+	if !consumer {
+		armConflict()
+	}
 	repo := &nonEntryConflictRepository{AccountRepository: accounts, locked: &accountRepository{sql: conflict}}
 	transport, err := service.NewGatewayNativeLifetimeUpstream(&custodyPGHTTP{client: upstream.Client()})
 	require.NoError(t, err)
 	gateway := custodyPGGateway(repo, transport)
 	if joined {
-		nonEntryJoined(t, ctx, gateway, custody, scope, route, conflict, competing, &providerCalls)
+		nonEntryJoined(t, ctx, gateway, custody, scope, route, conflict, competing, &providerCalls, consumer, armConflict)
+		if consumer {
+			require.EqualValues(t, 1, priorCalls.Load(), "the prior paid turn is not replayed")
+			require.EqualValues(t, 1, currentCalls.Load(), "only the successor enters the current provider turn")
+		}
 		return
 	}
 	callCtx, stopCall := context.WithTimeout(ctx, 15*time.Second)
@@ -167,6 +255,7 @@ func nonEntryJoined(
 	custody *service.GatewayNativeCredentialCustody, scope service.GatewayNativeCredentialScope,
 	route service.GatewayNativeRoute, conflict *nonEntryConflictDB,
 	competing *sql.Tx, providerCalls *atomic.Int32,
+	consumer bool, armConflict func() *sql.Tx,
 ) {
 	t.Helper()
 	require.Equal(t, "disposable_pg17_10", os.Getenv("AG_NATIVE_NON_ENTRY_JOINED_ALLOW"))
@@ -208,11 +297,18 @@ func nonEntryJoined(
 			"profile": route.Profile, "baseURL": route.BaseURL, "model": route.Model,
 		},
 	}
+	if consumer {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		fixture["scenario"] = "request-retry-consumer"
+		fixture["deadline"] = deadline.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
 	raw, err := json.Marshal(fixture)
 	require.NoError(t, err)
 	path := filepath.Join(t.TempDir(), "native-non-entry-fixture.json")
 	require.NoError(t, os.WriteFile(path, raw, 0600))
 	cmd := exec.CommandContext(ctx, node, runner)
+	cmd.WaitDelay = time.Second
 	cmd.Env = append(os.Environ(), "AG_NATIVE_NON_ENTRY_JOINED_FIXTURE="+path)
 	stdin, err := cmd.StdinPipe()
 	require.NoError(t, err)
@@ -231,13 +327,39 @@ func nonEntryJoined(
 	}()
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 4096), 16384)
-	require.True(t, scanner.Scan(), "joined Gateway ready response missing")
+	type joinedLine struct {
+		bytes []byte
+		ok bool
+		err error
+	}
+	// Exactly one read is outstanding. The original authority cutoff bounds
+	// every phase; EOF also rejects a child that exits before its next phase.
+	readLine := func() <-chan joinedLine {
+		result := make(chan joinedLine, 1)
+		go func() {
+			ok := scanner.Scan()
+			result <- joinedLine{append([]byte(nil), scanner.Bytes()...), ok, scanner.Err()}
+		}()
+		return result
+	}
+	awaitLine := func(pending <-chan joinedLine) joinedLine {
+		select {
+		case line := <-pending:
+			require.NoError(t, line.err)
+			return line
+		case <-ctx.Done():
+			t.Fatal("joined native authority deadline elapsed while awaiting child")
+			return joinedLine{}
+		}
+	}
+	first := awaitLine(readLine())
+	require.True(t, first.ok, "joined Gateway ready response missing")
 	var ready struct {
 		Phase string `json:"phase"`
 		CallbackOrigin string `json:"callbackOrigin"`
 		EngineIncarnation string `json:"engineIncarnation"`
 	}
-	require.NoError(t, json.Unmarshal(scanner.Bytes(), &ready))
+	require.NoError(t, json.Unmarshal(first.bytes, &ready))
 	require.Equal(t, "ready", ready.Phase)
 	require.Regexp(t, "^http://127[.]0[.]0[.]1:[0-9]+$", ready.CallbackOrigin)
 	require.Regexp(t, "^[0-9a-f-]{36}$", ready.EngineIncarnation)
@@ -320,10 +442,28 @@ func nonEntryJoined(
 	public.Store(handler.PublicHandler(2))
 	_, err = io.WriteString(stdin, "{\"phase\":\"continue\"}\n")
 	require.NoError(t, err)
+	if consumer {
+		prior := awaitLine(readLine())
+		require.True(t, prior.ok, "joined consumer exited before its prior paid turn")
+		var phase struct { Phase string `json:"phase"` }
+		require.NoError(t, json.Unmarshal(prior.bytes, &phase))
+		require.Equal(t, "prior-paid-completed", phase.Phase)
+		require.EqualValues(t, 1, providerCalls.Load())
+		competing = armConflict()
+		_, err = io.WriteString(stdin, "{\"phase\":\"continue-conflict\"}\n")
+		require.NoError(t, err)
+	}
+	pending := readLine()
 	select {
 	case <-conflict.ready:
+	case line := <-pending:
+		require.NoError(t, line.err)
+		t.Fatal("joined consumer exited or reported completion before the protected SQL lock")
 	case <-ctx.Done():
 		t.Fatal("joined native protected admission did not reach SQL")
+	}
+	if consumer {
+		require.EqualValues(t, 1, providerCalls.Load(), "the current root is still blocked at protected admission")
 	}
 	_, err = competing.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", conflict.key)
 	require.NoError(t, err)
@@ -335,22 +475,34 @@ func nonEntryJoined(
 		ProofAfterACK bool `json:"proofAfterAck"`
 		OriginalSpent bool `json:"originalSpent"`
 		ExpiredDenied bool `json:"expiredDenied"`
+		PriorPaidPreserved bool `json:"priorPaidPreserved"`
+		OneSuccessor bool `json:"oneSuccessor"`
 	}
 	var transcript bytes.Buffer
-	for scanner.Scan() {
-		line := append([]byte(nil), scanner.Bytes()...)
-		transcript.Write(line)
+	for {
+		line := awaitLine(pending)
+		if !line.ok {
+			break
+		}
+		require.LessOrEqual(t, transcript.Len()+len(line.bytes)+1, 65536)
+		transcript.Write(line.bytes)
 		transcript.WriteByte('\n')
-		require.NoError(t, json.Unmarshal(line, &terminal))
+		require.NoError(t, json.Unmarshal(line.bytes, &terminal))
+		pending = readLine()
 	}
-	require.NoError(t, scanner.Err())
 	err = cmd.Wait()
 	waited = true
 	require.NoError(t, err, "joined Gateway failed: %s", transcript.String())
 	require.Equal(t, "completed", terminal.Phase)
-	require.Equal(t, "native-non-entry-joined/v1", terminal.Contract)
 	require.Equal(t, mode, terminal.Mode)
-	require.True(t, terminal.ProofAfterACK && terminal.OriginalSpent && terminal.ExpiredDenied)
-	require.Zero(t, providerCalls.Load(), "original, duplicate, cancelled and expired requests never enter the provider")
+	if consumer {
+		require.Equal(t, "native-non-entry-consumer/v1", terminal.Contract)
+		require.True(t, terminal.ProofAfterACK && terminal.OriginalSpent && terminal.PriorPaidPreserved && terminal.OneSuccessor)
+		require.EqualValues(t, 2, providerCalls.Load(), "one prior turn and one successor are the only provider calls")
+	} else {
+		require.Equal(t, "native-non-entry-joined/v1", terminal.Contract)
+		require.True(t, terminal.ProofAfterACK && terminal.OriginalSpent && terminal.ExpiredDenied)
+		require.Zero(t, providerCalls.Load(), "original, duplicate, cancelled and expired requests never enter the provider")
+	}
 	require.NotContains(t, transcript.String()+stderr.String(), "synthetic-provider-key-for-non-entry")
 }
