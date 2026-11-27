@@ -147,7 +147,7 @@ func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 			return
 		}
 		event, failure := json.Marshal(map[string]any{
-			"type":     "response.completed",
+			"type": "response.completed",
 			"response": map[string]any{
 				"id": responseID, "model": request.Model, "status": "completed",
 				"output": []any{map[string]any{
@@ -400,7 +400,7 @@ func nonEntryJoined(
 	cfg := gatewaytransport.Config{
 		Gateway: gateway, Custody: custody,
 		Enrollment: gatewaytransport.Enrollment{OriginRef: "non-entry-joined-origin", EngineIncarnation: ready.EngineIncarnation, QualificationRef: "non-entry-joined"},
-		Profile: gatewaytransport.QualifiedProfile{Profile: route.Profile, BaseURL: route.BaseURL, Model: route.Model, QualificationRef: "non-entry-joined", RequestBytes: 4096, OutputBytes: 4096, Tokens: 100, ProviderTokenUpperBound: 200},
+		Profile:    gatewaytransport.QualifiedProfile{Profile: route.Profile, BaseURL: route.BaseURL, Model: route.Model, QualificationRef: "non-entry-joined", RequestBytes: 4096, OutputBytes: 4096, Tokens: 100, ProviderTokenUpperBound: 200},
 		MaxEntries: 4, EnvelopeBytes: 8192, CallbackBytes: 65536,
 		CallbackOrigin: ready.CallbackOrigin, CallbackCredential: callbackToken,
 		CallbackTimeout: 10 * time.Second, IOTimeout: 15 * time.Second, CleanupTimeout: 10 * time.Second,
