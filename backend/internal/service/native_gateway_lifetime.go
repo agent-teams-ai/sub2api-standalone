@@ -32,11 +32,13 @@ type GatewayNativeLifetime struct {
 	lease                                                     time.Time
 	admitted, sealed, entered, returned, bodyKnown, completed bool
 	consumer, accountRef, generation                          string
-	nonEntryReason                                            GatewayNativeNonEntryReason
+
+	nonEntryReason GatewayNativeNonEntryReason
 }
 
 type GatewayNativeLifetimeSnapshot struct {
-	NonEntryReason     GatewayNativeNonEntryReason `json:"-"` // negotiated receipt projection only
+	NonEntryReason GatewayNativeNonEntryReason `json:"-"` // negotiated receipt projection only
+
 	ContextDone        bool `json:"contextDone"`
 	Sealed             bool `json:"sealed"`
 	ForwardingReturned bool `json:"forwardingReturned"`

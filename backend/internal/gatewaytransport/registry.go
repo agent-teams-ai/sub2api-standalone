@@ -164,7 +164,8 @@ type reservation struct {
 	requestedModel                                  string // validated public model metadata; payload is never retained
 	statusOnly                                      bool   // authenticated no-dispatch reply; never authorizes SQL closure
 	preclaimRefused                                 bool   // exact private pre-work refusal for this native nonce only
-	nonEntryNegotiated                             bool   // original authenticated admit acknowledgement only
+
+	nonEntryNegotiated bool // original authenticated admit acknowledgement only
 }
 
 const nonEntryCapabilityHeader = "X-Gateway-Non-Entry-Capability"
@@ -172,6 +173,7 @@ const nonEntryCapability = "account-gateway/native-non-entry/v1"
 
 type Receipt struct {
 	NonEntryReason service.GatewayNativeNonEntryReason `json:"nonEntryReason,omitempty"`
+
 	NativeUsage  *service.GatewayNativeUsage           `json:"nativeUsage,omitempty"`
 	ConsumerID   string                                `json:"consumerId"`
 	ExecutionRef string                                `json:"executionRef"`
