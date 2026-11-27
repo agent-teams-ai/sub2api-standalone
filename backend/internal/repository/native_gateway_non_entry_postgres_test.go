@@ -31,9 +31,10 @@ import (
 type nonEntryConflictDB struct {
 	*sql.DB
 	ready chan struct{}
-	key int64
+	key   int64
 	armed atomic.Bool
 }
+
 func (d *nonEntryConflictDB) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, error) {
 	tx, err := d.DB.BeginTx(ctx, options)
 	if err != nil {
@@ -52,10 +53,12 @@ func (d *nonEntryConflictDB) BeginTx(ctx context.Context, options *sql.TxOptions
 	close(d.ready)
 	return tx, nil
 }
+
 type nonEntryConflictRepository struct {
 	service.AccountRepository
 	locked *accountRepository
 }
+
 func (r *nonEntryConflictRepository) LockGatewayNativeAccount(ctx context.Context, id int64) (*service.Account, func(), error) {
 	return r.locked.LockGatewayNativeAccount(ctx, id)
 }
@@ -120,10 +123,10 @@ func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 		defer r.Body.Close()
 		body, failure := io.ReadAll(io.LimitReader(r.Body, 4097))
 		var request struct {
-			Model string `json:"model"`
-			Stream bool `json:"stream"`
-			Input string `json:"input"`
-			MaxOutputTokens int `json:"max_output_tokens"`
+			Model           string `json:"model"`
+			Stream          bool   `json:"stream"`
+			Input           string `json:"input"`
+			MaxOutputTokens int    `json:"max_output_tokens"`
 		}
 		if failure != nil || len(body) > 4096 || json.Unmarshal(body, &request) != nil ||
 			request.Model != "synthetic-model" || !request.Stream ||
@@ -144,7 +147,7 @@ func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 			return
 		}
 		event, failure := json.Marshal(map[string]any{
-			"type": "response.completed",
+			"type":     "response.completed",
 			"response": map[string]any{
 				"id": responseID, "model": request.Model, "status": "completed",
 				"output": []any{map[string]any{
@@ -218,7 +221,7 @@ func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 	control := service.WithGatewayNativeLifetime(service.WithGatewayNativeCustody(principal, custody), life)
 	type outcome struct {
 		entered bool
-		err error
+		err     error
 	}
 	result := make(chan outcome, 1)
 	go func() {
@@ -329,8 +332,8 @@ func nonEntryJoined(
 	scanner.Buffer(make([]byte, 4096), 16384)
 	type joinedLine struct {
 		bytes []byte
-		ok bool
-		err error
+		ok    bool
+		err   error
 	}
 	// Exactly one read is outstanding. The original authority cutoff bounds
 	// every phase; EOF also rejects a child that exits before its next phase.
@@ -355,8 +358,8 @@ func nonEntryJoined(
 	first := awaitLine(readLine())
 	require.True(t, first.ok, "joined Gateway ready response missing")
 	var ready struct {
-		Phase string `json:"phase"`
-		CallbackOrigin string `json:"callbackOrigin"`
+		Phase             string `json:"phase"`
+		CallbackOrigin    string `json:"callbackOrigin"`
 		EngineIncarnation string `json:"engineIncarnation"`
 	}
 	require.NoError(t, json.Unmarshal(first.bytes, &ready))
@@ -377,13 +380,15 @@ func nonEntryJoined(
 		}
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Authorization", "Bearer "+callbackToken)
-		client := &http.Client{Timeout: 10*time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		response, failure := client.Do(request)
 		if failure != nil {
 			return service.ErrGatewayNativeIdentity
 		}
 		defer response.Body.Close()
-		var result struct { OK bool `json:"ok"` }
+		var result struct {
+			OK bool `json:"ok"`
+		}
 		if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&result) != nil || !result.OK {
 			return service.ErrGatewayNativeIdentity
 		}
@@ -398,12 +403,12 @@ func nonEntryJoined(
 		Profile: gatewaytransport.QualifiedProfile{Profile: route.Profile, BaseURL: route.BaseURL, Model: route.Model, QualificationRef: "non-entry-joined", RequestBytes: 4096, OutputBytes: 4096, Tokens: 100, ProviderTokenUpperBound: 200},
 		MaxEntries: 4, EnvelopeBytes: 8192, CallbackBytes: 65536,
 		CallbackOrigin: ready.CallbackOrigin, CallbackCredential: callbackToken,
-		CallbackTimeout: 10*time.Second, IOTimeout: 15*time.Second, CleanupTimeout: 10*time.Second,
+		CallbackTimeout: 10 * time.Second, IOTimeout: 15 * time.Second, CleanupTimeout: 10 * time.Second,
 		Authorize: func(r *http.Request) (gatewaytransport.Peer, error) {
 			switch r.Header.Get("Authorization") {
-			case "Bearer "+executionToken:
+			case "Bearer " + executionToken:
 				return gatewaytransport.Peer{ConsumerID: scope.Consumer, Role: "execution"}, nil
-			case "Bearer "+cleanupToken:
+			case "Bearer " + cleanupToken:
 				return gatewaytransport.Peer{ConsumerID: scope.Consumer, Role: "cleanup"}, nil
 			}
 			return gatewaytransport.Peer{}, service.ErrGatewayNativeIdentity
@@ -445,7 +450,9 @@ func nonEntryJoined(
 	if consumer {
 		prior := awaitLine(readLine())
 		require.True(t, prior.ok, "joined consumer exited before its prior paid turn")
-		var phase struct { Phase string `json:"phase"` }
+		var phase struct {
+			Phase string `json:"phase"`
+		}
 		require.NoError(t, json.Unmarshal(prior.bytes, &phase))
 		require.Equal(t, "prior-paid-completed", phase.Phase)
 		require.EqualValues(t, 1, providerCalls.Load())
@@ -469,14 +476,14 @@ func nonEntryJoined(
 	require.NoError(t, err)
 	require.NoError(t, competing.Rollback())
 	var terminal struct {
-		Phase string `json:"phase"`
-		Contract string `json:"contract"`
-		Mode string `json:"mode"`
-		ProofAfterACK bool `json:"proofAfterAck"`
-		OriginalSpent bool `json:"originalSpent"`
-		ExpiredDenied bool `json:"expiredDenied"`
-		PriorPaidPreserved bool `json:"priorPaidPreserved"`
-		OneSuccessor bool `json:"oneSuccessor"`
+		Phase              string `json:"phase"`
+		Contract           string `json:"contract"`
+		Mode               string `json:"mode"`
+		ProofAfterACK      bool   `json:"proofAfterAck"`
+		OriginalSpent      bool   `json:"originalSpent"`
+		ExpiredDenied      bool   `json:"expiredDenied"`
+		PriorPaidPreserved bool   `json:"priorPaidPreserved"`
+		OneSuccessor       bool   `json:"oneSuccessor"`
 	}
 	var transcript bytes.Buffer
 	for {

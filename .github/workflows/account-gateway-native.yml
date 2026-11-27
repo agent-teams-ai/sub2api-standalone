@@ -133,6 +133,8 @@ jobs:
           GATEWAY_NATIVE_NON_ENTRY_TEST_DSN: postgres://native_contract_test@127.0.0.1:5432/native_non_entry_test_ci?sslmode=disable
         run: |
           set -euo pipefail
+          gofmt -d internal/repository/native_gateway_non_entry_postgres_test.go
+          test -z "$(gofmt -l internal/repository/native_gateway_non_entry_postgres_test.go)"
           docker exec "${{ job.services.postgres.id }}" createdb -U native_contract_test native_non_entry_test_ci
           go test -race -tags unit ./internal/service -run '^TestGatewayNativeNonEntry' -count=1 -v -timeout 120s | tee "$RUNNER_TEMP/native-non-entry-lifetime.log"
           for case_name in TestGatewayNativeNonEntryPreventsLaterEntryAndStaysOutOfLegacyJSON TestGatewayNativeNonEntryExcludesCancellationEntryAndGenericFailures TestGatewayNativeNonEntryAndEntryShareOneLatch; do
