@@ -26,12 +26,19 @@ const connectColumns = `consumer,owner_ref,account_ref,generation,purpose,operat
  enrollment_operation,COALESCE(enrollment_mac,''),recovery_denied,method,device_phase,device_revision,COALESCE(device_poll_after,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(device_deadline,'0001-01-01 00:00:00+00'::timestamptz),COALESCE(import_input_mac,''),COALESCE(import_claim_mac,''),COALESCE(import_key_commitment,''),COALESCE(connection_binding::text,''),COALESCE(native_mount::text,''),COALESCE(native_dispatch_family,''),COALESCE(native_platform,''),COALESCE(native_account_type,''),COALESCE(native_publication::text,'')`
 
 func scanConnect(row *sql.Row) (service.GatewayNativeOAuthConnectIntent, error) {
+	return scanConnectRead(row, false)
+}
+
+func scanConnectRead(row *sql.Row, admission bool) (service.GatewayNativeOAuthConnectIntent, error) {
 	var in service.GatewayNativeOAuthConnectIntent
 	var binding, mount, publication []byte
 	err := row.Scan(&in.Scope.Consumer, &in.Scope.Owner, &in.Scope.Account, &in.Scope.Generation, &in.Scope.Purpose,
 		&in.Operation, &in.ClientID, &in.Redirect, &in.Deadline, &in.StateHash, &in.Envelope, &in.State,
 		&in.Outcome.Operation, &in.Outcome.AccountID, &in.Outcome.Generation, &in.Outcome.State,
 		&in.EnrollmentOperation, &in.EnrollmentMAC, &in.RecoveryDenied, &in.Method, &in.DevicePhase, &in.DeviceRevision, &in.DevicePollAfter, &in.DeviceDeadline, &in.ImportInputMAC, &in.ImportClaimMAC, &in.ImportKeyCommitment, &binding, &mount, &in.NativeDispatchFamily, &in.NativePlatform, &in.NativeAccountType, &publication)
+	if err != nil && admission {
+		return service.GatewayNativeOAuthConnectIntent{}, gatewayNativeAdmissionError(err)
+	}
 	if err == nil {
 		in.Connection, err = service.DecodeGatewayConnectionSelection(binding)
 	}

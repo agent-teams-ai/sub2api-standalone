@@ -300,6 +300,14 @@ func (h *Handler) serveRequest(raw http.ResponseWriter, r *http.Request, peer Pe
 	raw.Header().Set("X-Gateway-Request-Ref", input.RequestRef)
 	_, _, _ = h.cfg.Gateway.ForwardGatewayRoute(ctx, c, input.Descriptor, payload)
 
+	// A negotiated finite pre-entry rejection must reach the existing receipt
+	// read/settlement path. Never replace accepted output or a legacy response.
+	if !c.Writer.Written() && h.receipt(peer.ConsumerID, e).NonEntryReason == service.GatewayNativeAdmissionStorageConflict {
+		if controller.SetWriteDeadline(time.Now().Add(h.cfg.IOTimeout)) == nil {
+			h.writeExecutionReceipt(raw, peer.ConsumerID, e, public)
+		}
+	}
+
 	// Service observation records forward return/physical Close and terminal
 	// delivery. HTTP completion itself never acknowledges kernel settlement.
 	h.mu.Lock()

@@ -166,6 +166,7 @@ func ForwardGatewayNativeConnection(ctx context.Context, c *gin.Context, route G
 	}
 	physical, release, err := s.repository.LockGatewayNativeConnection(ctx, binding.in.Scope, binding.in.Operation, &binding.native)
 	if err != nil || release == nil {
+		gatewayNativeAdmissionFailed(ctx, err)
 		return nil, false, ErrGatewayNativeIdentity
 	}
 	raw, err := AuthenticateGatewayNativeConnectionPhysical(ctx, s.custody, physical)
@@ -272,6 +273,7 @@ func CheckGatewayNativeConnectionDispatch(request *http.Request, account *Accoun
 	}
 	fresh, unlock, lockErr := s.repository.LockGatewayNativeConnection(request.Context(), state.binding.in.Scope, state.binding.in.Operation, &state.binding.native)
 	if lockErr != nil || unlock == nil {
+		gatewayNativeAdmissionFailed(request.Context(), lockErr)
 		return noop, true, ErrGatewayNativeIdentity
 	}
 	if fresh.CredentialVersion != state.physical.CredentialVersion || !reflect.DeepEqual(fresh.Account.Credentials, state.physical.Account.Credentials) || !reflect.DeepEqual(fresh.Account.Extra, state.physical.Account.Extra) {
@@ -322,6 +324,7 @@ func GatewayNativeConnectionAccountAuthorized(ctx context.Context, account *Acco
 	}
 	fresh, release, err := state.binding.service.repository.LockGatewayNativeConnection(ctx, state.binding.in.Scope, state.binding.in.Operation, &state.binding.native)
 	if err != nil || release == nil {
+		gatewayNativeAdmissionFailed(ctx, err)
 		return false
 	}
 	defer release()

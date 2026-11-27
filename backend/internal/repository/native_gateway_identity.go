@@ -18,7 +18,7 @@ func (r *accountRepository) LockGatewayNativeAccount(ctx context.Context, id int
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, gatewayNativeAdmissionError(err)
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { _ = tx.Rollback() }) }
@@ -31,9 +31,11 @@ func (r *accountRepository) LockGatewayNativeAccount(ctx context.Context, id int
  FROM accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`, id).Scan(
 		&a.ID, &a.CreatedAt, &a.Platform, &a.Type, &a.Status, &a.Schedulable,
 		&a.ProxyID, &a.ParentAccountID, &a.ExpiresAt, &credentials, &extra, &grouped)
-	if err == nil {
-		err = json.Unmarshal(credentials, &a.Credentials)
+	if err != nil {
+		release()
+		return nil, nil, gatewayNativeAdmissionError(err)
 	}
+	err = json.Unmarshal(credentials, &a.Credentials)
 	if err == nil {
 		err = json.Unmarshal(extra, &a.Extra)
 	}

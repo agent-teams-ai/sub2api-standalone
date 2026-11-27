@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// This finite reason is produced only by protected native storage admission.
+type GatewayNativeNonEntryReason string
+
+const GatewayNativeAdmissionStorageConflict GatewayNativeNonEntryReason = "admission_storage_conflict"
+
+var ErrGatewayNativeAdmissionStorageConflict = errors.New("gateway_native_admission_storage_conflict")
+
 // GatewayNativeLifetime observes one actual private ForwardGatewayRoute call.
 // It has no SQL/effect authority. The owner supplies the request cancellation
 // and an interrupt for the ORIGINAL net/http writer, before Gin wraps it.
@@ -25,9 +32,13 @@ type GatewayNativeLifetime struct {
 	lease                                                     time.Time
 	admitted, sealed, entered, returned, bodyKnown, completed bool
 	consumer, accountRef, generation                          string
+
+	nonEntryReason GatewayNativeNonEntryReason
 }
 
 type GatewayNativeLifetimeSnapshot struct {
+	NonEntryReason GatewayNativeNonEntryReason `json:"-"` // negotiated receipt projection only
+
 	ContextDone        bool `json:"contextDone"`
 	Sealed             bool `json:"sealed"`
 	ForwardingReturned bool `json:"forwardingReturned"`
@@ -133,6 +144,25 @@ func (l *GatewayNativeLifetime) finish() {
 }
 func (l *GatewayNativeLifetime) success() { l.mu.Lock(); l.completed = l.entered; l.mu.Unlock() }
 
+// Record a terminal non-entry observation before finish seals the lifetime.
+// The entry CAS below shares this latch; a later caller cannot enter after it.
+func gatewayNativeAdmissionFailed(ctx context.Context, err error) {
+	if ctx == nil || !errors.Is(err, ErrGatewayNativeAdmissionStorageConflict) {
+		return
+	}
+	l := gatewayNativeLifetime(ctx)
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	deadline, bounded := l.ctx.Deadline()
+	if !bounded || !deadline.After(time.Now()) || !l.admitted || l.sealed || l.returned || l.entered || ctx.Err() != nil || l.ctx.Err() != nil || !l.lease.After(time.Now()) {
+		return
+	}
+	l.nonEntryReason = GatewayNativeAdmissionStorageConflict
+}
+
 // This is the existing sole native CAS, under the cancellation/lease latch.
 // There is no additional permit ledger, account counter or account mutex.
 func gatewayNativeEntered(ctx context.Context, entered *atomic.Bool) bool {
@@ -141,7 +171,7 @@ func gatewayNativeEntered(ctx context.Context, entered *atomic.Bool) bool {
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		deadline, bounded := l.ctx.Deadline()
-		if !bounded || !deadline.After(time.Now()) || !l.admitted || l.sealed || l.entered || l.ctx.Err() != nil || !l.lease.After(time.Now()) {
+		if !bounded || !deadline.After(time.Now()) || !l.admitted || l.sealed || l.entered || l.nonEntryReason != "" || l.ctx.Err() != nil || !l.lease.After(time.Now()) {
 			return false
 		}
 	}
@@ -156,7 +186,7 @@ func gatewayNativeEntered(ctx context.Context, entered *atomic.Bool) bool {
 
 func (l *GatewayNativeLifetime) Snapshot() GatewayNativeLifetimeSnapshot {
 	l.mu.Lock()
-	s := GatewayNativeLifetimeSnapshot{ContextDone: l.ctx.Err() != nil, Sealed: l.sealed, ForwardingReturned: l.returned, Entered: l.entered, BodyKnown: l.bodyKnown, Completed: l.completed}
+	s := GatewayNativeLifetimeSnapshot{ContextDone: l.ctx.Err() != nil, Sealed: l.sealed, ForwardingReturned: l.returned, Entered: l.entered, BodyKnown: l.bodyKnown, Completed: l.completed, NonEntryReason: l.nonEntryReason}
 	body := l.body
 	l.mu.Unlock()
 	if s.BodyKnown && body == nil {
