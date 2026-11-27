@@ -164,9 +164,14 @@ type reservation struct {
 	requestedModel                                  string // validated public model metadata; payload is never retained
 	statusOnly                                      bool   // authenticated no-dispatch reply; never authorizes SQL closure
 	preclaimRefused                                 bool   // exact private pre-work refusal for this native nonce only
+	nonEntryNegotiated                             bool   // original authenticated admit acknowledgement only
 }
 
+const nonEntryCapabilityHeader = "X-Gateway-Non-Entry-Capability"
+const nonEntryCapability = "account-gateway/native-non-entry/v1"
+
 type Receipt struct {
+	NonEntryReason service.GatewayNativeNonEntryReason `json:"nonEntryReason,omitempty"`
 	NativeUsage  *service.GatewayNativeUsage           `json:"nativeUsage,omitempty"`
 	ConsumerID   string                                `json:"consumerId"`
 	ExecutionRef string                                `json:"executionRef"`
@@ -527,6 +532,7 @@ func closed(s service.GatewayNativeLifetimeSnapshot) bool {
 func (h *Handler) receipt(consumer string, e *reservation) Receipt {
 	h.mu.Lock()
 	r := Receipt{ConsumerID: consumer, ExecutionRef: e.request.Admission.ExecutionRef, RequestRef: e.request.RequestRef, Native: e.native, Phase: "reserved", Effect: e.effect, Sealed: e.sealed, Acknowledged: e.acknowledged}
+	negotiated := e.nonEntryNegotiated
 	if e.usage != nil {
 		usage := *e.usage
 		for _, field := range []**int64{&usage.InputTokens, &usage.OutputTokens, &usage.CachedInputTokens, &usage.ReasoningOutputTokens} {
@@ -563,6 +569,9 @@ func (h *Handler) receipt(consumer string, e *reservation) Receipt {
 	}
 	if closed(r.Lifetime) {
 		r.Phase = "closed"
+		if negotiated && !r.Lifetime.Entered && r.Lifetime.NonEntryReason == service.GatewayNativeAdmissionStorageConflict {
+			r.NonEntryReason = r.Lifetime.NonEntryReason
+		}
 	}
 	return r
 }
@@ -633,6 +642,7 @@ func (h *Handler) admitWithin(ctx context.Context, consumer string, e *reservati
 	req.Header.Set("Authorization", "Bearer "+h.cfg.CallbackCredential)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set(nonEntryCapabilityHeader, nonEntryCapability)
 	if token != "" {
 		// Issued here from the reservation, never copied from public headers.
 		req.Header.Set("X-Gateway-Reservation-Nonce", e.native.RequestNonce)
@@ -723,6 +733,7 @@ func (h *Handler) admitWithin(ctx context.Context, consumer string, e *reservati
 	}
 	if e.proof == nil {
 		e.proof = &p
+		e.nonEntryNegotiated = len(resp.Header.Values(nonEntryCapabilityHeader)) == 1 && resp.Header.Get(nonEntryCapabilityHeader) == nonEntryCapability
 	}
 	h.mu.Unlock()
 	if !lease.After(time.Now()) || !deadline.After(time.Now()) || h.cfg.VerifyDispatch(callbackCtx, consumer, p, lease) != nil || callbackCtx.Err() != nil {

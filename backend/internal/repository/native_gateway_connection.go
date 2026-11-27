@@ -140,30 +140,48 @@ func nativeConnectionAccountInfoObservations(ctx context.Context, tx *sql.Tx, re
 }
 
 func nativeConnectionPhysicalTx(ctx context.Context, tx *sql.Tx, scope service.GatewayNativeCredentialScope, operation string, erased bool) (service.GatewayNativeConnectionPhysical, error) {
+	return nativeConnectionPhysicalRead(ctx, tx, scope, operation, erased, false)
+}
+
+func nativeConnectionPhysicalRead(ctx context.Context, tx *sql.Tx, scope service.GatewayNativeCredentialScope, operation string, erased, admission bool) (service.GatewayNativeConnectionPhysical, error) {
+	storageFailure := func(err error) error {
+		if admission {
+			return gatewayNativeAdmissionError(err)
+		}
+		return service.ErrGatewayNativeIdentity
+	}
 	var empty service.GatewayNativeConnectionPhysical
 	var id int64
-	if tx.QueryRowContext(ctx, `SELECT outcome_account_id FROM gateway_oauth_connect_intents
+	if err := tx.QueryRowContext(ctx, `SELECT outcome_account_id FROM gateway_oauth_connect_intents
  WHERE consumer=$1 AND operation_ref=$2 AND owner_ref=$3 AND account_ref=$4 AND generation=$5 AND purpose=$6
- AND client_id='native-connection-v1' AND state='completed' AND NOT recovery_denied`, scope.Consumer, operation, scope.Owner, scope.Account, scope.Generation, scope.Purpose).Scan(&id) != nil || id < 1 {
+ AND client_id='native-connection-v1' AND state='completed' AND NOT recovery_denied`, scope.Consumer, operation, scope.Owner, scope.Account, scope.Generation, scope.Purpose).Scan(&id); err != nil {
+		return empty, storageFailure(err)
+	}
+	if id < 1 {
 		return empty, service.ErrGatewayNativeIdentity
 	}
 	// Lock the physical birth first, then re-read journal facts after any wait.
-	if tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE id=$1 FOR SHARE`, id).Scan(&id) != nil {
-		return empty, service.ErrGatewayNativeIdentity
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE id=$1 FOR SHARE`, id).Scan(&id); err != nil {
+		return empty, storageFailure(err)
 	}
-	intent, err := scanConnect(tx.QueryRowContext(ctx, `SELECT `+connectColumns+` FROM gateway_oauth_connect_intents WHERE consumer=$1 AND operation_ref=$2 FOR SHARE`, scope.Consumer, operation))
-	if err != nil || intent.Scope != scope || intent.State != "completed" || intent.RecoveryDenied || intent.Outcome.AccountID != id ||
+	intent, err := scanConnectRead(tx.QueryRowContext(ctx, `SELECT `+connectColumns+` FROM gateway_oauth_connect_intents WHERE consumer=$1 AND operation_ref=$2 FOR SHARE`, scope.Consumer, operation), admission)
+	if err != nil {
+		return empty, err
+	}
+	if intent.Scope != scope || intent.State != "completed" || intent.RecoveryDenied || intent.Outcome.AccountID != id ||
 		!service.GatewayNativeConnectionIntent(intent) || !service.GatewayConnectionSelectionAuthorized(ctx, intent.Connection) || intent.NativePublication == nil {
 		return empty, service.ErrGatewayNativeIdentity
 	}
 	a := &service.Account{}
 	var credentials, extra []byte
 	var deleted bool
-	if tx.QueryRowContext(ctx, `SELECT id,created_at,platform,type,status,schedulable,proxy_id,parent_account_id,expires_at,credentials,extra,deleted_at IS NOT NULL
+	if err := tx.QueryRowContext(ctx, `SELECT id,created_at,platform,type,status,schedulable,proxy_id,parent_account_id,expires_at,credentials,extra,deleted_at IS NOT NULL
  FROM accounts WHERE id=$1 AND ($2 OR deleted_at IS NULL)
  AND status='disabled' AND NOT schedulable AND proxy_id IS NULL AND parent_account_id IS NULL
- AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=accounts.id)`, id, erased).Scan(&a.ID, &a.CreatedAt, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ProxyID, &a.ParentAccountID, &a.ExpiresAt, &credentials, &extra, &deleted) != nil ||
-		json.Unmarshal(credentials, &a.Credentials) != nil || json.Unmarshal(extra, &a.Extra) != nil {
+ AND NOT EXISTS(SELECT 1 FROM account_groups g WHERE g.account_id=accounts.id)`, id, erased).Scan(&a.ID, &a.CreatedAt, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ProxyID, &a.ParentAccountID, &a.ExpiresAt, &credentials, &extra, &deleted); err != nil {
+		return empty, storageFailure(err)
+	}
+	if json.Unmarshal(credentials, &a.Credentials) != nil || json.Unmarshal(extra, &a.Extra) != nil {
 		return empty, service.ErrGatewayNativeIdentity
 	}
 	publication, err := service.GatewayNativeStoredConnectionPublication(a)
@@ -196,18 +214,26 @@ func (r *accountRepository) LockGatewayNativeConnection(ctx context.Context, sco
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return empty, nil, service.ErrGatewayNativeIdentity
+		return empty, nil, gatewayNativeAdmissionError(err)
 	}
 	var once sync.Once
 	release := func() { once.Do(func() { _ = tx.Rollback() }) }
-	p, err := nativeConnectionPhysicalTx(ctx, tx, scope, operation, false)
-	if err != nil || (expected != nil && (expected.Publication != p.Native.Publication || !service.SameGatewayNativeDescriptor(expected.GatewayNativeRoute, p.Native.GatewayNativeRoute))) {
+	p, err := nativeConnectionPhysicalRead(ctx, tx, scope, operation, false, true)
+	if err != nil {
+		release()
+		return empty, nil, err
+	}
+	if expected != nil && (expected.Publication != p.Native.Publication || !service.SameGatewayNativeDescriptor(expected.GatewayNativeRoute, p.Native.GatewayNativeRoute)) {
 		release()
 		return empty, nil, service.ErrGatewayNativeIdentity
 	}
 	var safe bool
-	if tx.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM gateway_oauth_refresh_attempts WHERE account_id=$1
- AND (state IN ('entered','unknown') OR state='prepared' AND deadline<=clock_timestamp()))`, p.Account.ID).Scan(&safe) != nil || !safe {
+	if err := tx.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM gateway_oauth_refresh_attempts WHERE account_id=$1
+ AND (state IN ('entered','unknown') OR state='prepared' AND deadline<=clock_timestamp()))`, p.Account.ID).Scan(&safe); err != nil {
+		release()
+		return empty, nil, gatewayNativeAdmissionError(err)
+	}
+	if !safe {
 		release()
 		return empty, nil, service.ErrGatewayNativeIdentity
 	}

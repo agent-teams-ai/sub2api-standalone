@@ -151,6 +151,7 @@ type ownerFixtureRepo struct {
 	rows             map[int64]*service.Account
 	mu               sync.Mutex
 	beforeNativeLock func() // controlled test repository gate, never production wiring
+	nativeLockError  error  // finite admission failure injection, never provider failure
 }
 
 func (r *ownerFixtureRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
@@ -162,6 +163,9 @@ func (r *ownerFixtureRepo) GetByID(_ context.Context, id int64) (*service.Accoun
 	return r.row, nil
 }
 func (r *ownerFixtureRepo) LockGatewayNativeAccount(_ context.Context, id int64) (*service.Account, func(), error) {
+	if r.nativeLockError != nil {
+		return nil, nil, r.nativeLockError
+	}
 	if r.beforeNativeLock != nil {
 		r.beforeNativeLock()
 	}

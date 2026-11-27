@@ -494,6 +494,7 @@ func (s *OpenAIGatewayService) checkGatewayNativeDispatch(request *http.Request,
 	}
 	fresh, release, err := locker.LockGatewayNativeAccount(request.Context(), state.route.AccountID)
 	if err != nil {
+		gatewayNativeAdmissionFailed(request.Context(), err)
 		gatewayNativeAdmissionDiagnostic(gatewayAdmissionAccountLock)
 		return noop, ErrGatewayNativeIdentity
 	}
