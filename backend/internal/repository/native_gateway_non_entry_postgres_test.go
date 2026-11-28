@@ -86,6 +86,9 @@ func nonEntryActualPostgres(t *testing.T, joined bool) {
 	nonEntryPostgresScenario(t, joined, false)
 }
 
+const joinedConsumerLogicalAuthorityHorizon = 190 * time.Minute
+const joinedConsumerObservationWindow = 2 * time.Minute
+
 func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 	t.Helper()
 	dsnName := "GATEWAY_NATIVE_NON_ENTRY_TEST_DSN"
@@ -96,8 +99,8 @@ func nonEntryPostgresScenario(t *testing.T, joined, consumer bool) {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if consumer {
-		// One original cutoff is shared with RR, Gateway and every handshake.
-		deadline := time.Now().Add(2 * time.Minute).Truncate(time.Millisecond)
+		// The real process and every observation stay bounded to two minutes.
+		deadline := time.Now().Add(joinedConsumerObservationWindow).Truncate(time.Millisecond)
 		ctx, cancel = context.WithDeadline(context.Background(), deadline)
 	} else {
 		ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
@@ -301,10 +304,16 @@ func nonEntryJoined(
 		},
 	}
 	if consumer {
-		deadline, ok := ctx.Deadline()
+		observationDeadline, ok := ctx.Deadline()
 		require.True(t, ok)
+		require.Positive(t, time.Until(observationDeadline))
+		require.LessOrEqual(t, time.Until(observationDeadline), joinedConsumerObservationWindow)
+		// Logical protocol authority must cover the pinned Action publication
+		// reserves. It is immutable and does not extend the Go/process deadline.
+		authorityDeadline := observationDeadline.Add(joinedConsumerLogicalAuthorityHorizon - joinedConsumerObservationWindow)
 		fixture["scenario"] = "request-retry-consumer"
-		fixture["deadline"] = deadline.UTC().Format("2006-01-02T15:04:05.000Z")
+		fixture["deadline"] = authorityDeadline.UTC().Format("2006-01-02T15:04:05.000Z")
+		fixture["observationDeadline"] = observationDeadline.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 	raw, err := json.Marshal(fixture)
 	require.NoError(t, err)
